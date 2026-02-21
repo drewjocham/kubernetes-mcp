@@ -3,8 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"kube-watcher/kubernetes"
 	"strings"
+
+	"kube-watcher/kubernetes"
 )
 
 type PodResourcesTool struct {
@@ -74,7 +75,6 @@ func (t *PodResourcesTool) Execute(ctx context.Context, args map[string]interfac
 		}
 
 		analysis := t.analyzePod(pod, threshold)
-
 		if problematicOnly && !analysis.IsProblematic {
 			continue
 		}
@@ -103,7 +103,6 @@ func (t *PodResourcesTool) Execute(ctx context.Context, args map[string]interfac
 		if includeContainers {
 			detail["containers"] = t.mapContainers(pod.Containers)
 		}
-
 		processed = append(processed, detail)
 	}
 
@@ -138,7 +137,7 @@ func (t *PodResourcesTool) analyzePod(pod kubernetes.PodInfo, threshold int) Pod
 			issues = append(issues, fmt.Sprintf("Container %s not ready", c.Name))
 		}
 		if c.State == "Waiting" {
-			issues = append(issues, fmt.Sprintf("Container %s waiting: %s", c.Name, c.State))
+			issues = append(issues, fmt.Sprintf("Container %s waiting", c.Name))
 		}
 	}
 

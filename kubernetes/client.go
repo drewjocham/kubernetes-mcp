@@ -28,6 +28,10 @@ type Client struct {
 	logger    *slog.Logger
 }
 
+func (c *Client) GetRawInterface() kubernetes.Interface {
+	return c.clientset
+}
+
 func NewClient(logger *slog.Logger) (*Client, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {

@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"kube-watcher/kubernetes"
-	"kube-watcher/kubernetes/watch"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +12,8 @@ import (
 
 	"kube-watcher/internal/history"
 	"kube-watcher/internal/logging"
+	"kube-watcher/kubernetes"
+	"kube-watcher/kubernetes/watch"
 	"kube-watcher/server"
 )
 
@@ -26,16 +25,16 @@ var (
 
 func main() {
 	var (
-		showVersion = flag.Bool("version", false, "Show version information")
-		showHelp    = flag.Bool("help", false, "Show help information")
-		listTools   = flag.Bool("list-tools", false, "List available tools and exit")
-		execTool    = flag.String("exec", "", "Execute a specific tool with JSON args")
-		toolArgs    = flag.String("args", "{}", "JSON arguments for tool execution")
-		healthCheck = flag.Bool("health", false, "Perform health check and exit")
-		debug       = flag.Bool("debug", false, "Enable debug logging")
-		logFile     = flag.String("log-file", "", "Path to log file")
-		dbPath      = flag.String("db-path", "~/.kube-watcher/history.db", "Path to BadgerDB storage")
-		interval    = flag.Duration("interval", 30*time.Second, "Scan interval")
+		showVersion = flag.Bool("version", false, "")
+		showHelp    = flag.Bool("help", false, "")
+		listTools   = flag.Bool("list-tools", false, "")
+		execTool    = flag.String("exec", "", "")
+		toolArgs    = flag.String("args", "{}", "")
+		healthCheck = flag.Bool("health", false, "")
+		debug       = flag.Bool("debug", false, "")
+		logFile     = flag.String("log-file", "", "")
+		dbPath      = flag.String("db-path", "~/.kube-watcher/history.db", "")
+		interval    = flag.Duration("interval", 30*time.Second, "")
 	)
 	flag.Parse()
 
@@ -51,25 +50,23 @@ func main() {
 
 	logger, err := logging.New(*debug, *logFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		fmt.Fprintf(os.Stderr, "logger init failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Kubernetes & BadgerDB
 	k8sClient, err := kubernetes.NewClient(logger)
 	if err != nil {
-		logger.Error("Failed to initialize Kubernetes client", "error", err)
+		logger.Error("kubernetes client init failed", "error", err)
 		os.Exit(1)
 	}
 
 	historyStore, err := history.NewStore(*dbPath)
 	if err != nil {
-		logger.Error("Failed to initialize BadgerDB store", "error", err)
+		logger.Error("storage init failed", "error", err)
 		os.Exit(1)
 	}
 	defer historyStore.Close()
 
-	// Watcher
 	watchManager := watch.NewManager(k8sClient, logger, *interval)
 
 	mcpServer, err := server.NewMCPServer(logger, server.Config{
@@ -81,7 +78,7 @@ func main() {
 		Watcher:      watchManager,
 	})
 	if err != nil {
-		logger.Error("Failed to create MCP server", "error", err)
+		logger.Error("mcp server init failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -90,66 +87,33 @@ func main() {
 
 	switch {
 	case *listTools:
-		handleListTools(ctx, mcpServer, logger)
+		fmt.Printf("%+v\n", mcpServer.ListTools())
 	case *execTool != "":
-		handleToolExecution(ctx, mcpServer, *execTool, *toolArgs, logger)
+		var args map[string]any
+		if err := json.Unmarshal([]byte(*toolArgs), &args); err != nil {
+			logger.Error("invalid json args", "error", err)
+			os.Exit(1)
+		}
+		result, err := mcpServer.ExecuteTool(ctx, *execTool, args)
+		if err != nil {
+			logger.Error("execution failed", "error", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%s\n", result)
 	case *healthCheck:
-		handleHealthCheck(ctx, mcpServer, logger)
+		health := mcpServer.HealthCheck(ctx)
+		if health["status"] == "healthy" {
+			os.Exit(0)
+		}
+		os.Exit(1)
 	default:
-		handleServerMode(ctx, mcpServer, logger)
+		if err := mcpServer.Start(ctx); err != nil {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
 	}
-}
-
-func handleListTools(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
-	fmt.Printf("%+v\n", s.ListTools())
-}
-
-func handleToolExecution(ctx context.Context, s *server.MCPServer, name, argsJSON string, logger *slog.Logger) {
-	var args map[string]any
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		logger.Error("Invalid JSON arguments", "error", err)
-		os.Exit(1)
-	}
-
-	result, err := s.ExecuteTool(ctx, name, args)
-	if err != nil {
-		logger.Error("Tool execution failed", "error", err)
-		os.Exit(1)
-	}
-	fmt.Printf("%s\n", result)
-}
-
-func handleHealthCheck(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
-	health := s.HealthCheck(ctx)
-	if health["status"] == "healthy" {
-		logger.Info("Systems operational", "details", health)
-		os.Exit(0)
-	}
-	logger.Warn("System unhealthy", "details", health)
-	os.Exit(1)
-}
-
-func handleServerMode(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
-	logger.Info("Starting kube-watcher", "version", version)
-
-	if err := s.Start(ctx); err != nil {
-		logger.Error("Server error", "error", err)
-		os.Exit(1)
-	}
-	logger.Info("Shutdown complete")
 }
 
 func showUsage() {
-	fmt.Printf(`kube-watcher v%s - Kubernetes Monitoring MCP Server
-
-USAGE:
-    kube-watcher [OPTIONS]
-
-OPTIONS:
-    --version           Show version
-    --db-path PATH      Path to history database (BadgerDB)
-    --interval DUR      Scan interval (e.g. 1m, 30s)
-    --exec TOOL         Execute tool
-    --args JSON         Tool arguments
-`, version)
+	fmt.Printf("kube-watcher v%s\nusage: kube-watcher [options]\n", version)
 }
