@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 )
 
 type NodeInfo struct {
@@ -113,4 +114,5 @@ type ClientInterface interface {
 	GetClusterInfo(ctx context.Context) (*ClusterInfo, error)
 	GetResource(ctx context.Context, namespace, resource string) ([]runtime.Object, error)
 	HealthCheck(ctx context.Context) error
+	GetRawInterface() clientset.Interface
 }

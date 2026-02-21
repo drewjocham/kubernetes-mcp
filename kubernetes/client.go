@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -23,12 +23,12 @@ var (
 )
 
 type Client struct {
-	clientset *kubernetes.Clientset
+	clientset *clientset.Clientset
 	config    *rest.Config
 	logger    *slog.Logger
 }
 
-func (c *Client) GetRawInterface() kubernetes.Interface {
+func (c *Client) GetRawInterface() clientset.Interface {
 	return c.clientset
 }
 
@@ -41,13 +41,13 @@ func NewClient(logger *slog.Logger) (*Client, error) {
 		}
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	cs, err := clientset.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCreateKubeClientset, err)
 	}
 
 	return &Client{
-		clientset: clientset,
+		clientset: cs,
 		config:    config,
 		logger:    logger,
 	}, nil

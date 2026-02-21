@@ -134,7 +134,7 @@ func (s *MCPServer) setupTools(cfg Config) {
 		tools.NewNodeStatusTool(s.client),
 		tools.NewPodResourcesTool(s.client),
 		tools.NewNamespaceListTool(s.client, s.logger),
-		tools.NewHistoryInsightsTool(s.client, s.history),
+		tools.NewHistoryInsightsTool(s.history),
 		tools.NewVersionTool(cfg.Version, cfg.GitCommit, cfg.BuildDate),
 	}
 
@@ -148,11 +148,13 @@ func (s *MCPServer) registerTool(t Tool) {
 	s.tools[name] = t
 	s.executors[name] = t.Execute
 
-	s.mcp.AddTool(&mcp.Tool{
+	mcpTool := &mcp.Tool{
 		Name:        name,
 		Description: t.Description(),
 		InputSchema: s.generateSchema(t.Parameters()),
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	}
+
+	s.mcp.AddTool(mcpTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := make(map[string]interface{})
 		if req.Params.Arguments != nil {
 			_ = json.Unmarshal(req.Params.Arguments, &args)
@@ -160,7 +162,10 @@ func (s *MCPServer) registerTool(t Tool) {
 
 		res, err := t.Execute(ctx, args)
 		if err != nil {
-			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+			}, nil
 		}
 
 		out, _ := json.Marshal(res)
@@ -209,7 +214,9 @@ func (s *MCPServer) handleReadAlerts(ctx context.Context, req *mcp.ReadResourceR
 	s.alertsMu.RLock()
 	defer s.alertsMu.RUnlock()
 	data, _ := json.Marshal(s.alerts)
-	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: alertsResourceURI, Text: string(data)}}}, nil
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{{URI: alertsResourceURI, Text: string(data)}},
+	}, nil
 }
 
 func (s *MCPServer) handleReadHistory(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -220,7 +227,9 @@ func (s *MCPServer) handleReadHistory(ctx context.Context, req *mcp.ReadResource
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Timestamp.After(results[j].Timestamp) })
 	data, _ := json.Marshal(results)
-	return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: historyResourceURI, Text: string(data)}}}, nil
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{{URI: historyResourceURI, Text: string(data)}},
+	}, nil
 }
 
 func (s *MCPServer) generateSchema(params []tools.ToolParameter) map[string]interface{} {
