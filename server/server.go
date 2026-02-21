@@ -3,8 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,32 @@ import (
 	kwatch "kube-watcher/kubernetes/watch"
 	"kube-watcher/tools"
 )
+
+type serverError string
+
+func (e serverError) Error() string {
+	return string(e)
+}
+
+const (
+	defaultHistoryPath  = "~/.kube-watcher/history.jsonl"
+	alertsResourceURI   = "kube://alerts/current"
+	historyResourceURI  = "kube://history/incidents"
+	jsonMIMEType        = "application/json"
+	maxAlertRecords     = 100
+	historyEntryLimit   = 100
+	defaultHistoryRange = 72 * time.Hour
+	defaultPollInterval = 30 * time.Second
+
+	errLoggerRequired serverError = "server: logger is required"
+	errToolNotFound   serverError = "server: tool not found"
+)
+
+var incidentKinds = []history.IssueKind{
+	history.IncidentTypeNode,
+	history.IncidentTypePod,
+	history.IncidentTypeEvent,
+}
 
 // Tool describes the legacy tool abstraction used throughout the project.
 type Tool interface {
@@ -34,6 +61,15 @@ type Config struct {
 	BuildDate    string
 	HistoryPath  string
 	PollInterval time.Duration
+}
+
+func (cfg *Config) applyDefaults() {
+	if cfg.HistoryPath == "" {
+		cfg.HistoryPath = defaultHistoryPath
+	}
+	if cfg.PollInterval <= 0 {
+		cfg.PollInterval = defaultPollInterval
+	}
 }
 
 type toolExecutor func(context.Context, map[string]interface{}) (map[string]interface{}, error)
@@ -57,22 +93,14 @@ type MCPServer struct {
 
 	alertsMu sync.RWMutex
 	alerts   []alertRecord
-
-	alertResourceURI   string
-	historyResourceURI string
 }
 
 // NewMCPServer creates a new kube-watcher MCP server instance.
 func NewMCPServer(logger *slog.Logger, cfg Config) (*MCPServer, error) {
 	if logger == nil {
-		return nil, errors.New("logger is required")
+		return nil, errLoggerRequired
 	}
-	if cfg.HistoryPath == "" {
-		cfg.HistoryPath = "~/.kube-watcher/history.jsonl"
-	}
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = 30 * time.Second
-	}
+	cfg.applyDefaults()
 
 	client, err := kubernetes.NewClient(logger)
 	if err != nil {
@@ -98,16 +126,14 @@ func NewMCPServer(logger *slog.Logger, cfg Config) (*MCPServer, error) {
 	})
 
 	server := &MCPServer{
-		logger:             logger,
-		mcp:                mcpServer,
-		client:             client,
-		history:            store,
-		engine:             engine,
-		watcher:            watcher,
-		tools:              make(map[string]Tool),
-		executors:          make(map[string]toolExecutor),
-		alertResourceURI:   "kube://alerts/current",
-		historyResourceURI: "kube://history/incidents",
+		logger:    logger,
+		mcp:       mcpServer,
+		client:    client,
+		history:   store,
+		engine:    engine,
+		watcher:   watcher,
+		tools:     make(map[string]Tool),
+		executors: make(map[string]toolExecutor),
 	}
 
 	server.registerResources()
@@ -146,7 +172,7 @@ func (s *MCPServer) ListTools() map[string]interface{} {
 func (s *MCPServer) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (map[string]interface{}, error) {
 	exec, ok := s.executors[name]
 	if !ok {
-		return nil, errors.New("tool not found: " + name)
+		return nil, fmt.Errorf("%w: %s", errToolNotFound, name)
 	}
 	return exec(ctx, args)
 }
@@ -178,17 +204,16 @@ func (s *MCPServer) Start(ctx context.Context) error {
 }
 
 func (s *MCPServer) registerResources() {
-	s.mcp.AddResource(&mcp.Resource{
-		URI:      s.alertResourceURI,
-		Name:     "Current Alerts",
-		MIMEType: "application/json",
-	}, s.readAlertsResource)
+	s.addJSONResource(alertsResourceURI, "Current Alerts", s.readAlertsResource)
+	s.addJSONResource(historyResourceURI, "Incident History", s.readHistoryResource)
+}
 
+func (s *MCPServer) addJSONResource(uri, name string, handler mcp.ResourceHandler) {
 	s.mcp.AddResource(&mcp.Resource{
-		URI:      s.historyResourceURI,
-		Name:     "Incident History",
-		MIMEType: "application/json",
-	}, s.readHistoryResource)
+		URI:      uri,
+		Name:     name,
+		MIMEType: jsonMIMEType,
+	}, handler)
 }
 
 func (s *MCPServer) registerTools(cfg Config) {
@@ -197,8 +222,8 @@ func (s *MCPServer) registerTools(cfg Config) {
 	s.installTool(tools.NewClusterAnalysisTool(s.client))
 	s.installTool(tools.NewNamespaceListTool(s.client, s.logger))
 	s.installTool(tools.NewClusterEventsTool(s.client, s.logger))
-	s.installTool(tools.NewHistoryInsightsTool(s.history))
-	s.installTool(tools.NewRecommendationTool(s.engine))
+	s.installTool(tools.NewHistoryInsightsTool(s.history, s.history))
+	s.installTool(tools.NewRecommendationTool(s.client, s.engine))
 	s.installTool(tools.NewVersionTool(cfg.Version, cfg.GitCommit, cfg.BuildDate))
 }
 
@@ -260,13 +285,7 @@ func (s *MCPServer) handleAlert(ctx context.Context, alert kwatch.Alert) {
 		Recommendation: rec,
 	}
 
-	s.alertsMu.Lock()
-	const maxAlerts = 100
-	s.alerts = append([]alertRecord{record}, s.alerts...)
-	if len(s.alerts) > maxAlerts {
-		s.alerts = s.alerts[:maxAlerts]
-	}
-	s.alertsMu.Unlock()
+	s.storeAlert(record)
 
 	incident := history.Incident{
 		ID:          uuid.NewString(),
@@ -284,39 +303,67 @@ func (s *MCPServer) handleAlert(ctx context.Context, alert kwatch.Alert) {
 	}
 
 	_ = s.mcp.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{
-		URI: s.alertResourceURI,
+		URI: alertsResourceURI,
 	})
 }
 
-func (s *MCPServer) readAlertsResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+func (s *MCPServer) storeAlert(record alertRecord) {
+	s.alertsMu.Lock()
+	defer s.alertsMu.Unlock()
+	s.alerts = append([]alertRecord{record}, s.alerts...)
+	if len(s.alerts) > maxAlertRecords {
+		s.alerts = s.alerts[:maxAlertRecords]
+	}
+}
+
+func (s *MCPServer) snapshotAlerts() []alertRecord {
 	s.alertsMu.RLock()
 	defer s.alertsMu.RUnlock()
+	snapshot := make([]alertRecord, len(s.alerts))
+	copy(snapshot, s.alerts)
+	return snapshot
+}
 
-	data, err := json.Marshal(s.alerts)
+func (s *MCPServer) recentIncidents(ctx context.Context, window time.Duration, limit int) ([]history.Incident, error) {
+	var incidents []history.Incident
+	for _, kind := range incidentKinds {
+		kindIncidents, err := s.history.List(ctx, kind, window)
+		if err != nil {
+			return nil, err
+		}
+		incidents = append(incidents, kindIncidents...)
+	}
+	sort.Slice(incidents, func(i, j int) bool {
+		return incidents[i].Timestamp.After(incidents[j].Timestamp)
+	})
+	if limit > 0 && len(incidents) > limit {
+		incidents = incidents[:limit]
+	}
+	return incidents, nil
+}
+
+func jsonResourceResult(uri string, payload interface{}) (*mcp.ReadResourceResult, error) {
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
 	return &mcp.ReadResourceResult{
 		Contents: []*mcp.ResourceContents{
-			{URI: s.alertResourceURI, Text: string(data)},
+			{URI: uri, Text: string(data)},
 		},
 	}, nil
 }
 
-func (s *MCPServer) readHistoryResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	incidents := s.history.List(ctx, history.Query{
-		Since: 72 * time.Hour,
-		Limit: 100,
-	})
-	data, err := json.Marshal(incidents)
+func (s *MCPServer) readAlertsResource(ctx context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return jsonResourceResult(alertsResourceURI, s.snapshotAlerts())
+}
+
+func (s *MCPServer) readHistoryResource(ctx context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	incidents, err := s.recentIncidents(ctx, defaultHistoryRange, historyEntryLimit)
 	if err != nil {
 		return nil, err
 	}
-	return &mcp.ReadResourceResult{
-		Contents: []*mcp.ResourceContents{
-			{URI: s.historyResourceURI, Text: string(data)},
-		},
-	}, nil
+	return jsonResourceResult(historyResourceURI, incidents)
 }
 
 func (s *MCPServer) getServerInfo() map[string]interface{} {

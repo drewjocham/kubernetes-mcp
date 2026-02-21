@@ -5,14 +5,19 @@ import (
 	"time"
 
 	"kube-watcher/internal/history"
+	"kube-watcher/internal/kubernetes"
 )
 
 type HistoryInsightsTool struct {
+	BaseTool
 	store *history.Store
 }
 
-func NewHistoryInsightsTool(store *history.Store) *HistoryInsightsTool {
-	return &HistoryInsightsTool{store: store}
+func NewHistoryInsightsTool(k8sManager kubernetes.ClientInterface, store *history.Store) *HistoryInsightsTool {
+	return &HistoryInsightsTool{
+		BaseTool: NewBaseTool(k8sManager),
+		store:    store,
+	}
 }
 
 func (t *HistoryInsightsTool) Name() string {
@@ -20,48 +25,74 @@ func (t *HistoryInsightsTool) Name() string {
 }
 
 func (t *HistoryInsightsTool) Description() string {
-	return "Review incident history and compare occurrence frequency."
+	return "Analyze incident history to identify trends, recurring anomalies, and frequency deltas."
 }
 
 func (t *HistoryInsightsTool) Parameters() []ToolParameter {
 	return []ToolParameter{
-		{Name: "kind", Type: "string", Description: "Incident kind filter (node_anomaly, pod_anomaly, event_spike)."},
-		{Name: "since_hours", Type: "number", Description: "Time window (hours) to consider (default 24)."},
-		{Name: "severity", Type: "string", Description: "Optional severity filter."},
-		{Name: "limit", Type: "number", Description: "Maximum incidents to return (default 20)."},
+		{Name: "kind", Type: "string", Description: "Filter: node_anomaly, pod_anomaly, or event_spike."},
+		{Name: "since_hours", Type: "number", Default: 24},
+		{Name: "severity", Type: "string"},
+		{Name: "limit", Type: "number", Default: 20},
 	}
 }
 
 func (t *HistoryInsightsTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
-	sinceHours := 24.0
-	if val, ok := args["since_hours"].(float64); ok && val > 0 {
-		sinceHours = val
-	}
-	limit := 20
-	if val, ok := args["limit"].(float64); ok && val > 0 {
-		limit = int(val)
-	}
-	kind := history.IssueKind("")
-	if val, ok := args["kind"].(string); ok {
-		kind = history.IssueKind(val)
-	}
-	severity, _ := args["severity"].(string)
+	sinceHours := t.GetFloatArg(args, "since_hours", 24.0)
+	limit := t.GetIntArg(args, "limit", 20)
+	kind := history.IssueKind(t.GetStringArg(args, "kind", ""))
+	severity := t.GetStringArg(args, "severity", "")
 
-	incidents := t.store.List(ctx, history.Query{
-		Since:    time.Duration(sinceHours) * time.Hour,
-		Kind:     kind,
-		Severity: severity,
-		Limit:    limit,
+	// 1. Load raw data from BadgerDB
+	allIncidents, err := t.store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Functional Filtering (Pure)
+	window := time.Duration(sinceHours) * time.Hour
+	cutoff := time.Now().Add(-window)
+
+	filtered := history.Filter(allIncidents, func(inc history.Incident) bool {
+		if !kind.IsZero() && inc.Kind != kind {
+			return false
+		}
+		if severity != "" && inc.Severity != severity {
+			return false
+		}
+		return inc.Timestamp.After(cutoff)
 	})
 
-	comparison := t.store.CompareFrequency(ctx, kind, time.Duration(sinceHours)*time.Hour, time.Duration(sinceHours)*time.Hour)
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	comparison := history.ComputeFrequency(allIncidents, kind, window, window)
 
 	return map[string]interface{}{
-		"kind":            kind,
-		"since_hours":     sinceHours,
-		"severity":        severity,
-		"incident_count":  len(incidents),
-		"incidents":       incidents,
-		"frequency_delta": comparison,
+		"query_context": map[string]interface{}{
+			"kind":        kind,
+			"since_hours": sinceHours,
+			"severity":    severity,
+		},
+		"results": map[string]interface{}{
+			"count":           len(filtered),
+			"incidents":       filtered,
+			"frequency_trend": comparison,
+		},
+		"insight": t.generateInsight(comparison),
 	}, nil
+}
+
+func (t *HistoryInsightsTool) generateInsight(f history.FrequencyComparison) string {
+	if f.PercentChange > 50 {
+		return "Critical: Significant spike in issue frequency detected compared to previous window."
+	}
+	if f.PercentChange > 0 {
+		return "Warning: Issues are trending upward."
+	}
+	if f.RecentCount == 0 {
+		return "No issues detected in the current time window."
+	}
+	return "Issue frequency is stable or declining."
 }

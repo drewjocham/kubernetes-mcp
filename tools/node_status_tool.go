@@ -4,281 +4,210 @@ import (
 	"context"
 	"fmt"
 	"kube-watcher/kubernetes"
+	"strings"
 )
 
-// NodeStatusTool embeds BaseTool and implements the Tool interface.
 type NodeStatusTool struct {
 	BaseTool
 }
 
-// NewNodeStatusTool is the factory function for the NodeStatusTool.
+type NodeMetrics struct {
+	CPU      string   `json:"cpu_allocatable"`
+	Memory   string   `json:"memory_allocatable"`
+	Storage  string   `json:"storage_allocatable"`
+	Pods     string   `json:"pods_allocatable"`
+	Score    int      `json:"pressure_score_pct"`
+	Pressure []string `json:"active_pressure"`
+}
+
 func NewNodeStatusTool(k8sManager kubernetes.ClientInterface) *NodeStatusTool {
 	return &NodeStatusTool{
 		BaseTool: NewBaseTool(k8sManager),
 	}
 }
 
-// Name implements the Tool interface.
 func (t *NodeStatusTool) Name() string {
 	return "get_node_status"
 }
 
-// Description implements the Tool interface.
 func (t *NodeStatusTool) Description() string {
 	return "Get detailed status and health information about cluster nodes."
 }
 
-// Parameters implements the Tool interface.
 func (t *NodeStatusTool) Parameters() []ToolParameter {
 	return []ToolParameter{
-		{
-			Name:        "include_metrics",
-			Type:        "boolean",
-			Description: "Include current CPU and memory utilization metrics.",
-			Required:    false,
-			Default:     true,
-		},
-		{
-			Name:        "taints_only",
-			Type:        "boolean",
-			Description: "Only return nodes with active taints or conditions.",
-			Required:    false,
-			Default:     false,
-		},
-		{
-			Name:        "node_name",
-			Type:        "string",
-			Description: "Get status for a specific node by name. If not specified, returns all nodes.",
-			Required:    false,
-		},
+		{Name: "include_metrics", Type: "boolean", Default: true},
+		{Name: "taints_only", Type: "boolean", Default: false},
+		{Name: "node_name", Type: "string"},
 	}
 }
 
-// Execute implements the Tool interface and performs the analysis.
 func (t *NodeStatusTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
 	includeMetrics := t.GetBoolArg(args, "include_metrics", true)
 	taintsOnly := t.GetBoolArg(args, "taints_only", false)
 	nodeName := t.GetStringArg(args, "node_name", "")
 
 	var nodes []kubernetes.NodeInfo
-	var err error
-
 	if nodeName != "" {
 		node, err := t.K8sManager.GetNode(ctx, nodeName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve node %s: %w", nodeName, err)
+			return nil, err
 		}
 		nodes = []kubernetes.NodeInfo{*node}
 	} else {
+		var err error
 		nodes, err = t.K8sManager.GetNodes(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve nodes: %w", err)
+			return nil, err
 		}
 	}
 
-	results := map[string]interface{}{
-		"total_nodes":     len(nodes),
-		"ready_count":     0,
-		"not_ready_count": 0,
-		"unhealthy_nodes": []string{},
-		"tainted_nodes":   []string{},
-		"nodes":           []map[string]interface{}{},
-	}
+	var (
+		readyCount    int
+		unhealthy     []string
+		tainted       []string
+		processedList []map[string]interface{}
+	)
 
-	// Process each node
 	for _, node := range nodes {
 		if taintsOnly && len(node.Taints) == 0 {
 			continue
 		}
 
-		// Count node statuses
-		if node.Status == "Ready" {
-			results["ready_count"] = results["ready_count"].(int) + 1
+		isReady := node.Status == "Ready"
+		if isReady {
+			readyCount++
 		} else {
-			results["not_ready_count"] = results["not_ready_count"].(int) + 1
-			results["unhealthy_nodes"] = append(results["unhealthy_nodes"].([]string), node.Name)
-		}
-
-		// Track tainted nodes
-		if len(node.Taints) > 0 {
-			results["tainted_nodes"] = append(results["tainted_nodes"].([]string), node.Name)
-		}
-
-		nodeDetail := map[string]interface{}{
-			"name":        node.Name,
-			"status":      node.Status,
-			"age":         node.Age.String(),
-			"taint_count": len(node.Taints),
-			"conditions":  t.analyzeNodeConditions(node.Conditions),
-		}
-
-		if includeMetrics {
-			nodeDetail["capacity"] = node.Capacity
-			nodeDetail["allocatable"] = node.Allocatable
-			nodeDetail["resource_pressure"] = t.calculateResourcePressure(node)
+			unhealthy = append(unhealthy, node.Name)
 		}
 
 		if len(node.Taints) > 0 {
-			var taintDetails []map[string]interface{}
-			for _, taint := range node.Taints {
-				taintDetails = append(taintDetails, map[string]interface{}{
-					"key":    taint.Key,
-					"value":  taint.Value,
-					"effect": string(taint.Effect),
-				})
-			}
-			nodeDetail["taints"] = taintDetails
+			tainted = append(tainted, node.Name)
 		}
 
-		// Add labels for debugging/filtering
-		nodeDetail["labels"] = node.Labels
-
-		results["nodes"] = append(results["nodes"].([]map[string]interface{}), nodeDetail)
+		details := t.mapNodeToResult(node, includeMetrics)
+		processedList = append(processedList, details)
 	}
 
-	results["health_summary"] = t.generateHealthSummary(results)
-
-	return results, nil
+	return map[string]interface{}{
+		"summary": map[string]interface{}{
+			"total":     len(nodes),
+			"ready":     readyCount,
+			"unhealthy": unhealthy,
+			"tainted":   tainted,
+		},
+		"nodes":    processedList,
+		"analysis": t.analyzeHealth(len(nodes), readyCount, unhealthy, tainted),
+	}, nil
 }
 
-// analyzeNodeConditions processes node conditions to extract meaningful insights
-func (t *NodeStatusTool) analyzeNodeConditions(conditions []kubernetes.NodeCondition) map[string]interface{} {
-	conditionSummary := map[string]interface{}{
+func (t *NodeStatusTool) mapNodeToResult(node kubernetes.NodeInfo, includeMetrics bool) map[string]interface{} {
+	conditions := t.parseConditions(node.Conditions)
+
+	res := map[string]interface{}{
+		"name":       node.Name,
+		"status":     node.Status,
+		"age":        node.Age.String(),
+		"conditions": conditions,
+		"labels":     node.Labels,
+	}
+
+	if len(node.Taints) > 0 {
+		res["taints"] = node.Taints
+	}
+
+	if includeMetrics {
+		metrics := NodeMetrics{
+			CPU:     node.Allocatable["cpu"],
+			Memory:  node.Allocatable["memory"],
+			Storage: node.Allocatable["ephemeral-storage"],
+			Pods:    node.Allocatable["pods"],
+		}
+
+		score := 0
+		if conditions["memory_pressure"] == true {
+			score += 50
+			metrics.Pressure = append(metrics.Pressure, "Memory")
+		}
+		if conditions["disk_pressure"] == true {
+			score += 30
+			metrics.Pressure = append(metrics.Pressure, "Disk")
+		}
+		if conditions["pid_pressure"] == true {
+			score += 20
+			metrics.Pressure = append(metrics.Pressure, "PID")
+		}
+
+		metrics.Score = score
+		res["utilization"] = metrics
+	}
+
+	return res
+}
+
+func (t *NodeStatusTool) parseConditions(conditions []kubernetes.NodeCondition) map[string]interface{} {
+	summary := map[string]interface{}{
 		"ready":               false,
-		"disk_pressure":       false,
 		"memory_pressure":     false,
+		"disk_pressure":       false,
 		"pid_pressure":        false,
 		"network_unavailable": false,
 		"issues":              []string{},
 	}
 
-	for _, condition := range conditions {
-		switch condition.Type {
+	for _, c := range conditions {
+		isActive := c.Status == "True"
+
+		switch c.Type {
 		case "Ready":
-			conditionSummary["ready"] = condition.Status == "True"
-			if condition.Status != "True" {
-				conditionSummary["issues"] = append(
-					conditionSummary["issues"].([]string),
-					fmt.Sprintf("Node not ready: %s", condition.Message),
-				)
+			summary["ready"] = isActive
+			if !isActive {
+				summary["issues"] = append(summary["issues"].([]string), "NodeNotReady")
 			}
-		case "DiskPressure":
-			conditionSummary["disk_pressure"] = condition.Status == "True"
-			if condition.Status == "True" {
-				conditionSummary["issues"] = append(
-					conditionSummary["issues"].([]string),
-					fmt.Sprintf("Disk pressure: %s", condition.Message),
-				)
-			}
-		case "MemoryPressure":
-			conditionSummary["memory_pressure"] = condition.Status == "True"
-			if condition.Status == "True" {
-				conditionSummary["issues"] = append(
-					conditionSummary["issues"].([]string),
-					fmt.Sprintf("Memory pressure: %s", condition.Message),
-				)
-			}
-		case "PIDPressure":
-			conditionSummary["pid_pressure"] = condition.Status == "True"
-			if condition.Status == "True" {
-				conditionSummary["issues"] = append(
-					conditionSummary["issues"].([]string),
-					fmt.Sprintf("PID pressure: %s", condition.Message),
-				)
-			}
-		case "NetworkUnavailable":
-			conditionSummary["network_unavailable"] = condition.Status == "True"
-			if condition.Status == "True" {
-				conditionSummary["issues"] = append(
-					conditionSummary["issues"].([]string),
-					fmt.Sprintf("Network unavailable: %s", condition.Message),
-				)
+		case "MemoryPressure", "DiskPressure", "PIDPressure", "NetworkUnavailable":
+			summary[t.toSnakeCase(c.Type)] = isActive
+			if isActive {
+				summary["issues"] = append(summary["issues"].([]string), c.Type)
 			}
 		}
 	}
-
-	return conditionSummary
+	return summary
 }
 
-func (t *NodeStatusTool) calculateResourcePressure(node kubernetes.NodeInfo) map[string]interface{} {
-	// init
-	pressure := map[string]interface{}{
-		"cpu_allocatable":     node.Allocatable["cpu"],
-		"memory_allocatable":  node.Allocatable["memory"],
-		"storage_allocatable": node.Allocatable["ephemeral-storage"],
-		"pods_allocatable":    node.Allocatable["pods"],
+func (t *NodeStatusTool) toSnakeCase(s string) string {
+	if s == "PIDPressure" {
+		return "pid_pressure"
 	}
-
-	// calculate Pressure Flags based on Conditions
-	// This maps the condition booleans into the pressure report
-	conditions := t.analyzeNodeConditions(node.Conditions)
-	pressure["has_memory_pressure"] = conditions["memory_pressure"]
-	pressure["has_disk_pressure"] = conditions["disk_pressure"]
-	pressure["has_pid_pressure"] = conditions["pid_pressure"]
-
-	// 3. Logic for "High Load" indicators
-	// Note: node.Capacity vs node.Allocatable helps identify overhead
-	// In a production scenario, you would calculate: (CurrentUsage / Allocatable) * 100
-
-	pressure["usage_summary"] = "Pending real-time metrics"
-
-	// Example of providing a 'pressure score' if conditions are active
-	pressure_score := 0
-	if conditions["memory_pressure"].(bool) {
-		pressure_score += 50
-	}
-	if conditions["disk_pressure"].(bool) {
-		pressure_score += 30
-	}
-	if conditions["pid_pressure"].(bool) {
-		pressure_score += 20
-	}
-
-	pressure["pressure_score_pct"] = pressure_score
-	pressure["note"] = "Metrics integration (Prometheus/Metrics-Server) recommended for real-time utilization."
-
-	return pressure
+	return strings.ToLower(strings.ReplaceAll(s, "Pressure", "_pressure"))
 }
-func (t *NodeStatusTool) generateHealthSummary(results map[string]interface{}) map[string]interface{} {
-	totalNodes := results["total_nodes"].(int)
-	readyCount := results["ready_count"].(int)
-	unhealthyNodes := results["unhealthy_nodes"].([]string)
-	taintedNodes := results["tainted_nodes"].([]string)
 
-	healthPercentage := 0.0
-	if totalNodes > 0 {
-		healthPercentage = float64(readyCount) / float64(totalNodes) * 100
+func (t *NodeStatusTool) analyzeHealth(total, ready int, unhealthy, tainted []string) map[string]interface{} {
+	pct := 0.0
+	if total > 0 {
+		pct = float64(ready) / float64(total) * 100
 	}
 
-	var status string
-	var recommendations []string
+	status := "healthy"
+	recs := []string{}
 
-	switch {
-	case healthPercentage >= 95:
-		status = "healthy"
-	case healthPercentage >= 80:
+	if pct < 95 {
 		status = "warning"
-		recommendations = append(recommendations, "Monitor unhealthy nodes closely")
-	default:
+		recs = append(recs, "Investigate non-ready nodes.")
+	}
+	if pct < 80 {
 		status = "critical"
-		recommendations = append(recommendations, "Immediate attention required for cluster stability")
+		recs = append(recs, "Cluster capacity severely compromised.")
 	}
-
-	if len(taintedNodes) > 0 {
-		recommendations = append(recommendations,
-			fmt.Sprintf("Review taints on %d node(s) - may affect scheduling", len(taintedNodes)))
+	if len(tainted) > 0 {
+		recs = append(recs, fmt.Sprintf("%d nodes have taints which may restrict scheduling.", len(tainted)))
 	}
-
-	if len(unhealthyNodes) > 0 {
-		recommendations = append(recommendations,
-			fmt.Sprintf("Investigate and resolve issues with: %v", unhealthyNodes))
+	if len(unhealthy) > 0 {
+		recs = append(recs, fmt.Sprintf("Action required on: %s", strings.Join(unhealthy, ", ")))
 	}
 
 	return map[string]interface{}{
 		"status":            status,
-		"health_percentage": healthPercentage,
-		"recommendations":   recommendations,
-		"summary": fmt.Sprintf("%d/%d nodes ready (%d tainted)",
-			readyCount, totalNodes, len(taintedNodes)),
+		"health_percentage": pct,
+		"recommendations":   recs,
 	}
 }

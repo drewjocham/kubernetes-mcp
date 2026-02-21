@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"kube-watcher/kubernetes"
+	"kube-watcher/kubernetes/watch"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"kube-watcher/internal/history"
 	"kube-watcher/internal/logging"
 	"kube-watcher/server"
 )
@@ -30,12 +34,13 @@ func main() {
 		healthCheck = flag.Bool("health", false, "Perform health check and exit")
 		debug       = flag.Bool("debug", false, "Enable debug logging")
 		logFile     = flag.String("log-file", "", "Path to log file")
-		_           = flag.Bool("server", false, "Run in interactive server mode (default)")
+		dbPath      = flag.String("db-path", "~/.kube-watcher/history.db", "Path to BadgerDB storage")
+		interval    = flag.Duration("interval", 30*time.Second, "Scan interval")
 	)
 	flag.Parse()
 
 	if *showVersion {
-		_, _ = os.Stdout.WriteString(fmt.Sprintf("kube-watcher v%s (commit: %s, built: %s)\n", version, gitCommit, buildDate))
+		fmt.Printf("kube-watcher v%s (commit: %s, built: %s)\n", version, gitCommit, buildDate)
 		return
 	}
 
@@ -46,21 +51,41 @@ func main() {
 
 	logger, err := logging.New(*debug, *logFile)
 	if err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("Failed to create logger: %v\n", err))
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Kubernetes & BadgerDB
+	k8sClient, err := kubernetes.NewClient(logger)
+	if err != nil {
+		logger.Error("Failed to initialize Kubernetes client", "error", err)
+		os.Exit(1)
+	}
+
+	historyStore, err := history.NewStore(*dbPath)
+	if err != nil {
+		logger.Error("Failed to initialize BadgerDB store", "error", err)
+		os.Exit(1)
+	}
+	defer historyStore.Close()
+
+	// Watcher
+	watchManager := watch.NewManager(k8sClient, logger, *interval)
+
 	mcpServer, err := server.NewMCPServer(logger, server.Config{
-		Version:   version,
-		GitCommit: gitCommit,
-		BuildDate: buildDate,
+		Version:      version,
+		GitCommit:    gitCommit,
+		BuildDate:    buildDate,
+		K8sClient:    k8sClient,
+		HistoryStore: historyStore,
+		Watcher:      watchManager,
 	})
 	if err != nil {
 		logger.Error("Failed to create MCP server", "error", err)
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	switch {
@@ -75,117 +100,56 @@ func main() {
 	}
 }
 
-func showUsage() {
-	_, _ = os.Stdout.WriteString(fmt.Sprintf(`kube-watcher v%s - Kubernetes Monitoring MCP Server
-
-USAGE:
-    kube-watcher [OPTIONS]
-
-OPTIONS:
-    --version           Show version information
-    --help              Show this help message
-    --list-tools        List all available tools
-    --exec TOOL         Execute a specific tool
-    --args JSON         JSON arguments for tool execution (use with --exec)
-    --health            Perform health check
-    --server            Run in interactive server mode (default)
-    --debug             Enable debug logging
-    --log-file PATH     Path to log file
-
-EXAMPLES:
-    # List available tools
-    kube-watcher --list-tools
-
-    # Execute node status check
-    kube-watcher --exec get_node_status --args '{"include_metrics":true}'
-
-    # Execute cluster analysis
-    kube-watcher --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
-
-    # Health check
-    kube-watcher --health
-
-    # Run as MCP server (interactive mode)
-    kube-watcher --server
-`, version))
+func handleListTools(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
+	fmt.Printf("%+v\n", s.ListTools())
 }
 
-func handleListTools(ctx context.Context, mcpServer *server.MCPServer, logger *slog.Logger) {
-	toolsInfo := mcpServer.ListTools()
-	logger.Info("Available Tools", "tools", toolsInfo)
-}
-
-func handleToolExecution(ctx context.Context, mcpServer *server.MCPServer, toolName, argsJSON string, logger *slog.Logger) {
-	var args map[string]interface{}
+func handleToolExecution(ctx context.Context, s *server.MCPServer, name, argsJSON string, logger *slog.Logger) {
+	var args map[string]any
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		logger.Error("Invalid JSON arguments", "error", err)
 		os.Exit(1)
 	}
 
-	logger.Info("Executing tool", "tool", toolName, "args", args)
-
-	result, err := mcpServer.ExecuteTool(ctx, toolName, args)
+	result, err := s.ExecuteTool(ctx, name, args)
 	if err != nil {
 		logger.Error("Tool execution failed", "error", err)
 		os.Exit(1)
 	}
-
-	logger.Info("Execution completed successfully", "result", result)
+	fmt.Printf("%s\n", result)
 }
 
-func handleHealthCheck(ctx context.Context, mcpServer *server.MCPServer, logger *slog.Logger) {
-	logger.Info("Performing health check")
-
-	health := mcpServer.HealthCheck(ctx)
-	logger.Info("Health check result", "health", health)
-
-	status, _ := health["server_status"].(string)
-	k8sStatus, _ := health["k8s_connectivity"].(string)
-
-	if status == "healthy" && k8sStatus == "healthy" {
-		logger.Info("All systems operational")
+func handleHealthCheck(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
+	health := s.HealthCheck(ctx)
+	if health["status"] == "healthy" {
+		logger.Info("Systems operational", "details", health)
 		os.Exit(0)
-	} else {
-		logger.Warn("Issues detected")
-		os.Exit(1)
 	}
+	logger.Warn("System unhealthy", "details", health)
+	os.Exit(1)
 }
 
-func handleServerMode(ctx context.Context, mcpServer *server.MCPServer, logger *slog.Logger) {
-	logger.Info("Starting kube-watcher MCP server", "version", version)
+func handleServerMode(ctx context.Context, s *server.MCPServer, logger *slog.Logger) {
+	logger.Info("Starting kube-watcher", "version", version)
 
-	health := mcpServer.HealthCheck(ctx)
-	k8sStatus, _ := health["k8s_connectivity"].(string)
-
-	if k8sStatus != "healthy" {
-		logger.Warn("Kubernetes connectivity issue", "status", k8sStatus, "error", health["k8s_error"])
-	} else {
-		logger.Info("Kubernetes connectivity verified", "cluster_info", health["cluster_info"])
-	}
-
-	toolsInfo := mcpServer.ListTools()
-	logger.Info("Loaded tools", "count", toolsInfo["tool_count"])
-	logger.Info("Server ready for MCP requests")
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		select {
-		case sig := <-sigCh:
-			logger.Info("Shutdown signal received", "signal", sig.String())
-			cancel()
-		case <-runCtx.Done():
-		}
-	}()
-
-	if err := mcpServer.Start(runCtx); err != nil {
-		logger.Error("Server terminated with error", "error", err)
+	if err := s.Start(ctx); err != nil {
+		logger.Error("Server error", "error", err)
 		os.Exit(1)
 	}
+	logger.Info("Shutdown complete")
+}
 
-	logger.Info("Server stopped gracefully")
+func showUsage() {
+	fmt.Printf(`kube-watcher v%s - Kubernetes Monitoring MCP Server
+
+USAGE:
+    kube-watcher [OPTIONS]
+
+OPTIONS:
+    --version           Show version
+    --db-path PATH      Path to history database (BadgerDB)
+    --interval DUR      Scan interval (e.g. 1m, 30s)
+    --exec TOOL         Execute tool
+    --args JSON         Tool arguments
+`, version)
 }

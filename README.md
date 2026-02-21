@@ -1,6 +1,6 @@
 # kube-watcher
 
-A Kubernetes monitoring and analysis MCP (Model Context Protocol) server implemented in Go 1.25.1, designed to provide intelligent cluster insights and monitoring capabilities.
+A Kubernetes monitoring and analysis MCP (Model Context Protocol) server designed to provide cluster insights and monitoring capabilities.
 
 ## Features
 
@@ -22,14 +22,6 @@ kube-watcher/
 ├── kubernetes/    # Kubernetes client abstraction
 └── main.go        # Convenience wrapper
 ```
-
-### Design Patterns
-
-- **Interface + Factory Pattern**: All tools implement a common `Tool` interface with factory constructors
-- **Dependency Injection**: Kubernetes client is injected into tools via composition  
-- **Command Pattern**: Each monitoring capability is implemented as a separate tool
-- **Repository Pattern**: Kubernetes operations abstracted behind `ClientInterface`
-
 ## Installation
 
 1. Clone the repository:

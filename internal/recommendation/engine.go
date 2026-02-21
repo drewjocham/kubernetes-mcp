@@ -10,7 +10,6 @@ import (
 	"kube-watcher/kubernetes/watch"
 )
 
-// Recommendation captures actionable guidance for an alert.
 type Recommendation struct {
 	Title          string            `json:"title"`
 	Summary        string            `json:"summary"`
@@ -21,13 +20,11 @@ type Recommendation struct {
 	LastSeenCount  int               `json:"last_seen_count"`
 }
 
-// Engine translates alerts and historical context into recommendations.
 type Engine struct {
 	store  *history.Store
 	logger *slog.Logger
 }
 
-// NewEngine builds an Engine.
 func NewEngine(store *history.Store, logger *slog.Logger) *Engine {
 	return &Engine{
 		store:  store,
@@ -35,9 +32,12 @@ func NewEngine(store *history.Store, logger *slog.Logger) *Engine {
 	}
 }
 
-// ForAlert synthesizes a recommendation for the supplied alert.
+// ForAlert a recommendation for the supplied alert.
 func (e *Engine) ForAlert(ctx context.Context, alert watch.Alert) (Recommendation, error) {
-	delta := e.store.CompareFrequency(ctx, history.IssueKind(alert.Kind), 6*time.Hour, 24*time.Hour)
+	delta, err := e.store.CompareFrequency(ctx, history.IssueKind(alert.Kind), 6*time.Hour, 24*time.Hour)
+	if err != nil {
+		return Recommendation{}, err
+	}
 
 	evidence := map[string]string{
 		"namespace": alert.Namespace,
@@ -75,10 +75,10 @@ func (e *Engine) stepsForAlert(alert watch.Alert) []string {
 		}
 	case watch.AlertKindEvent:
 		return []string{
-			"Review recent Warning events for systemic issues.",
+			"Review recent Warning events for issues.",
 			"Audit cluster controllers emitting repeated warnings.",
 		}
 	default:
-		return []string{"Review alert details for manual remediation."}
+		return []string{"Review alert details for manual fix."}
 	}
 }

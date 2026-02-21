@@ -1,30 +1,26 @@
 package history
 
 import (
-	"bufio"
 	"context"
+	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/dgraph-io/badger/v4"
 )
 
-// IssueKind categorizes stored incidents for trend analysis.
 type IssueKind string
 
-// Predefined incident categories.
 const (
 	IncidentTypeNode  IssueKind = "node_anomaly"
 	IncidentTypePod   IssueKind = "pod_anomaly"
 	IncidentTypeEvent IssueKind = "event_spike"
 )
 
-// Incident captures a single recorded issue.
 type Incident struct {
 	ID          string         `json:"id"`
 	Timestamp   time.Time      `json:"timestamp"`
@@ -38,15 +34,6 @@ type Incident struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// Query constrains history retrieval.
-type Query struct {
-	Since    time.Duration
-	Kind     IssueKind
-	Severity string
-	Limit    int
-}
-
-// FrequencyComparison highlights trend deltas.
 type FrequencyComparison struct {
 	Kind             IssueKind `json:"kind"`
 	RecentCount      int       `json:"recent_count"`
@@ -56,135 +43,97 @@ type FrequencyComparison struct {
 	PreviousWindowHr float64   `json:"previous_window_hours"`
 }
 
-// Store provides incident persistence with simple JSONL storage.
 type Store struct {
-	path      string
-	mu        sync.RWMutex
-	incidents []Incident
+	db *badger.DB
 }
 
-// NewStore initializes a Store backed by the provided file path.
 func NewStore(path string) (*Store, error) {
-	if path == "" {
-		return nil, errors.New("history path is required")
-	}
-
 	resolved, err := resolvePath(path)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create history directory: %w", err)
+	if err := os.MkdirAll(resolved, 0o755); err != nil {
+		return nil, err
 	}
 
-	s := &Store{path: resolved}
-	if err := s.load(); err != nil {
-		return nil, fmt.Errorf("failed to load history: %w", err)
+	opts := badger.DefaultOptions(resolved).WithLogger(nil)
+	db, err := badger.Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open badger: %w", err)
 	}
-	return s, nil
+
+	return &Store{db: db}, nil
 }
 
-func (s *Store) load() error {
-	file, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+func (s *Store) Close() error {
+	return s.db.Close()
+}
 
-	// Using a decoder is more efficient and cleaner for JSONL
-	dec := json.NewDecoder(bufio.NewReader(file))
-	for {
-		var incident Incident
-		if err := dec.Decode(&incident); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+func (s *Store) Record(ctx context.Context, inc Incident) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		ts := uint64(inc.Timestamp.UnixNano())
+		key := make([]byte, len(inc.Kind)+1+8+len(inc.ID))
+		offset := copy(key, inc.Kind)
+		key[offset] = ':'
+		offset++
+		binary.BigEndian.PutUint64(key[offset:], ts)
+		offset += 8
+		copy(key[offset:], inc.ID)
+
+		val, err := json.Marshal(inc)
+		if err != nil {
+			return err
+		}
+		return txn.Set(key, val)
+	})
+}
+
+func (s *Store) List(ctx context.Context, kind IssueKind, since time.Duration) ([]Incident, error) {
+	var incidents []Incident
+	cutoff := time.Now().Add(-since).UnixNano()
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		prefix := []byte(string(kind) + ":")
+		seekKey := make([]byte, len(prefix)+8)
+		copy(seekKey, prefix)
+		binary.BigEndian.PutUint64(seekKey[len(prefix):], uint64(cutoff))
+
+		for it.Seek(seekKey); it.ValidForPrefix(prefix); it.Next() {
+			err := it.Item().Value(func(v []byte) error {
+				var inc Incident
+				if err := json.Unmarshal(v, &inc); err != nil {
+					return err
+				}
+				incidents = append(incidents, inc)
+				return nil
+			})
+			if err != nil {
+				return err
 			}
-			continue // Skip malformed lines
 		}
-		s.incidents = append(s.incidents, incident)
-	}
-	return nil
+		return nil
+	})
+
+	return incidents, err
 }
 
-// Record stores a new incident on disk and memory.
-func (s *Store) Record(_ context.Context, incident Incident) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	file, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+func (s *Store) CompareFrequency(ctx context.Context, kind IssueKind, recent, previous time.Duration) (FrequencyComparison, error) {
+	data, err := s.List(ctx, kind, recent+previous)
 	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	// NewEncoder adds the necessary newline for JSONL automatically
-	if err := json.NewEncoder(file).Encode(incident); err != nil {
-		return err
+		return FrequencyComparison{}, err
 	}
 
-	s.incidents = append(s.incidents, incident)
-	return nil
-}
-
-// List returns incidents matching the provided query.
-func (s *Store) List(_ context.Context, q Query) []Incident {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var results []Incident
-	var cutoff time.Time
-	if q.Since > 0 {
-		cutoff = time.Now().Add(-q.Since)
-	}
-
-	// Traverse backward to get latest incidents first
-	for i := len(s.incidents) - 1; i >= 0; i-- {
-		inc := s.incidents[i]
-
-		if !cutoff.IsZero() && inc.Timestamp.Before(cutoff) {
-			break // Optimization: assumes incidents are recorded chronologically
-		}
-		if q.Kind != "" && inc.Kind != q.Kind {
-			continue
-		}
-		if q.Severity != "" && inc.Severity != q.Severity {
-			continue
-		}
-
-		results = append(results, inc)
-		if q.Limit > 0 && len(results) >= q.Limit {
-			break
-		}
-	}
-	return results
-}
-
-// CompareFrequency computes change between two distinct time windows.
-func (s *Store) CompareFrequency(_ context.Context, kind IssueKind, recent, previous time.Duration) FrequencyComparison {
-	if recent <= 0 {
-		recent = 24 * time.Hour
-	}
-	if previous <= 0 {
-		previous = recent
-	}
-
-	now := time.Now()
-	rStart := now.Add(-recent)
-	pStart := rStart.Add(-previous)
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	rStart := time.Now().Add(-recent)
 	var rCount, pCount int
-	for _, inc := range s.incidents {
-		if kind != "" && inc.Kind != kind {
-			continue
-		}
 
+	for _, inc := range data {
 		if inc.Timestamp.After(rStart) {
 			rCount++
-		} else if inc.Timestamp.After(pStart) {
+		} else {
 			pCount++
 		}
 	}
@@ -196,7 +145,7 @@ func (s *Store) CompareFrequency(_ context.Context, kind IssueKind, recent, prev
 		PercentChange:    calculateChange(pCount, rCount),
 		WindowHours:      recent.Hours(),
 		PreviousWindowHr: previous.Hours(),
-	}
+	}, nil
 }
 
 func resolvePath(path string) (string, error) {
@@ -211,7 +160,7 @@ func resolvePath(path string) (string, error) {
 }
 
 func calculateChange(prev, current int) float64 {
-	if prev == 0 {
+	if prev <= 0 {
 		if current > 0 {
 			return 100.0
 		}

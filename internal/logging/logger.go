@@ -6,7 +6,6 @@ import (
 	"os"
 )
 
-// New creates a new slog logger.
 func New(debug bool, logFile string) (*slog.Logger, error) {
 	var level slog.Level
 	if debug {

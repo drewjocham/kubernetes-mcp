@@ -2,21 +2,24 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"kube-watcher/kubernetes"
-)
-
-var (
-	ErrFailedToGetNamespaces = errors.New("failed to get namespaces")
 )
 
 type NamespaceListTool struct {
 	k8sManager kubernetes.ClientInterface
 	logger     *slog.Logger
+}
+
+type nsDetail struct {
+	Name     string
+	IsSystem bool
+	Pods     []kubernetes.PodInfo
+	Quotas   []kubernetes.ResourceQuotaInfo
 }
 
 func NewNamespaceListTool(k8sManager kubernetes.ClientInterface, logger *slog.Logger) *NamespaceListTool {
@@ -26,233 +29,168 @@ func NewNamespaceListTool(k8sManager kubernetes.ClientInterface, logger *slog.Lo
 	}
 }
 
-func (t *NamespaceListTool) Name() string {
-	return "list_namespaces"
-}
+func (t *NamespaceListTool) Name() string { return "list_namespaces" }
 
 func (t *NamespaceListTool) Description() string {
-	return "Get information about all namespaces including resource usage and pod counts"
+	return "Get comprehensive information about namespaces, including resource density and governance analysis."
 }
 
 func (t *NamespaceListTool) Parameters() []ToolParameter {
 	return []ToolParameter{
-		{Name: "include_system", Type: "boolean", Description: "Include system namespaces (kube-system, etc.) in the results"},
-		{Name: "include_quotas", Type: "boolean", Description: "Include resource quota information for each namespace"},
+		{Name: "include_system", Type: "boolean", Description: "Include system namespaces (kube-system, etc.)"},
+		{Name: "include_quotas", Type: "boolean", Description: "Fetch and analyze ResourceQuotas"},
 	}
 }
 
-func (t *NamespaceListTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
+func (t *NamespaceListTool) Execute(ctx context.Context, args map[string]any) (map[string]any, error) {
 	includeSystem, _ := args["include_system"].(bool)
 	includeQuotas, _ := args["include_quotas"].(bool)
 
-	namespaceNames, err := t.k8sManager.GetNamespaces(ctx)
+	allNames, err := t.k8sManager.GetNamespaces(ctx)
 	if err != nil {
-		t.logger.Error("Error getting namespaces", "error", err)
-		return nil, ErrFailedToGetNamespaces
+		t.logger.Error("Failed to fetch namespaces", "error", err)
+		return nil, err
 	}
 
-	results := map[string]interface{}{
-		"total_namespaces":  len(namespaceNames),
-		"system_namespaces": 0,
-		"user_namespaces":   0,
-		"total_pods":        0,
-		"total_quotas":      0,
-		"namespaces":        []map[string]interface{}{},
-		"system_ns_list":    []string{},
-		"user_ns_list":      []string{},
+	details := t.fetchParallel(ctx, allNames, includeSystem, includeQuotas)
+
+	var (
+		totalPods   int
+		totalQuotas int
+		userNSCount int
+		nsResults   = make([]map[string]any, 0)
+	)
+
+	for _, d := range details {
+		totalPods += len(d.Pods)
+		totalQuotas += len(d.Quotas)
+		if !d.IsSystem {
+			userNSCount++
+		}
+
+		nsResults = append(nsResults, map[string]any{
+			"name":          d.Name,
+			"is_system":     d.IsSystem,
+			"pod_count":     len(d.Pods),
+			"quota_count":   len(d.Quotas),
+			"pod_breakdown": t.analyzePodStatus(d.Pods),
+			"quota_details": t.mapQuotas(d.Quotas),
+		})
 	}
 
-	for _, nsName := range namespaceNames {
-		isSystem := t.isSystemNamespace(nsName)
+	return map[string]any{
+		"summary": map[string]any{
+			"total_namespaces": len(allNames),
+			"total_pods":       totalPods,
+			"user_namespaces":  userNSCount,
+		},
+		"namespaces": nsResults,
+		"analysis":   t.generateAnalysis(len(allNames), userNSCount, totalPods, totalQuotas),
+	}, nil
+}
 
-		if isSystem && !includeSystem {
+func (t *NamespaceListTool) fetchParallel(ctx context.Context, names []string, incSys, incQuo bool) []nsDetail {
+	var wg sync.WaitGroup
+	resChan := make(chan nsDetail, len(names))
+
+	for _, name := range names {
+		isSys := t.isSystemNamespace(name)
+		if isSys && !incSys {
 			continue
 		}
 
-		pods, err := t.k8sManager.GetPods(ctx, nsName)
-		if err != nil {
-			t.logger.Warn("Error getting pods for namespace", "namespace", nsName, "error", err)
-			continue
-		}
-
-		var quotas []kubernetes.ResourceQuotaInfo
-		if includeQuotas {
-			quotas, err = t.k8sManager.GetResourceQuotas(ctx, nsName)
-			if err != nil {
-				t.logger.Warn("Error getting resource quotas for namespace", "namespace", nsName, "error", err)
-				quotas = []kubernetes.ResourceQuotaInfo{}
+		wg.Add(1)
+		go func(n string, sys bool) {
+			defer wg.Done()
+			pods, _ := t.k8sManager.GetPods(ctx, n)
+			var quotas []kubernetes.ResourceQuotaInfo
+			if incQuo {
+				quotas, _ = t.k8sManager.GetResourceQuotas(ctx, n)
 			}
-		}
-
-		nsInfo := map[string]interface{}{
-			"name":            nsName,
-			"is_system":       isSystem,
-			"pod_count":       len(pods),
-			"resource_quotas": len(quotas),
-			"status":          "Active",
-			"age":             "N/A",
-		}
-
-		if includeQuotas && len(quotas) > 0 {
-			quotaDetails := make([]map[string]interface{}, len(quotas))
-			for i, quota := range quotas {
-				quotaDetails[i] = map[string]interface{}{
-					"name": quota.Name,
-					"hard": quota.Hard,
-					"used": quota.Used,
-				}
-			}
-			nsInfo["quota_details"] = quotaDetails
-		}
-
-		podStatus := t.analyzePodStatus(pods)
-		nsInfo["pod_status_breakdown"] = podStatus
-
-		results["total_pods"] = results["total_pods"].(int) + len(pods)
-		results["total_quotas"] = results["total_quotas"].(int) + len(quotas)
-
-		if isSystem {
-			results["system_namespaces"] = results["system_namespaces"].(int) + 1
-			results["system_ns_list"] = append(results["system_ns_list"].([]string), nsName)
-		} else {
-			results["user_namespaces"] = results["user_namespaces"].(int) + 1
-			results["user_ns_list"] = append(results["user_ns_list"].([]string), nsName)
-		}
-
-		results["namespaces"] = append(results["namespaces"].([]map[string]interface{}), nsInfo)
+			resChan <- nsDetail{Name: n, IsSystem: sys, Pods: pods, Quotas: quotas}
+		}(name, isSys)
 	}
 
-	results["analysis"] = t.generateNamespaceAnalysis(results)
+	go func() {
+		wg.Wait()
+		close(resChan)
+	}()
 
-	return results, nil
+	var results []nsDetail
+	for d := range resChan {
+		results = append(results, d)
+	}
+	return results
 }
 
 func (t *NamespaceListTool) isSystemNamespace(name string) bool {
-	systemPrefixes := []string{
-		"kube-",
-		"kubernetes-",
-		"openshift-",
-		"istio-",
-		"cert-manager",
-		"ingress-",
-	}
+	prefixes := []string{"kube-", "kubernetes-", "openshift-", "istio-", "cert-manager", "ingress-"}
+	names := []string{"default", "monitoring", "logging", "prometheus", "grafana"}
 
-	systemNames := []string{
-		"default",
-		"monitoring",
-		"logging",
-		"prometheus",
-		"grafana",
-		"calico-system",
-		"tigera-operator",
-		"metallb-system",
-	}
-
-	for _, prefix := range systemPrefixes {
-		if strings.HasPrefix(name, prefix) {
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
 			return true
 		}
 	}
-
-	for _, sysName := range systemNames {
-		if name == sysName {
+	for _, s := range names {
+		if name == s {
 			return true
 		}
 	}
-
 	return false
 }
 
-func (t *NamespaceListTool) analyzePodStatus(pods []kubernetes.PodInfo) map[string]interface{} {
-	status := map[string]interface{}{
-		"running":   0,
-		"pending":   0,
-		"succeeded": 0,
-		"failed":    0,
-		"unknown":   0,
-		"total":     len(pods),
+func (t *NamespaceListTool) analyzePodStatus(pods []kubernetes.PodInfo) map[string]int {
+	counts := map[string]int{"running": 0, "pending": 0, "failed": 0, "succeeded": 0}
+	for _, p := range pods {
+		counts[strings.ToLower(string(p.Phase))]++
 	}
-
-	for _, pod := range pods {
-		switch pod.Phase {
-		case "Running":
-			status["running"] = status["running"].(int) + 1
-		case "Pending":
-			status["pending"] = status["pending"].(int) + 1
-		case "Succeeded":
-			status["succeeded"] = status["succeeded"].(int) + 1
-		case "Failed":
-			status["failed"] = status["failed"].(int) + 1
-		default:
-			status["unknown"] = status["unknown"].(int) + 1
-		}
-	}
-
-	return status
+	return counts
 }
 
-func (t *NamespaceListTool) generateNamespaceAnalysis(results map[string]interface{}) map[string]interface{} {
-	totalNS := results["total_namespaces"].(int)
-	systemNS := results["system_namespaces"].(int)
-	userNS := results["user_namespaces"].(int)
-	totalPods := results["total_pods"].(int)
-	totalQuotas := results["total_quotas"].(int)
+func (t *NamespaceListTool) mapQuotas(quotas []kubernetes.ResourceQuotaInfo) []map[string]any {
+	out := make([]map[string]any, len(quotas))
+	for i, q := range quotas {
+		out[i] = map[string]any{"name": q.Name, "hard": q.Hard, "used": q.Used}
+	}
+	return out
+}
 
-	analysis := map[string]interface{}{
-		"namespace_distribution": map[string]interface{}{
-			"system_percentage": float64(systemNS) / float64(totalNS) * 100,
-			"user_percentage":   float64(userNS) / float64(totalNS) * 100,
+func (t *NamespaceListTool) generateAnalysis(total, user, pods, quotas int) map[string]any {
+	if total == 0 {
+		return nil
+	}
+
+	avgPods := float64(pods) / float64(total)
+	quotaCoverage := (float64(quotas) / float64(total)) * 100
+
+	recs := []string{}
+	if quotaCoverage < 50 {
+		recs = append(recs, "Low quota coverage: implement ResourceQuotas for better stability.")
+	}
+	if avgPods > 100 {
+		recs = append(recs, fmt.Sprintf("High pod density (%.1f avg). Consider namespace splitting.", avgPods))
+	}
+	if user == 0 {
+		recs = append(recs, "No user namespaces: check if applications are wrongly placed in default/system namespaces.")
+	}
+
+	return map[string]any{
+		"metrics": map[string]any{
+			"avg_pods_per_ns":    avgPods,
+			"quota_coverage_pct": quotaCoverage,
 		},
-		"resource_usage": map[string]interface{}{
-			"average_pods_per_namespace": float64(totalPods) / float64(totalNS),
-			"quota_coverage_percentage":  float64(totalQuotas) / float64(totalNS) * 100,
-		},
-		"recommendations": []string{},
+		"recommendations": recs,
+		"health_status":   t.deriveHealth(len(recs)),
 	}
+}
 
-	recommendations := []string{}
-
-	if totalNS > 50 {
-		recommendations = append(recommendations,
-			"Large number of namespaces detected. Consider namespace consolidation or implementing namespace lifecycle management.")
+func (t *NamespaceListTool) deriveHealth(issueCount int) string {
+	if issueCount == 0 {
+		return "healthy"
 	}
-
-	if float64(totalQuotas)/float64(totalNS)*100 < 50 {
-		recommendations = append(recommendations,
-			"Less than 50% of namespaces have resource quotas. Consider implementing resource quotas for better resource governance.")
+	if issueCount <= 2 {
+		return "warning"
 	}
-
-	avgPodsPerNS := float64(totalPods) / float64(totalNS)
-	if avgPodsPerNS > 100 {
-		recommendations = append(recommendations,
-			fmt.Sprintf("High pod density (%.1f pods per namespace). Monitor resource usage and consider namespace splitting if needed.", avgPodsPerNS))
-	} else if avgPodsPerNS < 5 && totalNS > 10 {
-		recommendations = append(recommendations,
-			"Low pod density suggests possible namespace sprawl. Consider consolidating underutilized namespaces.")
-	}
-
-	if userNS == 0 {
-		recommendations = append(recommendations,
-			"No user namespaces detected. Consider creating dedicated namespaces for different applications or environments.")
-	}
-
-	if len(recommendations) == 0 {
-		recommendations = append(recommendations,
-			"Namespace organization looks healthy. Continue monitoring resource usage and consider implementing namespace-based RBAC if not already in place.")
-	}
-
-	analysis["recommendations"] = recommendations
-
-	var healthStatus string
-	if len(recommendations) <= 1 {
-		healthStatus = "healthy"
-	} else if len(recommendations) <= 3 {
-		healthStatus = "warning"
-	} else {
-		healthStatus = "needs_attention"
-	}
-
-	analysis["health_status"] = healthStatus
-
-	return analysis
+	return "critical"
 }

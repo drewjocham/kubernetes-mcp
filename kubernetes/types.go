@@ -27,6 +27,8 @@ type NodeCondition struct {
 	Message string `json:"message"`
 }
 
+// --- Pod Types ---
+
 type PodInfo struct {
 	Name         string            `json:"name"`
 	Namespace    string            `json:"namespace"`
@@ -88,17 +90,24 @@ type ClusterInfo struct {
 }
 
 type ClientInterface interface {
-	GetPodsAllNamespaces(ctx context.Context) ([]PodInfo, error)
-	GetEventsAllNamespaces(ctx context.Context) ([]EventInfo, error)
-	GetServicesAllNamespaces(ctx context.Context) ([]ServiceInfo, error)
-
-	GetServices(ctx context.Context, namespace string) ([]ServiceInfo, error)
+	// Node Operations
 	GetNodes(ctx context.Context) ([]NodeInfo, error)
 	GetNode(ctx context.Context, nodeName string) (*NodeInfo, error)
+
+	// Pod Operations
 	GetPods(ctx context.Context, namespace string) ([]PodInfo, error)
+	GetPodsAllNamespaces(ctx context.Context) ([]PodInfo, error)
 	GetPod(ctx context.Context, namespace, name string) (*PodInfo, error)
 
+	// Service Operations
+	GetServices(ctx context.Context, namespace string) ([]ServiceInfo, error)
+	GetServicesAllNamespaces(ctx context.Context) ([]ServiceInfo, error)
+
+	// Event Operations
 	GetEvents(ctx context.Context, namespace string) ([]EventInfo, error)
+	GetEventsAllNamespaces(ctx context.Context) ([]EventInfo, error)
+
+	//  Metadata
 	GetNamespaces(ctx context.Context) ([]string, error)
 	GetResourceQuotas(ctx context.Context, namespace string) ([]ResourceQuotaInfo, error)
 	GetClusterInfo(ctx context.Context) (*ClusterInfo, error)
