@@ -7,17 +7,6 @@ x-build-args: &common-build-args
   BUILD_DATE: ${BUILD_DATE:-2026-02-22T00:00:00Z}
 
 services:
-  mongo:
-    image: mongo:8.0
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-password}
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
-    volumes:
-      - mongo-data:/data/db
-
   mcp:
     image: watcher-mcp:latest
     build:
@@ -27,7 +16,6 @@ services:
         <<: *common-build-args
         SERVICE_ROOT: mcp
         SERVICE_CMD: ./cmd/server
-    command: ["--server"]
     environment:
       LOG_LEVEL: ${MCP_LOG_LEVEL:-info}
     ports:
@@ -37,9 +25,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    depends_on:
-      mongo:
-        condition: service_started
     volumes:
       - ${KUBECONFIG_PATH}:/home/nonroot/.kube/config:ro
 
@@ -54,15 +39,14 @@ services:
         SERVICE_CMD: ./cmd/engine
     command:
       [
-        "--listen", ":8085",
-        "--config", "/watcher/internal/config/config.yaml"
+        "--listen", ":8085"
       ]
     environment:
       LOG_LEVEL: ${WATCHER_LOG_LEVEL:-info}
     ports:
       - "${WATCHER_HTTP_PORT:-8085}:8085"
     volumes:
-      - ../watcher/internal/config/config.yaml:/watcher/internal/config/config.yaml:ro
+      - ../watcher/internal/config:/watcher/internal/config:ro
       - watcher-data:/event-engine-badger
       - ${KUBECONFIG_PATH}:/home/nonroot/.kube/config:ro
     healthcheck:
@@ -70,10 +54,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    depends_on:
-      mongo:
-        condition: service_started
 
 volumes:
   watcher-data: {}
-  mongo-data: {}

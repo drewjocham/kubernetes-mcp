@@ -53,18 +53,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	effectiveConfigPath := configPath
-	if effectiveConfigPath == "" {
-		effectiveConfigPath = config.DefaultConfigPath
-	}
-
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		fatal(logger, errLoadConfig, err)
 	}
+	loadedPaths := config.ResolvedConfigPaths(configPath)
 
 	if health {
-		logger.Info("config loaded", "path", effectiveConfigPath)
+		logger.Info("config loaded", "paths", loadedPaths)
 		return
 	}
 
@@ -109,7 +105,7 @@ func main() {
 
 	go serveHTTP(ctx, logger, httpAddr)
 
-	logger.Info("event engine starting", "config", configPath)
+	logger.Info("event engine starting", "config_paths", loadedPaths)
 	pipe.Start(ctx)
 	logger.Info("event engine stopped")
 }

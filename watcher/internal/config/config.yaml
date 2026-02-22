@@ -3,7 +3,10 @@ resource_tracking:
   fields:
     - cpu_request
     - memory_request
+    - ram
     - replicas
+    - min_pod_count
+    - max_pod_count
 rules:
   - name: high_restart_count
     kind: pod
@@ -17,6 +20,30 @@ rules:
     kind: pod
     conditions:
       - field: cpu_request
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: ram_changed
+    kind: pod
+    conditions:
+      - field: ram
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: min_pod_count_changed
+    kind: HorizontalPodAutoscaler
+    conditions:
+      - field: min_pod_count
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: max_pod_count_changed
+    kind: HorizontalPodAutoscaler
+    conditions:
+      - field: max_pod_count
         operator: changed
     actions:
       - alert_info

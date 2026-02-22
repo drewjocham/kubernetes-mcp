@@ -13,6 +13,7 @@ import (
 
 const (
 	DefaultConfigPath = "watcher/internal/config/config.yaml"
+	LegacyConfigPath  = "watcher/internal/config/event-engine.yaml"
 	defaultStorePath  = "event-engine-badger"
 )
 
@@ -78,29 +79,47 @@ type Settings struct {
 }
 
 func Load(path string) (*WatchConfig, error) {
-	if path == "" {
-		path = resolveDefaultPath(DefaultConfigPath)
+	paths := resolvePaths(path)
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("config: no configuration files found")
 	}
-	if path[0] == '~' {
-		home, err := os.UserHomeDir()
+
+	var merged *WatchConfig
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read config %s: %w", p, err)
 		}
-		path = filepath.Join(home, path[1:])
+
+		var cfg WatchConfig
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("unmarshal config %s: %w", p, err)
+		}
+		cfg.applyDefaults()
+
+		if merged == nil {
+			merged = &cfg
+			continue
+		}
+		merged.merge(cfg)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+
+	if merged == nil {
+		return nil, fmt.Errorf("config: failed to load files")
 	}
-	var cfg WatchConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
-	}
-	cfg.applyDefaults()
-	if err := cfg.Validate(); err != nil {
+
+	if err := merged.Validate(); err != nil {
 		return nil, err
 	}
-	return &cfg, nil
+	return merged, nil
+}
+
+func DefaultConfigPaths() []string {
+	return []string{DefaultConfigPath, LegacyConfigPath}
+}
+
+func ResolvedConfigPaths(path string) []string {
+	return resolvePaths(path)
 }
 
 func resolveDefaultPath(rel string) string {
@@ -120,7 +139,7 @@ func resolveDefaultPath(rel string) string {
 			return p
 		}
 	}
-	return rel
+	return ""
 }
 
 func searchUp(start, rel string) string {
@@ -143,6 +162,31 @@ func tryPath(path string) string {
 		return path
 	}
 	return ""
+}
+
+func resolvePaths(path string) []string {
+	if path != "" {
+		return []string{expandUser(path)}
+	}
+
+	var paths []string
+	for _, rel := range DefaultConfigPaths() {
+		if resolved := resolveDefaultPath(rel); resolved != "" {
+			paths = append(paths, resolved)
+		}
+	}
+	return paths
+}
+
+func expandUser(path string) string {
+	if path == "" || path[0] != '~' {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 func (c *WatchConfig) Validate() error {
@@ -185,4 +229,65 @@ func (c *WatchConfig) applyDefaults() {
 			c.Rules[i].Logic = "all"
 		}
 	}
+}
+
+func (c *WatchConfig) merge(other WatchConfig) {
+	c.ResourceTracking.Enabled = c.ResourceTracking.Enabled || other.ResourceTracking.Enabled
+	if other.ResourceTracking.Storage != "" {
+		c.ResourceTracking.Storage = other.ResourceTracking.Storage
+	}
+	if other.ResourceTracking.Path != "" && other.ResourceTracking.Path != defaultStorePath {
+		c.ResourceTracking.Path = other.ResourceTracking.Path
+	}
+	c.ResourceTracking.Fields = mergeStrings(c.ResourceTracking.Fields, other.ResourceTracking.Fields)
+
+	c.Rules = append(c.Rules, other.Rules...)
+
+	if c.Actions == nil {
+		c.Actions = make(map[string]Action)
+	}
+	for k, v := range other.Actions {
+		c.Actions[k] = v
+	}
+
+	if other.Settings.QueueDepth > 0 {
+		c.Settings.QueueDepth = other.Settings.QueueDepth
+	}
+	if other.Settings.CEL.Enabled {
+		c.Settings.CEL.Enabled = true
+	}
+}
+
+func mergeStrings(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	var out []string
+
+	for _, v := range base {
+		key := strings.ToLower(strings.TrimSpace(v))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+
+	for _, v := range extra {
+		key := strings.ToLower(strings.TrimSpace(v))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+
+	return out
 }

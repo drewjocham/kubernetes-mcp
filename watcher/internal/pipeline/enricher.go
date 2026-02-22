@@ -14,7 +14,10 @@ var supportedFields = map[string]struct{}{
 	"restart_count":  {},
 	"cpu_request":    {},
 	"memory_request": {},
+	"ram":            {},
 	"replicas":       {},
+	"min_pod_count":  {},
+	"max_pod_count":  {},
 }
 
 type PodEnricher struct {
@@ -41,34 +44,15 @@ func NewPodEnricher(fields []string) *PodEnricher {
 }
 
 func (p *PodEnricher) Enrich(_ context.Context, evt events.ResourceEvent) (events.ResourceEvent, error) {
-	if !strings.EqualFold(evt.Kind, "Pod") || evt.Object == nil {
+	if evt.Object == nil {
 		return evt, nil
 	}
 
-	obj := evt.Object
-
-	if p.enabled("restart_count") {
-		if val, ok := restartCount(obj); ok {
-			obj["restart_count"] = val
-		}
-	}
-
-	if p.enabled("cpu_request") {
-		if val, ok := aggregateResource(obj, "cpu"); ok {
-			obj["cpu_request"] = val
-		}
-	}
-
-	if p.enabled("memory_request") {
-		if val, ok := aggregateResource(obj, "memory"); ok {
-			obj["memory_request"] = val
-		}
-	}
-
-	if p.enabled("replicas") {
-		if val, ok := replicas(obj); ok {
-			obj["replicas"] = val
-		}
+	switch strings.ToLower(evt.Kind) {
+	case "pod":
+		p.enrichPod(evt.Object)
+	case "horizontalpodautoscaler":
+		p.enrichHPA(evt.Object)
 	}
 
 	return evt, nil
@@ -178,6 +162,62 @@ func toInt(v interface{}) (int, bool) {
 	return 0, false
 }
 
+func (p *PodEnricher) enrichPod(obj map[string]interface{}) {
+	if p.enabled("restart_count") {
+		if val, ok := restartCount(obj); ok {
+			obj["restart_count"] = val
+		} else {
+			obj["restart_count"] = 0
+		}
+	}
+
+	if p.enabled("cpu_request") {
+		val, ok := aggregateResource(obj, "cpu")
+		if !ok {
+			val = "0"
+		}
+		obj["cpu_request"] = val
+	}
+
+	if p.enabled("memory_request") || p.enabled("ram") {
+		val, ok := aggregateResource(obj, "memory")
+		if !ok {
+			val = "0"
+		}
+		if p.enabled("memory_request") {
+			obj["memory_request"] = val
+		}
+		if p.enabled("ram") {
+			obj["ram"] = val
+		}
+	}
+
+	if p.enabled("replicas") {
+		if val, ok := replicas(obj); ok {
+			obj["replicas"] = val
+		} else {
+			obj["replicas"] = 0
+		}
+	}
+}
+
+func (p *PodEnricher) enrichHPA(obj map[string]interface{}) {
+	if p.enabled("min_pod_count") {
+		if val, ok := hpaReplicaBound(obj, "min"); ok {
+			obj["min_pod_count"] = val
+		} else {
+			obj["min_pod_count"] = 1
+		}
+	}
+
+	if p.enabled("max_pod_count") {
+		if val, ok := hpaReplicaBound(obj, "max"); ok {
+			obj["max_pod_count"] = val
+		} else {
+			obj["max_pod_count"] = 0
+		}
+	}
+}
 func toString(v interface{}) string {
 	switch val := v.(type) {
 	case string:
@@ -187,4 +227,23 @@ func toString(v interface{}) string {
 	default:
 		return ""
 	}
+}
+
+func hpaReplicaBound(obj map[string]interface{}, bound string) (int, bool) {
+	spec, ok := obj["spec"].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+	switch bound {
+	case "min":
+		if val, ok := toInt(spec["minReplicas"]); ok {
+			return val, true
+		}
+		return 1, true
+	case "max":
+		if val, ok := toInt(spec["maxReplicas"]); ok {
+			return val, true
+		}
+	}
+	return 0, false
 }

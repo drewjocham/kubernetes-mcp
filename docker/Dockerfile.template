@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:1.7-labs
-
 ARG BUILD_IMAGE=1.25.7-alpine3.23
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot
 ARG DEBUG_RUNTIME_IMAGE=gcr.io/distroless/static-debian12:debug-nonroot
@@ -10,9 +9,7 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 
-##############################
-# Dependency & build stage
-##############################
+
 FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS builder
 
 ARG SERVICE_ROOT
@@ -43,17 +40,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -gcflags="all=-N -l" \
     -o /out/app-debug ${SERVICE_CMD}
 
-##############################
+
 # Debug image
-##############################
 FROM --platform=$TARGETPLATFORM ${DEBUG_RUNTIME_IMAGE} AS runner-debug
 COPY --from=builder /out/app-debug /app/main
 USER 65532:65532
 ENTRYPOINT ["/app/main"]
 
-##############################
 # Final slim image
-##############################
 FROM --platform=$TARGETPLATFORM ${RUNTIME_IMAGE} AS final
 COPY --from=builder /out/app /app/main
 USER 65532:65532

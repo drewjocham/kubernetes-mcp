@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
@@ -33,55 +33,74 @@ func NewInformerSource(client clientset.Interface, logger *slog.Logger, resync t
 
 func (s *InformerSource) Run(ctx context.Context, out chan<- events.ResourceEvent) {
 	factory := informers.NewSharedInformerFactory(s.client, s.resync)
-	inf := factory.Core().V1().Pods().Informer()
 
-	emit := func(obj interface{}) { s.emit(obj, out, "Pod") }
+	type entry struct {
+		kind     string
+		informer cache.SharedIndexInformer
+	}
 
-	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    emit,
-		UpdateFunc: func(_, newObj interface{}) { emit(newObj) },
-		DeleteFunc: emit,
-	})
+	informersToWatch := []entry{
+		{kind: "Pod", informer: factory.Core().V1().Pods().Informer()},
+		{kind: "HorizontalPodAutoscaler", informer: factory.Autoscaling().V2().HorizontalPodAutoscalers().Informer()},
+	}
+
+	for _, e := range informersToWatch {
+		entry := e
+		emit := func(obj interface{}) { s.emit(obj, out, entry.kind) }
+		entry.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc:    emit,
+			UpdateFunc: func(_, newObj interface{}) { emit(newObj) },
+			DeleteFunc: emit,
+		})
+	}
 
 	factory.Start(ctx.Done())
-	if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
-		s.logger.Warn("pod informer cache sync failed")
-		return
+	for _, e := range informersToWatch {
+		if !cache.WaitForCacheSync(ctx.Done(), e.informer.HasSynced) {
+			s.logger.Warn("informer cache sync failed", "kind", e.kind)
+			return
+		}
 	}
 
 	<-ctx.Done()
 }
 
 func (s *InformerSource) emit(obj interface{}, out chan<- events.ResourceEvent, kind string) {
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
-		if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-			pod, _ = tombstone.Obj.(*corev1.Pod)
-		}
-	}
-
-	if pod == nil {
+	rtObj, meta := objectMeta(obj)
+	if rtObj == nil || meta == nil {
 		return
 	}
 
-	data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
+	data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(rtObj)
 	if err != nil {
-		s.logger.Warn("failed to convert resource", "error", err)
+		s.logger.Warn("failed to convert resource", "kind", kind, "error", err)
 		return
 	}
 
 	evt := events.ResourceEvent{
 		Kind:            kind,
-		Namespace:       pod.Namespace,
-		Name:            pod.Name,
-		ResourceVersion: pod.ResourceVersion,
+		Namespace:       meta.GetNamespace(),
+		Name:            meta.GetName(),
+		ResourceVersion: meta.GetResourceVersion(),
 		Object:          data,
-		Raw:             pod,
+		Raw:             rtObj,
 	}
 
 	select {
 	case out <- evt:
 	default:
 		s.logger.Warn("event channel full, dropping", "key", evt.Key())
+	}
+}
+
+func objectMeta(obj interface{}) (runtime.Object, metav1.Object) {
+	switch typed := obj.(type) {
+	case cache.DeletedFinalStateUnknown:
+		return objectMeta(typed.Obj)
+	case runtime.Object:
+		meta, _ := typed.(metav1.Object)
+		return typed, meta
+	default:
+		return nil, nil
 	}
 }
