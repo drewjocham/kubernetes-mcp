@@ -1,0 +1,32 @@
+resource_tracking:
+  enabled: true
+  fields:
+    - cpu_request
+    - memory_request
+    - replicas
+rules:
+  - name: high_restart_count
+    kind: pod
+    conditions:
+      - field: restart_count
+        operator: gt
+        value: 5
+    actions:
+      - alert_critical
+  - name: cpu_request_changed
+    kind: pod
+    conditions:
+      - field: cpu_request
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+actions:
+  alert_critical:
+    type: alert
+    severity: critical
+  alert_info:
+    type: alert
+    severity: info
+  log_change:
+    type: log

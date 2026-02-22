@@ -12,7 +12,7 @@ func main() {
 		panic(err)
 	}
 
-	cmd := exec.Command("go", append([]string{"run", filepath.Join(dir, "cmd", "main.go")}, os.Args[1:]...)...)
+	cmd := exec.Command("go", append([]string{"run", filepath.Join(dir, "mcp", "cmd", "server")}, os.Args[1:]...)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

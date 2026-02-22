@@ -1,10 +1,15 @@
 # kube-watcher Makefile
 
-BINARY_NAME=kube-watcher
+BIN_DIR=bin
+BINARY_NAME?=$(MCP_BINARY_NAME)
+MCP_BINARY_NAME=kube-watcher
+WATCHER_BINARY_NAME=watcher-engine
+MCP_CMD=./mcp/cmd/server
+WATCHER_CMD=./watcher/cmd/engine
 VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
+MCP_LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
 
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -18,28 +23,39 @@ GORUN=$(GOCMD) run
 # Default target
 all: fmt vet test build
 
-# Build the application
-build:
-	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/main.go
+# Build the applications
+build: build-mcp build-watcher
+
+build-mcp:
+	@echo "Building $(MCP_BINARY_NAME)..."
+	$(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME) $(MCP_CMD)
+
+build-watcher:
+	@echo "Building $(WATCHER_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(WATCHER_BINARY_NAME) $(WATCHER_CMD)
 
 tidy:
 	go mod tidy
 
-# Run the application
-run:
-	@echo "Running $(BINARY_NAME)..."
-	$(GORUN) main.go $(ARGS)
+# Run the applications
+run: run-mcp
 
-# Run with specific command
+run-mcp:
+	@echo "Running $(MCP_BINARY_NAME)..."
+	$(GORUN) $(MCP_CMD) $(ARGS)
+
+run-watcher:
+	@echo "Running $(WATCHER_BINARY_NAME)..."
+	$(GORUN) $(WATCHER_CMD) $(ARGS)
+
 run-health:
-	$(GORUN) main.go --health
+	$(GORUN) $(MCP_CMD) --health
 
 run-list:
-	$(GORUN) main.go --list-tools
+	$(GORUN) $(MCP_CMD) --list-tools
 
 run-server:
-	$(GORUN) main.go --server
+	$(GORUN) $(MCP_CMD) --server
 
 # Clean build artifacts
 clean:
@@ -84,25 +100,25 @@ vet:
 	$(GOCMD) vet ./...
 
 # Install the binary
-install: build
-	@echo "Installing $(BINARY_NAME)..."
-	cp bin/$(BINARY_NAME) $(GOPATH)/bin/
+install: build-mcp
+	@echo "Installing $(MCP_BINARY_NAME)..."
+	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH)/bin/
 
 # Build for multiple platforms
 build-all: build-linux build-darwin build-windows
 
 build-linux:
 	@echo "Building for Linux..."
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-amd64 ./cmd/main.go
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME)-linux-amd64 $(MCP_CMD)
 
 build-darwin:
 	@echo "Building for macOS..."
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-amd64 ./cmd/main.go
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-arm64 ./cmd/main.go
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME)-darwin-amd64 $(MCP_CMD)
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME)-darwin-arm64 $(MCP_CMD)
 
 build-windows:
 	@echo "Building for Windows..."
-	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME)-windows-amd64.exe ./cmd/main.go
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME)-windows-amd64.exe $(MCP_CMD)
 
 # Docker targets
 docker-build:
@@ -115,7 +131,7 @@ docker-run:
 
 # Development helpers
 dev: fmt vet
-	$(GORUN) main.go --server
+	$(GORUN) $(MCP_CMD) --server
 
 dev-tools: deps
 	@echo "Installing development tools..."
@@ -125,7 +141,9 @@ dev-tools: deps
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the application binary"
-	@echo "  run           - Run the application (use ARGS= for arguments)"
+	@echo "  run           - Run the MCP server (alias for run-mcp)"
+	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
+	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
 	@echo "  run-health    - Run health check"
 	@echo "  run-list      - List available tools"
 	@echo "  run-server    - Run in server mode"
