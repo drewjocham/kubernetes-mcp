@@ -2,6 +2,9 @@
 
 BIN_DIR=bin
 BINARY_NAME?=$(MCP_BINARY_NAME)
+COMPOSE_FILE?=docker/compose.yaml
+KUBECONFIG_PATH?=$(HOME)/.kube/config
+COMPOSE_ENV=KUBECONFIG_PATH=$(KUBECONFIG_PATH)
 MCP_BINARY_NAME=kube-watcher
 WATCHER_BINARY_NAME=watcher-engine
 MCP_CMD=./mcp/cmd/server
@@ -18,7 +21,7 @@ GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GORUN=$(GOCMD) run
 
-.PHONY: all build clean test deps run help lint fmt vet
+.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down
 
 # Default target
 all: fmt vet test build
@@ -56,6 +59,18 @@ run-list:
 
 run-server:
 	$(GORUN) $(MCP_CMD) --server
+
+mcp-up:
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build mcp
+
+watcher-up:
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build watcher
+
+up:
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build
+
+down:
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) down
 
 # Clean build artifacts
 clean:
@@ -144,6 +159,10 @@ help:
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
+	@echo "  compose-up-mcp      - docker compose up --build mcp"
+	@echo "  compose-up-watcher  - docker compose up --build watcher"
+	@echo "  compose-up-all      - docker compose up --build (all services)"
+	@echo "  compose-down        - docker compose down"
 	@echo "  run-health    - Run health check"
 	@echo "  run-list      - List available tools"
 	@echo "  run-server    - Run in server mode"

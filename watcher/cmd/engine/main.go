@@ -38,11 +38,13 @@ func main() {
 		debug      bool
 		logFile    string
 		httpAddr   string
+		health     bool
 	)
 	flag.StringVar(&configPath, "config", "", "path to config")
 	flag.BoolVar(&debug, "debug", false, "enable debug")
 	flag.StringVar(&logFile, "log-file", "", "path to log file")
 	flag.StringVar(&httpAddr, "listen", ":8085", "http listen address")
+	flag.BoolVar(&health, "health", false, "run health probe and exit")
 	flag.Parse()
 
 	logger, err := logging.New(debug, logFile)
@@ -51,9 +53,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	effectiveConfigPath := configPath
+	if effectiveConfigPath == "" {
+		effectiveConfigPath = config.DefaultConfigPath
+	}
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		fatal(logger, errLoadConfig, err)
+	}
+
+	if health {
+		logger.Info("config loaded", "path", effectiveConfigPath)
+		return
 	}
 
 	k8sClient, err := kube.NewClient(logger)
