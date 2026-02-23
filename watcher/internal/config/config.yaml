@@ -42,13 +42,13 @@ rules:
     kind: Pod
     condition: "evt.node_memory_pressure == true && evt.mem_limit_gap > 2048"
     actions:
-      - slack-ops-channel
+      - personal-channel
   - name: Pod-Stuck-In-Pending
     kind: Pod
     duration: 10m
     condition: "evt.is_ready == false && evt.waiting_reason == 'ContainerCreating'"
     actions:
-      - slack-ops-channel
+      - personal-channel
 actions:
   slack-dev-team:
     type: alert
@@ -56,12 +56,17 @@ actions:
   ops-pager:
     type: alert
     severity: critical
-  slack-ops-channel:
+  personal-channel:
     type: alert
     severity: warning
   log_change:
     type: log
     template: "{{ .rule.name }} triggered for {{ .resource.metadata.name }}"
+  google-chat:
+    type: notification
+    template: "Rule '{{ .RuleName }}' triggered for resource '{{ .Context.resource.kind }}/{{ .Context.resource.metadata.name }}'"
+    config:
+      url: "https://chat.googleapis.com/v1/spaces/AAQAKFdXW08/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=KTXFCf54GSEhe4DXv9-HWAmaow7HBdlLIc6qpjyMCZ0"
 settings:
   metrics:
     enabled: true

@@ -31,7 +31,7 @@ const (
 	pathReady             = "/readyz"
 	traceAttrToolName     = "tool.name"
 	traceAttrRoutePattern = "http.route"
-	logMsgPanicRecovered  = "panic recovered"
+	logMsgPanicRecovered  = "panic-recovered"
 	logKeyError           = "error"
 	logKeyStack           = "stack"
 	defaultHistoryWindow  = 72 * time.Hour
@@ -117,8 +117,8 @@ func (a *API) Routes() http.Handler {
 	r.Use(otelchi.Middleware(a.serviceName, otelchi.WithChiRoutes(r)))
 
 	r.Get("/", a.wrap("root", a.handleRoot))
-	r.Get(pathHealth, a.wrap("healthz", a.handleHealth))
-	r.Get(pathReady, a.wrap("readyz", a.handleReady))
+	r.Get(pathHealth, a.wrap("health", a.handleHealth))
+	r.Get(pathReady, a.wrap("ready", a.handleReady))
 
 	r.Get(prefix+"/status", a.wrap("status", a.handleStatus))
 	r.Get(pathTools, a.wrap("list-tools", a.handleListTools))

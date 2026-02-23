@@ -148,6 +148,7 @@ func (s *MCPServer) setupTools(cfg Config) {
 		tools.NewClusterAnalysisTool(s.client),
 		tools.NewRecommendationTool(s.client, s.engine),
 		tools.NewClusterEventsTool(s.client, s.logger),
+		tools.NewHistoryInsightsToolWithClient(s.client, s.history),
 	}
 
 	for _, t := range allTools {

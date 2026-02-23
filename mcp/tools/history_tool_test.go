@@ -5,20 +5,19 @@ import (
 	"testing"
 	"time"
 
-	"kube-watcher/monitoring/history"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"kube-watcher/mcp/monitoring/history"
 )
 
-func TestHistoryInsightsToolExecute(t *testing.T) {
+func TestHistoryInsightsTool_Execute(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	store, err := history.NewStore(dir)
-	if err != nil {
-		t.Fatalf("failed to init store: %v", err)
-	}
+	store, err := history.NewStore(t.TempDir())
+	require.NoError(t, err, "Failed to initialize history store")
 	defer store.Close()
 
 	now := time.Now()
-	incidents := []history.Incident{
+	seedIncidents(t, ctx, store, []history.Incident{
 		{
 			ID:        "1",
 			Kind:      history.IncidentTypePod,
@@ -35,24 +34,20 @@ func TestHistoryInsightsToolExecute(t *testing.T) {
 			Namespace: "default",
 			Name:      "api",
 		},
-	}
-	for _, inc := range incidents {
-		if err := store.Record(ctx, inc); err != nil {
-			t.Fatalf("failed to record incident: %v", err)
-		}
-	}
+	})
 
 	tool := NewHistoryInsightsTool(store)
 
 	tests := []struct {
 		name        string
-		args        map[string]interface{}
+		args        map[string]any
 		wantCount   int
 		wantInsight string
+		wantErr     bool
 	}{
 		{
-			name: "filters_by_severity_and_limit",
-			args: map[string]interface{}{
+			name: "FilterBySeverityAndLimit",
+			args: map[string]any{
 				"kind":        string(history.IncidentTypePod),
 				"since_hours": 4.0,
 				"severity":    "high",
@@ -62,28 +57,44 @@ func TestHistoryInsightsToolExecute(t *testing.T) {
 			wantInsight: "Critical: Significant spike in issue frequency detected compared to previous window.",
 		},
 		{
-			name:        "all_incidents_without_filters",
-			args:        map[string]interface{}{},
+			name:        "ReturnAllWithoutFilters",
+			args:        map[string]any{},
 			wantCount:   2,
 			wantInsight: "Critical: Significant spike in issue frequency detected compared to previous window.",
 		},
+		{
+			name: "InvalidArgType",
+			args: map[string]any{
+				"limit": "not-an-int",
+			},
+			wantErr: true,
+		},
 	}
 
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			res, err := tool.Execute(ctx, tc.args)
-			if err != nil {
-				t.Fatalf("Execute returned error: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := tool.Execute(ctx, tt.args)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
 			}
-			results := res["results"].(map[string]interface{})
-			count := results["count"].(int)
-			if count != tc.wantCount {
-				t.Fatalf("expected %d incidents, got %d", tc.wantCount, count)
-			}
-			if res["insight"] != tc.wantInsight {
-				t.Fatalf("unexpected insight: %v", res["insight"])
-			}
+
+			require.NoError(t, err)
+
+			results, ok := res["results"].(map[string]any)
+			require.True(t, ok, "Results payload should be a map")
+
+			assert.Equal(t, tt.wantCount, results["count"])
+			assert.Equal(t, tt.wantInsight, res["insight"])
 		})
+	}
+}
+
+func seedIncidents(t *testing.T, ctx context.Context, s *history.Store, incs []history.Incident) {
+	t.Helper()
+	for _, inc := range incs {
+		err := s.Record(ctx, inc)
+		require.NoError(t, err, "Failed to seed incident ID: %s", inc.ID)
 	}
 }

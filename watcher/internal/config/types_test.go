@@ -131,7 +131,7 @@ func TestWatchConfig_Validate(t *testing.T) {
 			cfg: &WatchConfig{
 				Rules: []Rule{{Name: "r", Conditions: []Condition{{Field: "f"}}, Actions: []string{"ghost"}}},
 			},
-			wantErr: assert.AnError, // Generic check for unknown action
+			wantErr: assert.AnError,
 		},
 	}
 

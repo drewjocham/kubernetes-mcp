@@ -134,7 +134,7 @@ docker-run:
 	@echo "Running Docker container..."
 	docker run --rm -it -v ~/.kube:/root/.kube $(BINARY_NAME):$(VERSION)
 
-# Development helpers
+# Development
 dev: fmt vet
 	$(GORUN) $(MCP_CMD) --server
 

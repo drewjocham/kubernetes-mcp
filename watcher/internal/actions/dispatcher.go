@@ -3,8 +3,10 @@ package actions
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"text/template"
 	"time"
@@ -63,6 +65,8 @@ func (d *Dispatcher) execute(task dispatchTask) {
 	switch inv.Action.Type {
 	case "log":
 		d.handleLog(inv)
+	case "notification":
+		d.handleNotification(inv)
 	default:
 		d.logger.Info("action executed",
 			"type", inv.Action.Type, "rule", inv.RuleName)
@@ -78,6 +82,56 @@ func (d *Dispatcher) handleLog(inv rules.ActionInvocation) {
 	}
 	d.logger.Info("rule action",
 		"rule", inv.RuleName, "action", inv.ActionID, "message", msg)
+}
+
+func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
+	url, ok := inv.Action.Config["url"]
+	if !ok || url == "" {
+		d.logger.Warn("action notification missing url",
+			"rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	msg, err := d.renderTemplate(inv.Action.Template, inv.Context)
+	if err != nil {
+		d.logger.Warn("action template failure",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+
+	// Google Chat webhooks expect a message format like {"text": "..."}
+	payload := map[string]string{"text": msg}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		d.logger.Warn("failed to marshal notification payload",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		d.logger.Warn("failed to create notification request",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		d.logger.Warn("failed to send notification",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		d.logger.Warn("notification webhook returned non-200 status",
+			"status", resp.Status, "rule", inv.RuleName)
+		return
+	}
+
+	d.logger.Info("rule action executed",
+		"rule", inv.RuleName, "action", inv.ActionID, "type", "notification")
 }
 
 func (d *Dispatcher) renderTemplate(tmplStr string, data interface{}) (string, error) {
