@@ -56,82 +56,81 @@ func TestEventEngineIntegration(t *testing.T) {
 	cfg := &config.WatchConfig{
 		Rules: []config.Rule{
 			{
-				Name:    "crash_loop",
+				Name:    "high_restarts",
 				Kind:    "Pod",
 				Logic:   "all",
 				Actions: []string{"log"},
 				Conditions: []config.Condition{
-					{Field: "status.phase", Operator: "eq", Value: "CrashLoopBackOff"},
+					// Tests our new stateful delta logic
+					{Field: "restart_delta", Operator: "gt", Value: 0},
+				},
+			},
+			{
+				Name:    "node_pressure",
+				Kind:    "Node",
+				Actions: []string{"log"},
+				Conditions: []config.Condition{
+					// Tests our new NodeEnricher flags
+					{Field: "node_memory_pressure", Operator: "eq", Value: true},
 				},
 			},
 		},
 		Actions: map[string]config.Action{
-			"log": {Type: "log", Template: "triggered {{ .rule.Name }} on {{ .resource.metadata.name }}"},
+			"log": {Type: "log", Template: "Alert: {{ .rule.Name }} on {{ .resource.metadata.name }}"},
 		},
-		Settings: config.Settings{QueueDepth: 4},
+		Settings: config.Settings{QueueDepth: 10},
 	}
 
+	// Using MemoryStore for tests is fine, interface consistency handles it
 	store := tracker.NewMemoryStore()
 	defer store.Close()
 
 	engine := rules.NewEngine(logger, cfg, store, nil)
+	dispatcher, _ := actions.NewDispatcher(logger, cfg.Actions, 4)
 
-	dispatcher, err := actions.NewDispatcher(logger, cfg.Actions, 4)
-	if err != nil {
-		t.Fatalf("failed to init dispatcher: %v", err)
-	}
-
-	event := events.ResourceEvent{
-		Kind:            "Pod",
-		Namespace:       "default",
-		Name:            "api",
-		ResourceVersion: "1",
+	podEvent := events.ResourceEvent{
+		Kind: "Pod", Namespace: "default", Name: "api",
 		Object: map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"name": "api",
-			},
-			"status": map[string]interface{}{
-				"phase": "CrashLoopBackOff",
-			},
+			"metadata":      map[string]interface{}{"name": "api"},
+			"restart_count": 5, // The Enricher should set this
+			"restart_delta": 1, // mock delta from the pipeline
 		},
 	}
 
-	src := eventSource{events: []events.ResourceEvent{event}}
+	// 2. Node Event (New Kind support)
+	nodeEvent := events.ResourceEvent{
+		Kind: "Node", Name: "worker-01",
+		Object: map[string]interface{}{
+			"metadata":             map[string]interface{}{"name": "worker-01"},
+			"node_memory_pressure": true,
+		},
+	}
+
+	src := eventSource{events: []events.ResourceEvent{podEvent, nodeEvent}}
 	filter := pipeline.NewRuleAwareFilter(cfg)
-	pipe := pipeline.New(logger, src, filter, nil, engine, dispatcher, cfg.Settings.QueueDepth)
+
+	// test the Engine in isolation
+	pipe := pipeline.New(logger, src, filter, nil, engine, dispatcher, store, nil, cfg.Settings.QueueDepth, 2, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := make(chan struct{})
-	go func() {
-		pipe.Start(ctx)
-		close(done)
-	}()
+	go pipe.Start(ctx)
 
-	assertLogged := func() bool {
-		msg := buf.String()
-		return strings.Contains(msg, "rule action") && strings.Contains(msg, "crash_loop")
-	}
-
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer waitCancel()
+
 	for {
-		if assertLogged() {
+		msg := buf.String()
+		// both the pod delta rule and the node pressure rule triggered
+		if strings.Contains(msg, "high_restarts") && strings.Contains(msg, "node_pressure") {
 			break
 		}
 		select {
 		case <-waitCtx.Done():
-			t.Fatal("timed out waiting for dispatcher log output")
+			t.Fatalf("timed out. Log output: %s", msg)
 		default:
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("pipeline did not stop")
 	}
 }

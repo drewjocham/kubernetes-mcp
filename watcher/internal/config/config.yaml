@@ -1,59 +1,68 @@
 resource_tracking:
   enabled: true
+  retention: 1h
   fields:
     - cpu_request
+    - cpu_limit
     - memory_request
+    - memory_limit
     - ram
-    - replicas
     - min_pod_count
     - max_pod_count
+    - current_replicas
+    - desired_replicas
+    - node_memory_pressure
+    - node_disk_pressure
+    - waiting_reason
 rules:
-  - name: high_restart_count
-    kind: pod
-    conditions:
-      - field: restart_count
-        operator: gt
-        value: 5
+  - name: Pod-Restarting-Frequently
+    kind: Pod
+    condition: "evt.restart_delta > 0 && evt.waiting_reason == 'CrashLoopBackOff'"
     actions:
-      - alert_critical
-  - name: cpu_request_changed
-    kind: pod
-    conditions:
-      - field: cpu_request
-        operator: changed
+      - slack-dev-team
+      - ops-pager
+  - name: Image-Pull-Failure
+    kind: Pod
+    duration: 2m
+    condition: "evt.waiting_reasons.exists(r, r.contains('ImagePull'))"
     actions:
-      - alert_info
-      - log_change
-  - name: ram_changed
-    kind: pod
-    conditions:
-      - field: ram
-        operator: changed
-    actions:
-      - alert_info
-      - log_change
-  - name: min_pod_count_changed
+      - slack-dev-team
+  - name: HPA-Stalled-At-Ceiling
     kind: HorizontalPodAutoscaler
-    conditions:
-      - field: min_pod_count
-        operator: changed
+    duration: 5m
+    condition: "evt.hpa_is_stalled == true"
     actions:
-      - alert_info
-      - log_change
-  - name: max_pod_count_changed
-    kind: HorizontalPodAutoscaler
-    conditions:
-      - field: max_pod_count
-        operator: changed
+      - ops-pager
+  - name: Node-Memory-Pressure
+    kind: Node
+    condition: "evt.node_memory_pressure == true"
     actions:
-      - alert_info
-      - log_change
+      - ops-pager
+  - name: Dangerous-Resource-Gap
+    kind: Pod
+    condition: "evt.node_memory_pressure == true && evt.mem_limit_gap > 2048"
+    actions:
+      - slack-ops-channel
+  - name: Pod-Stuck-In-Pending
+    kind: Pod
+    duration: 10m
+    condition: "evt.is_ready == false && evt.waiting_reason == 'ContainerCreating'"
+    actions:
+      - slack-ops-channel
 actions:
-  alert_critical:
+  slack-dev-team:
     type: alert
     severity: critical
-  alert_info:
+  ops-pager:
     type: alert
-    severity: info
+    severity: critical
+  slack-ops-channel:
+    type: alert
+    severity: warning
   log_change:
     type: log
+    template: "{{ .rule.name }} triggered for {{ .resource.metadata.name }}"
+settings:
+  metrics:
+    enabled: true
+    listen: ":9095"

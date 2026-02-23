@@ -3,10 +3,10 @@ package recommendation
 import (
 	"context"
 	"fmt"
+	"kube-watcher/mcp/monitoring/history"
 	"log/slog"
 	"time"
 
-	"kube-watcher/monitoring/history"
 	"kube-watcher/pkg/kube/watch"
 )
 
@@ -32,7 +32,6 @@ func NewEngine(store history.Recorder, logger *slog.Logger) *Engine {
 	}
 }
 
-// ForAlert a recommendation for the supplied alert.
 func (e *Engine) ForAlert(ctx context.Context, alert watch.Alert) (Recommendation, error) {
 	delta, err := e.store.CompareFrequency(ctx, history.IssueKind(alert.Kind), 6*time.Hour, 24*time.Hour)
 	if err != nil {

@@ -2,10 +2,10 @@ package tools
 
 import (
 	"context"
+	"kube-watcher/mcp/monitoring/history"
 	"sort"
 	"time"
 
-	"kube-watcher/monitoring/history"
 	"kube-watcher/pkg/kube"
 )
 

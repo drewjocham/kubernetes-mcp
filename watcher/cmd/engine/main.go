@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,24 +14,23 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"kube-watcher/pkg/kube"
 	"kube-watcher/pkg/logging"
 	"kube-watcher/watcher/internal/actions"
 	"kube-watcher/watcher/internal/config"
+	"kube-watcher/watcher/internal/monitoring/metrics"
 	"kube-watcher/watcher/internal/pipeline"
 	"kube-watcher/watcher/internal/rules"
 	"kube-watcher/watcher/internal/source"
 	"kube-watcher/watcher/internal/tracker"
 )
 
-var (
-	errInitLogger = errors.New("event-engine: logger init failed")
-	errInitClient = errors.New("event-engine: kubernetes client init failed")
-	errLoadConfig = errors.New("event-engine: config load failed")
-	errInitStore  = errors.New("event-engine: tracker store init failed")
-	errDispatcher = errors.New("event-engine: dispatcher init failed")
-)
+type engineApp struct {
+	cfg    *config.WatchConfig
+	logger *slog.Logger
+}
 
 func main() {
 	var (
@@ -38,142 +38,191 @@ func main() {
 		debug      bool
 		logFile    string
 		httpAddr   string
-		health     bool
+		healthOnly bool
 	)
+
 	flag.StringVar(&configPath, "config", "", "path to config")
 	flag.BoolVar(&debug, "debug", false, "enable debug")
 	flag.StringVar(&logFile, "log-file", "", "path to log file")
 	flag.StringVar(&httpAddr, "listen", ":8085", "http listen address")
-	flag.BoolVar(&health, "health", false, "run health probe and exit")
+	flag.BoolVar(&healthOnly, "health", false, "run health probe and exit")
 	flag.Parse()
 
 	logger, err := logging.New(debug, logFile)
 	if err != nil {
-		slog.Default().Error(errInitLogger.Error(), "error", err)
+		slog.Default().Error("failed to initialize logger", "error", err)
 		os.Exit(1)
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fatal(logger, errLoadConfig, err)
+		fatal(logger, "config load failed", err)
 	}
-	loadedPaths := config.ResolvedConfigPaths(configPath)
 
-	if health {
-		logger.Info("config loaded", "paths", loadedPaths)
+	if healthOnly {
+		logger.Info("config validation successful", "paths", config.ResolvedConfigPaths(configPath))
 		return
 	}
 
-	k8sClient, err := kube.NewClient(logger)
+	app := &engineApp{cfg: cfg, logger: logger}
+	if err := app.run(configPath, httpAddr); err != nil {
+		fatal(logger, "application failed", err)
+	}
+}
+
+func (a *engineApp) run(configPath, httpAddr string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	k8sClient, err := kube.NewClient(a.logger)
 	if err != nil {
-		fatal(logger, errInitClient, err)
+		return fmt.Errorf("k8s client: %w", err)
 	}
 
-	store, err := initStore(cfg)
+	store, err := a.initStore()
 	if err != nil {
-		fatal(logger, errInitStore, err)
+		return fmt.Errorf("store init: %w", err)
 	}
 	defer store.Close()
 
-	var celEnv *cel.Env
-	if cfg.Settings.CEL.Enabled {
-		if celEnv, err = cel.NewEnv(); err != nil {
-			fatal(logger, errors.New("CEL init failed"), err)
-		}
-	}
-
-	dispatcher, err := actions.NewDispatcher(logger, cfg.Actions, 64)
+	celEnv, err := a.initCEL()
 	if err != nil {
-		fatal(logger, errDispatcher, err)
+		return fmt.Errorf("cel init: %w", err)
 	}
 
-	engine := rules.NewEngine(logger, cfg, store, celEnv)
-	src := source.NewInformerSource(k8sClient.GetRawInterface(), logger, 30*time.Second)
-	enricher := pipeline.NewPodEnricher(enrichmentFields(cfg))
-	pipe := pipeline.New(
-		logger,
-		src,
-		pipeline.NewRuleAwareFilter(cfg),
-		enricher,
-		engine,
-		dispatcher,
-		cfg.Settings.QueueDepth,
-	)
+	dispatcher, err := actions.NewDispatcher(a.logger, a.cfg.Actions, 64)
+	if err != nil {
+		return fmt.Errorf("dispatcher: %w", err)
+	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	metricStore := tracker.NewMetricStore(time.Hour)
+	go metricStore.CleanupLoop(ctx, 5*time.Minute)
 
-	go serveHTTP(ctx, logger, httpAddr)
+	pipe := a.buildPipeline(k8sClient, store, metricStore, dispatcher, celEnv)
 
-	logger.Info("event engine starting", "config_paths", loadedPaths)
+	a.startServer(ctx, "internal-api", httpAddr, a.apiMux())
+	if a.cfg.Settings.Metrics.Enabled {
+		a.startServer(ctx, "metrics", a.cfg.Settings.Metrics.Listen, a.metricsMux())
+	}
+
+	a.logger.Info("event engine starting",
+		"config_paths", config.ResolvedConfigPaths(configPath))
 	pipe.Start(ctx)
-	logger.Info("event engine stopped")
+	a.logger.Info("event engine stopped")
+	return nil
 }
 
-func initStore(cfg *config.WatchConfig) (tracker.Store, error) {
-	if cfg.ResourceTracking.Storage == "memory" {
+func (a *engineApp) initStore() (tracker.Store, error) {
+	if a.cfg.ResourceTracking.Storage == "memory" {
 		return tracker.NewMemoryStore(), nil
 	}
-	return tracker.NewBadgerStore(cfg.ResourceTracking.Path)
+	return tracker.NewBadgerStore(a.cfg.ResourceTracking.Path, a.cfg.ResourceTracking.Retention)
 }
 
-func fatal(l *slog.Logger, msg, err error) {
-	l.Error(msg.Error(), "error", err)
-	os.Exit(1)
+func (a *engineApp) initCEL() (*cel.Env, error) {
+	if !a.cfg.Settings.CEL.Enabled {
+		return nil, nil
+	}
+	return cel.NewEnv(
+		cel.Variable("evt", cel.DynType),
+		cel.Variable("meta", cel.DynType),
+	)
 }
 
-func serveHTTP(ctx context.Context, logger *slog.Logger, addr string) {
+func (a *engineApp) buildPipeline(client *kube.Client, st tracker.Store, ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
+	engine := rules.NewEngine(a.logger, a.cfg, st, env)
+	src := source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second)
+	enricher := pipeline.NewPodEnricher(a.getEnrichmentFields())
+
+	pipe := pipeline.New(
+		a.logger,
+		src,
+		pipeline.NewRuleAwareFilter(a.cfg),
+		enricher,
+		engine,
+		dp,
+		st,
+		ms,
+		a.cfg.Settings.QueueDepth,
+		a.cfg.Settings.QueueDepth,
+		30,
+	)
+
+	if a.cfg.Settings.Metrics.Enabled {
+		pipe.AddObserver(metrics.NewExporter())
+	}
+
+	return pipe
+}
+
+func (a *engineApp) apiMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	h := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+	mux.HandleFunc("/health", h)
+	mux.HandleFunc("/ready", h)
+	return mux
+}
+
+func (a *engineApp) metricsMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
+}
+
+func (a *engineApp) startServer(ctx context.Context, name, addr string, handler http.Handler) {
+	if addr == "" && name == "metrics" {
+		addr = ":9095"
+	}
 	if addr == "" {
 		return
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", healthHandler)
-	mux.HandleFunc("/readyz", healthHandler)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.Error("server error", "name", name, "error", err)
+		}
+	}()
 
 	go func() {
 		<-ctx.Done()
 		sCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sCtx)
+		a.logger.Debug("server shutdown complete", "name", name)
 	}()
-
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("http server error", "error", err)
-	}
 }
 
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
+func (a *engineApp) getEnrichmentFields() []string {
+	fieldSet := map[string]struct{}{"restart_count": {}}
 
-func enrichmentFields(cfg *config.WatchConfig) []string {
-	fields := make(map[string]struct{})
-
-	for _, f := range cfg.ResourceTracking.Fields {
+	for _, f := range a.cfg.ResourceTracking.Fields {
 		if f != "" {
-			fields[strings.ToLower(f)] = struct{}{}
+			fieldSet[strings.ToLower(f)] = struct{}{}
 		}
 	}
 
-	for _, rule := range cfg.Rules {
+	for _, rule := range a.cfg.Rules {
 		for _, cond := range rule.Conditions {
 			if cond.Field != "" {
-				fields[strings.ToLower(cond.Field)] = struct{}{}
+				fieldSet[strings.ToLower(cond.Field)] = struct{}{}
 			}
 		}
 	}
 
-	fields["restart_count"] = struct{}{}
-
-	out := make([]string, 0, len(fields))
-	for f := range fields {
+	out := make([]string, 0, len(fieldSet))
+	for f := range fieldSet {
 		out = append(out, f)
 	}
 	return out
+}
+
+func fatal(l *slog.Logger, msg string, err error) {
+	l.Error(msg, "error", err)
+	os.Exit(1)
 }

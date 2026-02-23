@@ -3,9 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"kube-watcher/mcp/monitoring/recommendation"
 	"time"
 
-	"kube-watcher/monitoring/recommendation"
 	"kube-watcher/pkg/kube"
 	kwatch "kube-watcher/pkg/kube/watch"
 )

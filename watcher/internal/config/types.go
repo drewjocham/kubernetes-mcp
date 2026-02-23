@@ -31,10 +31,11 @@ type WatchConfig struct {
 }
 
 type ResourceTrackingConfig struct {
-	Enabled bool     `yaml:"enabled"`
-	Storage string   `yaml:"storage"`
-	Path    string   `yaml:"path"`
-	Fields  []string `yaml:"fields"`
+	Enabled   bool          `yaml:"enabled"`
+	Storage   string        `yaml:"storage"`
+	Path      string        `yaml:"path"`
+	Fields    []string      `yaml:"fields"`
+	Retention time.Duration `yaml:"retention"`
 }
 
 type Rule struct {
@@ -44,6 +45,8 @@ type Rule struct {
 	Selector   Selector      `yaml:"selector"`
 	Logic      string        `yaml:"logic"`
 	For        time.Duration `yaml:"duration"`
+	Expression string        `yaml:"expression,omitempty"`
+	Condition  string        `yaml:"condition,omitempty"`
 	Conditions []Condition   `yaml:"conditions"`
 	Actions    []string      `yaml:"actions"`
 }
@@ -76,6 +79,10 @@ type Settings struct {
 		Enabled bool `yaml:"enabled"`
 	} `yaml:"cel"`
 	QueueDepth int `yaml:"queue_depth"`
+	Metrics    struct {
+		Enabled bool   `yaml:"enabled"`
+		Listen  string `yaml:"listen"`
+	} `yaml:"metrics"`
 }
 
 func Load(path string) (*WatchConfig, error) {
@@ -200,6 +207,9 @@ func (c *WatchConfig) Validate() error {
 		if len(r.Actions) == 0 {
 			return fmt.Errorf("%w: %s", ErrRuleMissingAction, r.Name)
 		}
+		if len(r.Conditions) == 0 && r.Expression == "" && r.Condition == "" {
+			return fmt.Errorf("rule %s missing conditions or expression", r.Name)
+		}
 		for _, act := range r.Actions {
 			if _, ok := c.Actions[act]; !ok {
 				return fmt.Errorf("rule %s references unknown action %s", r.Name, act)
@@ -216,8 +226,17 @@ func (c *WatchConfig) applyDefaults() {
 	if c.ResourceTracking.Path == "" {
 		c.ResourceTracking.Path = defaultStorePath
 	}
+	if c.ResourceTracking.Retention <= 0 {
+		c.ResourceTracking.Retention = time.Hour
+	}
+	if c.ResourceTracking.Retention == 0 {
+		c.ResourceTracking.Retention = 1 * time.Hour
+	}
 	if c.Settings.QueueDepth == 0 {
 		c.Settings.QueueDepth = 256
+	}
+	if c.Settings.Metrics.Listen == "" {
+		c.Settings.Metrics.Listen = ":9095"
 	}
 	if c.Actions == nil {
 		c.Actions = make(map[string]Action)
@@ -227,6 +246,9 @@ func (c *WatchConfig) applyDefaults() {
 		c.Rules[i].Kind = strings.Title(strings.ToLower(c.Rules[i].Kind))
 		if c.Rules[i].Logic == "" {
 			c.Rules[i].Logic = "all"
+		}
+		if c.Rules[i].Expression == "" && c.Rules[i].Condition != "" {
+			c.Rules[i].Expression = c.Rules[i].Condition
 		}
 	}
 }
@@ -238,6 +260,9 @@ func (c *WatchConfig) merge(other WatchConfig) {
 	}
 	if other.ResourceTracking.Path != "" && other.ResourceTracking.Path != defaultStorePath {
 		c.ResourceTracking.Path = other.ResourceTracking.Path
+	}
+	if other.ResourceTracking.Retention > 0 {
+		c.ResourceTracking.Retention = other.ResourceTracking.Retention
 	}
 	c.ResourceTracking.Fields = mergeStrings(c.ResourceTracking.Fields, other.ResourceTracking.Fields)
 
@@ -265,29 +290,20 @@ func mergeStrings(base, extra []string) []string {
 	seen := make(map[string]struct{}, len(base)+len(extra))
 	var out []string
 
-	for _, v := range base {
-		key := strings.ToLower(strings.TrimSpace(v))
-		if key == "" {
-			continue
+	add := func(list []string) {
+		for _, v := range list {
+			key := strings.ToLower(strings.TrimSpace(v))
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				out = append(out, v)
+			}
 		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, v)
 	}
 
-	for _, v := range extra {
-		key := strings.ToLower(strings.TrimSpace(v))
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, v)
-	}
-
+	add(base)
+	add(extra)
 	return out
 }

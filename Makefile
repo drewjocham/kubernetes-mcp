@@ -67,35 +67,30 @@ watcher-up:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build watcher
 
 up:
-	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build -d
 
 down:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) down
 
-# Clean build artifacts
 clean:
 	@echo "Cleaning..."
 	$(GOCLEAN)
 	rm -rf bin/
 
-# Run tests
 test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
 
-# Run tests with coverage
 test-coverage:
 	@echo "Running tests with coverage..."
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
-# Download dependencies
 deps:
 	@echo "Downloading dependencies..."
 	$(GOMOD) download
 	$(GOMOD) tidy
 
-# Lint code
 lint:
 	@echo "Linting code..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
@@ -104,22 +99,18 @@ lint:
 		echo "golangci-lint not installed. Install it with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
 	fi
 
-# Format code
 fmt:
 	@echo "Formatting code..."
 	$(GOCMD) fmt ./...
 
-# Vet code
 vet:
 	@echo "Vetting code..."
 	$(GOCMD) vet ./...
 
-# Install the binary
 install: build-mcp
 	@echo "Installing $(MCP_BINARY_NAME)..."
 	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH)/bin/
 
-# Build for multiple platforms
 build-all: build-linux build-darwin build-windows
 
 build-linux:
@@ -135,7 +126,6 @@ build-windows:
 	@echo "Building for Windows..."
 	GOOS=windows GOARCH=amd64 $(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME)-windows-amd64.exe $(MCP_CMD)
 
-# Docker targets
 docker-build:
 	@echo "Building Docker image..."
 	docker build -t $(BINARY_NAME):$(VERSION) .
@@ -152,17 +142,16 @@ dev-tools: deps
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-# Show help
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the application binary"
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
-	@echo "  compose-up-mcp      - docker compose up --build mcp"
-	@echo "  compose-up-watcher  - docker compose up --build watcher"
-	@echo "  compose-up-all      - docker compose up --build (all services)"
-	@echo "  compose-down        - docker compose down"
+	@echo "  up-mcp        - docker compose up --build mcp"
+	@echo "  up-watcher    - docker compose up --build watcher"
+	@echo "  up            -       docker compose up --build (all services)"
+	@echo "  down          - docker compose down"
 	@echo "  run-health    - Run health check"
 	@echo "  run-list      - List available tools"
 	@echo "  run-server    - Run in server mode"
@@ -180,8 +169,3 @@ help:
 	@echo "  dev           - Format, vet and run in development mode"
 	@echo "  dev-tools     - Install development tools"
 	@echo "  help          - Show this help message"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make run ARGS='--health'"
-	@echo "  make run ARGS='--exec analyze_cluster --args \"{\\\"include_pods\\\":true}\"'"
-	@echo "  make build VERSION=1.1.0"

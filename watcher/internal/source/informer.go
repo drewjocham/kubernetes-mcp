@@ -42,6 +42,7 @@ func (s *InformerSource) Run(ctx context.Context, out chan<- events.ResourceEven
 	informersToWatch := []entry{
 		{kind: "Pod", informer: factory.Core().V1().Pods().Informer()},
 		{kind: "HorizontalPodAutoscaler", informer: factory.Autoscaling().V2().HorizontalPodAutoscalers().Informer()},
+		{kind: "Node", informer: factory.Core().V1().Nodes().Informer()},
 	}
 
 	for _, e := range informersToWatch {
