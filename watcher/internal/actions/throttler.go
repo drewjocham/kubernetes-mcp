@@ -44,14 +44,19 @@ func (t *Throttler) Allow(ruleName, resourceKey string, throttle config.Throttle
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	b := t.buckets[key]
+	b, ok := t.buckets[key]
+	if !ok {
+		b = bucket{}
+	}
 
-	if b.minuteStart.IsZero() || now.Sub(b.minuteStart) >= time.Minute {
+	// Reset minute counter if the minute has passed
+	if now.Truncate(time.Minute) != b.minuteStart.Truncate(time.Minute) {
 		b.minuteStart = now
 		b.minuteCount = 0
 	}
 
-	if b.hourStart.IsZero() || now.Sub(b.hourStart) >= time.Hour {
+	// Reset hour counter if the hour has passed
+	if now.Truncate(time.Hour) != b.hourStart.Truncate(time.Hour) {
 		b.hourStart = now
 		b.hourCount = 0
 	}

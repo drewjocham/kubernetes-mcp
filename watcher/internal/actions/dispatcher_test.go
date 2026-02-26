@@ -20,11 +20,9 @@ type mockLogger struct {
 }
 
 func newMockLogger() *mockLogger {
-	var buf bytes.Buffer
-	return &mockLogger{
-		buf:    buf,
-		logger: slog.New(slog.NewTextHandler(&buf, nil)),
-	}
+	var m mockLogger
+	m.logger = slog.New(slog.NewTextHandler(&m.buf, nil))
+	return &m
 }
 
 func (m *mockLogger) String() string {
@@ -141,7 +139,6 @@ func TestDispatcher_Dispatch(t *testing.T) {
 			err = dispatcher.Dispatch(context.Background(), tc.invocation)
 			require.NoError(t, err)
 
-			// Allow time for the async pool to execute the task
 			time.Sleep(50 * time.Millisecond)
 
 			if tc.check != nil {
