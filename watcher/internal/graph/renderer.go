@@ -37,6 +37,10 @@ func Render(field string, history []tracker.Snapshot) ([]byte, error) {
 	if len(xValues) == 0 {
 		return nil, fmt.Errorf("field %s has no numeric history", field)
 	}
+	if len(xValues) == 1 {
+		xValues = append(xValues, xValues[0]+1)
+		yValues = append(yValues, yValues[0])
+	}
 
 	graph := chart.Chart{
 		Series: []chart.Series{

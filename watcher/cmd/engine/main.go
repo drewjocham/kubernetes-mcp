@@ -101,6 +101,11 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 	go metricStore.CleanupLoop(ctx, 5*time.Minute)
 
 	pipe := a.buildPipeline(k8sClient, store, metricStore, dispatcher, celEnv)
+	defer func() {
+		if err := pipe.Close(); err != nil {
+			a.logger.Warn("pipeline close failed", "error", err)
+		}
+	}()
 
 	a.startServer(ctx, "internal-api", httpAddr, a.apiMux())
 	if a.cfg.Settings.Metrics.Enabled {

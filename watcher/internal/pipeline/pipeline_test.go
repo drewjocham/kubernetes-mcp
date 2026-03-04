@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"github.com/google/cel-go/cel"
 	"io"
 	"log/slog"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"kube-watcher/watcher/internal/config"
 	"kube-watcher/watcher/internal/events"
 	"kube-watcher/watcher/internal/rules"
@@ -62,6 +64,10 @@ func (m *mockObserver) Observe(evt events.ResourceEvent) {
 	m.mu.Unlock()
 }
 
+func (m *mockObserver) Close() error {
+	return nil
+}
+
 func TestPipelineIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	cfg := &config.WatchConfig{
@@ -78,7 +84,14 @@ func TestPipelineIntegration(t *testing.T) {
 	}
 
 	store := tracker.NewMemoryStore()
-	engine := rules.NewEngine(logger, cfg, store, nil)
+	celEnv, err := cel.NewEnv(
+		cel.Variable("evt", cel.DynType),
+		cel.Variable("kind", cel.StringType),
+		cel.Variable("ns", cel.StringType),
+		cel.Variable("name", cel.StringType),
+	)
+	require.NoError(t, err)
+	engine := rules.NewEngine(logger, cfg, store, celEnv)
 	dispatcher := newRecordingDispatcher(1)
 
 	event := events.ResourceEvent{
@@ -98,8 +111,11 @@ func TestPipelineIntegration(t *testing.T) {
 	defer cancel()
 
 	go pipe.Start(ctx)
-
-	<-dispatcher.signal
+	select {
+	case <-dispatcher.signal:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for dispatcher signal")
+	}
 
 	assert.Len(t, dispatcher.invocations, 1)
 	assert.Equal(t, "pod_failure", dispatcher.invocations[0].RuleName)

@@ -38,8 +38,27 @@ func (e *Exporter) Observe(evt events.ResourceEvent) {
 	if val, ok := toFloat(evt.Object["restart_count"]); ok {
 		e.restarts.WithLabelValues(evt.Namespace, evt.Name).Set(val)
 	}
-	if val, ok := toFloat(evt.Object["cpu_limit_gap"]); ok {
+	if val, ok := cpuGapMilli(evt.Object["cpu_limit_gap"]); ok {
 		e.cpuGap.WithLabelValues(evt.Namespace, evt.Name).Set(val)
+	}
+}
+
+func (e *Exporter) Close() error {
+	prometheus.Unregister(e.restarts)
+	prometheus.Unregister(e.cpuGap)
+	return nil
+}
+
+func cpuGapMilli(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case string:
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			return 0, false
+		}
+		return float64(q.MilliValue()), true
+	default:
+		return toFloat(v)
 	}
 }
 
