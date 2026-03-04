@@ -3,11 +3,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"golang.org/x/text/ca
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
+	"golang.org/x/text/cases"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +22,7 @@ var (
 	ErrNoRules           = errors.New("config: no rules configured")
 	ErrRuleMissingName   = errors.New("config: rule missing name")
 	ErrRuleMissingAction = errors.New("config: rule missing actions")
+	defaultConfigPaths   = func() []string { return []string{DefaultConfigPath, LegacyConfigPath} }
 )
 
 type WatchConfig struct {
@@ -122,7 +124,7 @@ func Load(path string) (*WatchConfig, error) {
 }
 
 func DefaultConfigPaths() []string {
-	return []string{DefaultConfigPath, LegacyConfigPath}
+	return defaultConfigPaths()
 }
 
 func ResolvedConfigPaths(path string) []string {
@@ -243,7 +245,7 @@ func (c *WatchConfig) applyDefaults() {
 	}
 
 	for i := range c.Rules {
-		c.Rules[i].Kind = strings.Title(strings.ToLower(c.Rules[i].Kind))
+		c.Rules[i].Kind = cases.Title(language.Und).String(strings.ToLower(c.Rules[i].Kind))
 		if c.Rules[i].Logic == "" {
 			c.Rules[i].Logic = "all"
 		}

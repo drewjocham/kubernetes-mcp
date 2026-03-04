@@ -14,7 +14,9 @@ func TestHistoryInsightsTool_Execute(t *testing.T) {
 	ctx := context.Background()
 	store, err := history.NewStore(t.TempDir())
 	require.NoError(t, err, "Failed to initialize history store")
-	defer store.Close()
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
 
 	now := time.Now()
 	seedIncidents(t, ctx, store, []history.Incident{

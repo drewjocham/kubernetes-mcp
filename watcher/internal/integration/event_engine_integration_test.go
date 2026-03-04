@@ -83,7 +83,9 @@ func TestEventEngineIntegration(t *testing.T) {
 
 	// Using MemoryStore for tests is fine, interface consistency handles it
 	store := tracker.NewMemoryStore()
-	defer store.Close()
+	defer func() {
+		_ = store.Close()
+	}()
 
 	engine := rules.NewEngine(logger, cfg, store, nil)
 	dispatcher, _ := actions.NewDispatcher(logger, cfg.Actions, 4)

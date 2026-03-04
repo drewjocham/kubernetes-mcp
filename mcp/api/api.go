@@ -252,7 +252,9 @@ func decodeJSONBody(r *http.Request) (map[string]interface{}, error) {
 	if r.Body == nil {
 		return map[string]interface{}{}, nil
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 	data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		return nil, newHTTPError(http.StatusBadRequest, "unable to read request body", err)

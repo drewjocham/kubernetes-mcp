@@ -51,9 +51,9 @@ func TestLoad(t *testing.T) {
 	_ = os.WriteFile(emptyPath, []byte(""), 0644)
 
 	t.Run("DefaultPathsMerging", func(t *testing.T) {
-		old := DefaultConfigPaths
-		defer func() { DefaultConfigPaths = old }()
-		DefaultConfigPaths = func() []string { return []string{merge1Path, merge2Path} }
+		old := defaultConfigPaths
+		defer func() { defaultConfigPaths = old }()
+		defaultConfigPaths = func() []string { return []string{merge1Path, merge2Path} }
 
 		cfg, err := Load("")
 		require.NoError(t, err)

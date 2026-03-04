@@ -44,7 +44,9 @@ func main() {
 
 	historyStore, err := history.NewStore(cfg.dbPath)
 	handleErr(err, "storage init failed")
-	defer historyStore.Close()
+	defer func() {
+		_ = historyStore.Close()
+	}()
 
 	watchManager := watch.NewManager(k8sClient, logger, cfg.interval)
 
