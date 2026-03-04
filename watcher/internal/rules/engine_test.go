@@ -328,7 +328,7 @@ func TestEngine_compareScalar(t *testing.T) {
 		{name: "quantity a > b", a: "200m", b: "100m", want: 1},
 		{name: "mixed float and int", a: 1.0, b: 1, want: 0},
 		{name: "mixed float and quantity", a: 0.2, b: "200m", want: 0},
-		{name: "mixed string and float", a: "1.0", b: 1.0, want: 0},
+		{name: "mixed string and float", a: "1.0", b: 1.0, want: 0}, // numeric comparison
 	}
 
 	for _, tc := range testCases {

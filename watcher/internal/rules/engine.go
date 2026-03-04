@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
@@ -265,12 +264,8 @@ func toFloat(v interface{}) (float64, bool) {
 	case int64:
 		return float64(t), true
 	case string:
-		// Heuristic: if it contains a letter, it's a quantity string like "100m" or "1Gi" or "1e3".
-		// Plain number strings like "1.0" will not match this and will be compared as strings.
-		if strings.IndexFunc(t, unicode.IsLetter) != -1 {
-			if q, err := resource.ParseQuantity(t); err == nil {
-				return q.AsApproximateFloat64(), true
-			}
+		if q, err := resource.ParseQuantity(t); err == nil {
+			return q.AsApproximateFloat64(), true
 		}
 	}
 	return 0, false

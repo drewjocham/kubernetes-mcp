@@ -48,9 +48,6 @@ func main() {
 	flag.BoolVar(&healthOnly, "health", false, "run health probe and exit")
 	flag.Parse()
 
-	// simple check to see if we are running in a test
-	isTest := flag.Lookup("test.v") != nil
-
 	logger, err := logging.New(debug, logFile)
 	if err != nil {
 		slog.Default().Error("failed to initialize logger", "error", err)
@@ -65,10 +62,6 @@ func main() {
 	if healthOnly {
 		logger.Info("config validation successful", "paths", config.ResolvedConfigPaths(configPath))
 		return
-	}
-
-	if isTest {
-		cfg.Settings.Metrics.Enabled = false
 	}
 
 	app := &engineApp{cfg: cfg, logger: logger}
@@ -108,6 +101,11 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 	go metricStore.CleanupLoop(ctx, 5*time.Minute)
 
 	pipe := a.buildPipeline(k8sClient, store, metricStore, dispatcher, celEnv)
+	defer func() {
+		if err := pipe.Close(); err != nil {
+			a.logger.Warn("pipeline close failed", "error", err)
+		}
+	}()
 
 	a.startServer(ctx, "internal-api", httpAddr, a.apiMux())
 	if a.cfg.Settings.Metrics.Enabled {

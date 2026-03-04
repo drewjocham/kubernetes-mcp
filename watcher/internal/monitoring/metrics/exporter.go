@@ -43,6 +43,12 @@ func (e *Exporter) Observe(evt events.ResourceEvent) {
 	}
 }
 
+func (e *Exporter) Close() error {
+	prometheus.Unregister(e.restarts)
+	prometheus.Unregister(e.cpuGap)
+	return nil
+}
+
 func cpuGapMilli(v interface{}) (float64, bool) {
 	switch val := v.(type) {
 	case string:

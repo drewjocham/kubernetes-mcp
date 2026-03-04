@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"runtime"
 	"strings"
@@ -30,6 +31,11 @@ type Enricher interface {
 
 type Dispatcher interface {
 	Dispatch(ctx context.Context, inv rules.ActionInvocation) error
+}
+
+type Observer interface {
+	Observe(evt events.ResourceEvent)
+	io.Closer
 }
 
 type RuleAwareFilter struct {
@@ -136,6 +142,20 @@ func (p *Pipeline) Start(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (p *Pipeline) Close() error {
+	var errs []error
+	for _, obs := range p.observers {
+		if err := obs.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		// a simple way to combine errors, good enough for this case
+		return errs[0]
+	}
+	return nil
 }
 
 func (p *Pipeline) processEvent(ctx context.Context, evt events.ResourceEvent) {
