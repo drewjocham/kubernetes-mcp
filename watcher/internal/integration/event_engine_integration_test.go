@@ -61,7 +61,6 @@ func TestEventEngineIntegration(t *testing.T) {
 				Logic:   "all",
 				Actions: []string{"log"},
 				Conditions: []config.Condition{
-					// Tests our new stateful delta logic
 					{Field: "restart_delta", Operator: "gt", Value: 0},
 				},
 			},
@@ -70,7 +69,6 @@ func TestEventEngineIntegration(t *testing.T) {
 				Kind:    "Node",
 				Actions: []string{"log"},
 				Conditions: []config.Condition{
-					// Tests our new NodeEnricher flags
 					{Field: "node_memory_pressure", Operator: "eq", Value: true},
 				},
 			},
@@ -81,7 +79,6 @@ func TestEventEngineIntegration(t *testing.T) {
 		Settings: config.Settings{QueueDepth: 10},
 	}
 
-	// Using MemoryStore for tests is fine, interface consistency handles it
 	store := tracker.NewMemoryStore()
 	defer func() {
 		_ = store.Close()
@@ -94,12 +91,11 @@ func TestEventEngineIntegration(t *testing.T) {
 		Kind: "Pod", Namespace: "default", Name: "api",
 		Object: map[string]interface{}{
 			"metadata":      map[string]interface{}{"name": "api"},
-			"restart_count": 5, // The Enricher should set this
-			"restart_delta": 1, // mock delta from the pipeline
+			"restart_count": 5,
+			"restart_delta": 1,
 		},
 	}
 
-	// 2. Node Event (New Kind support)
 	nodeEvent := events.ResourceEvent{
 		Kind: "Node", Name: "worker-01",
 		Object: map[string]interface{}{
@@ -111,7 +107,6 @@ func TestEventEngineIntegration(t *testing.T) {
 	src := eventSource{events: []events.ResourceEvent{podEvent, nodeEvent}}
 	filter := pipeline.NewRuleAwareFilter(cfg)
 
-	// test the Engine in isolation
 	pipe := pipeline.New(logger, src, filter, nil, engine, dispatcher, store, nil, cfg.Settings.QueueDepth, 2, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -124,7 +119,6 @@ func TestEventEngineIntegration(t *testing.T) {
 
 	for {
 		msg := buf.String()
-		// both the pod delta rule and the node pressure rule triggered
 		if strings.Contains(msg, "high_restarts") && strings.Contains(msg, "node_pressure") {
 			break
 		}

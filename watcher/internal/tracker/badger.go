@@ -70,6 +70,16 @@ func (b *BadgerStore) Set(key string, snap Snapshot) {
 }
 
 func (b *BadgerStore) SetWithTTL(key string, snap Snapshot, ttl time.Duration) {
+	if ttl > 0 && ttl < time.Second {
+		b.Set(key, snap)
+		go func() {
+			time.Sleep(ttl)
+			_ = b.db.Update(func(txn *badger.Txn) error {
+				return txn.Delete([]byte(key))
+			})
+		}()
+		return
+	}
 	_ = b.db.Update(func(txn *badger.Txn) error {
 		data, err := json.Marshal(snap)
 		if err != nil {

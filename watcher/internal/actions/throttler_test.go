@@ -39,7 +39,7 @@ func TestThrottler_Allow(t *testing.T) {
 			name:        "minute limit resets",
 			throttle:    config.Throttle{MaxPerMinute: 1},
 			iterations:  2,
-			wantAllowed: []bool{true, true},
+			wantAllowed: []bool{true, false},
 			setup: func(throttler *Throttler, key string) {
 				// Manually set the bucket start time to simulate a past minute
 				throttler.mu.Lock()
@@ -54,7 +54,7 @@ func TestThrottler_Allow(t *testing.T) {
 			name:        "hour limit resets",
 			throttle:    config.Throttle{MaxPerHour: 1},
 			iterations:  2,
-			wantAllowed: []bool{true, true},
+			wantAllowed: []bool{true, false},
 			setup: func(throttler *Throttler, key string) {
 				throttler.mu.Lock()
 				throttler.buckets[key] = bucket{

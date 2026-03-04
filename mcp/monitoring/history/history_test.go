@@ -102,7 +102,7 @@ func TestStore_Integration(t *testing.T) {
 	})
 
 	t.Run("CleanupRetention", func(t *testing.T) {
-		store.performCleanup(5 * time.Hour)
+		store.performCleanup(context.TODO(), 5*time.Hour)
 
 		res, err := store.List(ctx, IncidentTypePod, 24*time.Hour)
 		assert.NoError(t, err)

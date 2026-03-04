@@ -27,14 +27,27 @@ type ActionInvocation struct {
 	Event    events.ResourceEvent
 }
 
+func extractValue(jsonBytes []byte, path string) (interface{}, error) {
+	if path == "" {
+		return nil, fmt.Errorf("empty path")
+	}
+	if len(jsonBytes) == 0 {
+		return nil, fmt.Errorf("missing object data")
+	}
+	res := gjson.GetBytes(jsonBytes, path)
+	if !res.Exists() {
+		return nil, fmt.Errorf("field %s missing", path)
+	}
+	return res.Value(), nil
+}
+
 type Engine struct {
 	cfg         *config.WatchConfig
 	store       tracker.Store
 	logger      *slog.Logger
 	celEnv      *cel.Env
-	celPrograms map[string]cel.Program
-	timers      map[string]time.Time
-	timersMu    sync.Mutex
+	celPrograms sync.Map
+	timers      sync.Map
 }
 
 func NewEngine(logger *slog.Logger, cfg *config.WatchConfig, store tracker.Store, celEnv *cel.Env) *Engine {
@@ -43,54 +56,44 @@ func NewEngine(logger *slog.Logger, cfg *config.WatchConfig, store tracker.Store
 		store:  store,
 		logger: logger,
 		celEnv: celEnv,
-		timers: make(map[string]time.Time),
 	}
-	e.compileCELPrograms()
+	e.compileCEL()
 	return e
 }
 
 func (e *Engine) Evaluate(ctx context.Context, evt events.ResourceEvent) ([]ActionInvocation, error) {
-	prev, _ := e.store.Get(evt.Key())
-	currentVals := make(map[string]interface{})
-	var invs []ActionInvocation
 	objJSON, err := json.Marshal(evt.Object)
 	if err != nil {
 		return nil, fmt.Errorf("marshal resource: %w", err)
 	}
 
+	prev, _ := e.store.Get(evt.Key())
+	currentVals := make(map[string]interface{})
+	var invs []ActionInvocation
+
 	for _, rule := range e.cfg.Rules {
-		if !e.matchRule(rule, evt) {
+		if !e.match(rule, evt) {
 			continue
 		}
 
-		if ok, err := e.evaluateRule(rule, evt, prev, currentVals, objJSON); err != nil {
+		matched, err := e.execRule(rule, evt, prev, currentVals, objJSON)
+		if err != nil {
 			e.logger.Warn("rule evaluation failed", "rule", rule.Name, "error", err)
-		} else if ok {
+			continue
+		}
+
+		if e.checkTimer(rule, evt, matched) {
 			invs = append(invs, e.mapActions(rule, evt, currentVals)...)
 		}
 	}
 
-	snap := tracker.Snapshot{
-		ResourceVersion: evt.ResourceVersionValue(),
-		Values:          currentVals,
-		Timestamp:       time.Now(),
-	}
-	e.store.Set(evt.Key(), snap)
-	e.store.RecordHistory(evt.Key(), snap)
+	e.persist(evt, currentVals)
 	return invs, nil
 }
 
-func (e *Engine) matchRule(r config.Rule, evt events.ResourceEvent) bool {
-	return strings.EqualFold(r.Kind, evt.Kind) && (r.Namespace == "" || r.Namespace == evt.Namespace)
-}
-
-func (e *Engine) evaluateRule(rule config.Rule, evt events.ResourceEvent, prev tracker.Snapshot, collected map[string]interface{}, objJSON []byte) (bool, error) {
-	if prog, ok := e.celPrograms[rule.Name]; ok {
-		okVal, err := e.evaluateExpression(prog, evt)
-		if err != nil {
-			return false, err
-		}
-		return e.handleTimer(rule, evt, okVal), nil
+func (e *Engine) execRule(rule config.Rule, evt events.ResourceEvent, prev tracker.Snapshot, col map[string]interface{}, raw []byte) (bool, error) {
+	if prog, ok := e.celPrograms.Load(rule.Name); ok {
+		return e.evalCEL(prog.(cel.Program), evt)
 	}
 
 	if len(rule.Conditions) == 0 {
@@ -101,87 +104,125 @@ func (e *Engine) evaluateRule(rule config.Rule, evt events.ResourceEvent, prev t
 	satisfied := false
 
 	for _, cond := range rule.Conditions {
-		ok, val, err := e.evaluateCondition(cond, evt, prev, objJSON)
+		ok, val, err := e.evalCond(cond, prev, raw)
 		if err != nil {
 			return false, err
 		}
+
 		if cond.Field != "" {
-			collected[cond.Field] = val
+			col[cond.Field] = val
 		}
+
 		if ok {
 			satisfied = true
 			if isAny {
 				break
 			}
 		} else if !isAny {
-			return e.handleTimer(rule, evt, false), nil
+			return false, nil
 		}
 	}
-
-	return e.handleTimer(rule, evt, satisfied), nil
+	return satisfied, nil
 }
 
-func (e *Engine) handleTimer(rule config.Rule, evt events.ResourceEvent, met bool) bool {
+func (e *Engine) evalCond(c config.Condition, prev tracker.Snapshot, raw []byte) (bool, interface{}, error) {
+	res := gjson.GetBytes(raw, c.Field)
+	if !res.Exists() {
+		return false, nil, fmt.Errorf("field %s missing", c.Field)
+	}
+	val := res.Value()
+
+	switch strings.ToLower(c.Operator) {
+	case "changed":
+		return fmt.Sprintf("%v", prev.Values[c.Field]) != fmt.Sprintf("%v", val), val, nil
+	case "eq":
+		return e.compare(val, c.Value) == 0, val, nil
+	case "ne":
+		return e.compare(val, c.Value) != 0, val, nil
+	case "gt":
+		return e.compare(val, c.Value) > 0, val, nil
+	case "lt":
+		return e.compare(val, c.Value) < 0, val, nil
+	default:
+		return false, val, fmt.Errorf("bad operator: %s", c.Operator)
+	}
+}
+
+func (e *Engine) checkTimer(rule config.Rule, evt events.ResourceEvent, met bool) bool {
 	if rule.For <= 0 {
 		return met
 	}
 
 	key := fmt.Sprintf("%s|%s", evt.Key(), rule.Name)
-	e.timersMu.Lock()
-	defer e.timersMu.Unlock()
-
 	if !met {
-		delete(e.timers, key)
+		e.timers.Delete(key)
 		return false
 	}
 
-	start, found := e.timers[key]
-	if !found {
-		e.timers[key] = time.Now()
+	now := time.Now()
+	start, loaded := e.timers.LoadOrStore(key, now)
+	if !loaded {
 		return false
 	}
 
-	if time.Since(start) >= rule.For {
-		delete(e.timers, key)
+	if now.Sub(start.(time.Time)) >= rule.For {
+		e.timers.Delete(key)
 		return true
 	}
 	return false
 }
 
-func (e *Engine) compileCELPrograms() {
-	if e.celEnv == nil {
-		return
-	}
-	e.celPrograms = make(map[string]cel.Program)
-	for _, rule := range e.cfg.Rules {
-		if rule.Expression == "" {
-			continue
-		}
-		ast, issues := e.celEnv.Compile(rule.Expression)
-		if issues != nil && issues.Err() != nil {
-			e.logger.Warn("cel compile failed", "rule", rule.Name, "err", issues.Err())
-			continue
-		}
-		prog, err := e.celEnv.Program(ast)
-		if err != nil {
-			continue
-		}
-		e.celPrograms[rule.Name] = prog
-	}
+func (e *Engine) evaluateCondition(cond config.Condition, prev tracker.Snapshot, objJSON []byte) (bool, interface{}, error) {
+	return e.evalCond(cond, prev, objJSON)
 }
 
-func (e *Engine) evaluateExpression(prog cel.Program, evt events.ResourceEvent) (bool, error) {
-	input := map[string]interface{}{
+func (e *Engine) compare(a, b interface{}) int {
+	af, aOk := e.toFloat(a)
+	bf, bOk := e.toFloat(b)
+	if aOk && bOk {
+		if af < bf {
+			return -1
+		}
+		if af > bf {
+			return 1
+		}
+		return 0
+	}
+	as, bs := fmt.Sprintf("%v", a), fmt.Sprintf("%v", b)
+	return strings.Compare(as, bs)
+}
+
+func compareScalar(a, b interface{}) int {
+	engine := &Engine{}
+	return engine.compare(a, b)
+}
+
+func (e *Engine) toFloat(v interface{}) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case string:
+		if q, err := resource.ParseQuantity(t); err == nil {
+			return q.AsApproximateFloat64(), true
+		}
+	}
+	return 0, false
+}
+
+func (e *Engine) evalCEL(prog cel.Program, evt events.ResourceEvent) (bool, error) {
+	out, _, err := prog.Eval(map[string]interface{}{
 		"evt":  evt.Object,
 		"kind": evt.Kind,
 		"ns":   evt.Namespace,
 		"name": evt.Name,
-	}
-	out, _, err := prog.Eval(input)
+	})
 	if err != nil {
 		return false, err
 	}
-
 	if b, ok := out.Value().(bool); ok {
 		return b, nil
 	}
@@ -211,85 +252,43 @@ func (e *Engine) mapActions(rule config.Rule, evt events.ResourceEvent, vals map
 	return res
 }
 
-func (e *Engine) evaluateCondition(cond config.Condition, evt events.ResourceEvent, prev tracker.Snapshot, objJSON []byte) (bool, interface{}, error) {
-	val, err := extractValue(objJSON, cond.Field)
-	if err != nil {
-		return false, nil, err
-	}
-
-	switch strings.ToLower(cond.Operator) {
-	case "changed":
-		return fmt.Sprintf("%v", prev.Values[cond.Field]) != fmt.Sprintf("%v", val), val, nil
-	case "eq":
-		return compareScalar(val, cond.Value) == 0, val, nil
-	case "ne":
-		return compareScalar(val, cond.Value) != 0, val, nil
-	case "gt":
-		return compareScalar(val, cond.Value) > 0, val, nil
-	case "lt":
-		return compareScalar(val, cond.Value) < 0, val, nil
-	default:
-		return false, val, fmt.Errorf("bad operator: %s", cond.Operator)
-	}
+func (e *Engine) match(r config.Rule, evt events.ResourceEvent) bool {
+	return strings.EqualFold(r.Kind, evt.Kind) && (r.Namespace == "" || r.Namespace == evt.Namespace)
 }
 
-func compareScalar(a, b interface{}) int {
-	af, aOk := toFloat(a)
-	bf, bOk := toFloat(b)
-	if aOk && bOk {
-		if af < bf {
-			return -1
-		}
-		if af > bf {
-			return 1
-		}
-		return 0
+func (e *Engine) persist(evt events.ResourceEvent, vals map[string]interface{}) {
+	snap := tracker.Snapshot{
+		ResourceVersion: evt.ResourceVersionValue(),
+		Values:          vals,
+		Timestamp:       time.Now(),
 	}
-	as, bs := fmt.Sprintf("%v", a), fmt.Sprintf("%v", b)
-	if as < bs {
-		return -1
-	}
-	if as > bs {
-		return 1
-	}
-	return 0
+	e.store.Set(evt.Key(), snap)
+	e.store.RecordHistory(evt.Key(), snap)
 }
 
-func toFloat(v interface{}) (float64, bool) {
-	switch t := v.(type) {
-	case float64:
-		return t, true
-	case int:
-		return float64(t), true
-	case int64:
-		return float64(t), true
-	case string:
-		if q, err := resource.ParseQuantity(t); err == nil {
-			return q.AsApproximateFloat64(), true
+func (e *Engine) compileCEL() {
+	if e.celEnv == nil {
+		return
+	}
+	for _, rule := range e.cfg.Rules {
+		if rule.Expression == "" {
+			continue
+		}
+		ast, issues := e.celEnv.Compile(rule.Expression)
+		if issues != nil && issues.Err() != nil {
+			continue
+		}
+		prog, err := e.celEnv.Program(ast)
+		if err == nil {
+			e.celPrograms.Store(rule.Name, prog)
 		}
 	}
-	return 0, false
-}
-
-func extractValue(jsonBytes []byte, path string) (interface{}, error) {
-	if path == "" {
-		return nil, fmt.Errorf("empty path")
-	}
-	if len(jsonBytes) == 0 {
-		return nil, fmt.Errorf("missing object data")
-	}
-	result := gjson.GetBytes(jsonBytes, path)
-	if !result.Exists() {
-		return nil, fmt.Errorf("field %s missing", path)
-	}
-	return result.Value(), nil
 }
 
 func init() {
 	gjson.AddModifier("k8s_sum", func(jsonStr, _ string) string {
-		result := gjson.Parse(jsonStr)
 		var total resource.Quantity
-		result.ForEach(func(_, value gjson.Result) bool {
+		gjson.Parse(jsonStr).ForEach(func(_, value gjson.Result) bool {
 			if q, err := resource.ParseQuantity(value.String()); err == nil {
 				total.Add(q)
 			}
