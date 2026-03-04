@@ -122,7 +122,9 @@ func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
 			"error", err, "rule", inv.RuleName)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		d.logger.Warn("notification webhook returned non-200 status",

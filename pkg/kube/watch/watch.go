@@ -102,15 +102,17 @@ func (m *Manager) Start(ctx context.Context) <-chan Alert {
 }
 
 func (m *Manager) bindInformer(f informers.SharedInformerFactory) {
-	f.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := f.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: func(_, newObj interface{}) {
 			if p, ok := newObj.(*corev1.Pod); ok {
 				m.emit(PodEvaluator(p))
 			}
 		},
-	})
+	}); err != nil {
+		m.logger.Warn("failed to add pod informer handler", "error", err)
+	}
 
-	f.Core().V1().Events().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := f.Core().V1().Events().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			if e, ok := obj.(*corev1.Event); ok && e.Type == corev1.EventTypeWarning {
 				m.emit(&Alert{
@@ -124,7 +126,9 @@ func (m *Manager) bindInformer(f informers.SharedInformerFactory) {
 				})
 			}
 		},
-	})
+	}); err != nil {
+		m.logger.Warn("failed to add event informer handler", "error", err)
+	}
 }
 
 func (m *Manager) runScanner(ctx context.Context) {

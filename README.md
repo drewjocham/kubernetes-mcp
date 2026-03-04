@@ -7,12 +7,8 @@ A Kubernetes monitoring and analysis MCP (Model Context Protocol) server designe
 - **Node Monitoring**: Detailed analysis of cluster nodes, health status, and resource allocation
 - **Pod Analysis**: Comprehensive pod resource monitoring, restart tracking, and issue identification  
 - **Cluster Analysis**: Full cluster health assessment with recommendations and alerting
-- **MCP Protocol**: Standard Model Context Protocol interface for integration with AI systems
-- **Go Architecture**: Clean, idiomatic Go design using interfaces and factory patterns
 
 ## Architecture
-
-The project follows Go best practices with a clean separation of concerns:
 
 ```
 kube-watcher/
@@ -115,64 +111,6 @@ Comprehensive cluster analysis with health scoring and recommendations.
 
 ## MCP Integration
 
-The server implements the Model Context Protocol for integration with AI systems:
-
-```go
-server := server.NewMCPServer()
-
-// Handle MCP requests
-response, err := server.HandleMCPRequest(ctx, "tools/list", nil)
-response, err := server.HandleMCPRequest(ctx, "tools/call", map[string]interface{}{
-    "name": "analyze_cluster", 
-    "arguments": map[string]interface{}{"include_pods": true},
-})
-```
-
-## Development
-
-### Adding New Tools
-
-1. Create a new tool in `mcp/tools/` directory:
-```go
-type MyTool struct {
-    BaseTool  
-}
-
-func NewMyTool(k8sManager kubernetes.ClientInterface) *MyTool {
-    return &MyTool{BaseTool: NewBaseTool(k8sManager)}
-}
-
-func (t *MyTool) Name() string { return "my_tool" }
-func (t *MyTool) Description() string { return "My custom tool" }
-func (t *MyTool) Parameters() []ToolParameter { return []ToolParameter{} }
-func (t *MyTool) Execute(ctx context.Context, args map[string]interface{}) (map[string]interface{}, error) {
-    // Implementation
-}
-```
-
-2. Register it in `mcp/server/server.go`:
-```go
-func (s *MCPServer) registerTools() {
-    // ... existing tools
-    myTool := tools.NewMyTool(s.k8sClient)
-    s.tools[myTool.Name()] = myTool
-}
-```
-
-### Testing
-
-The architecture supports easy testing through interface injection:
-
-```go
-func TestMyTool(t *testing.T) {
-    mockClient := &MockK8sClient{}
-    tool := tools.NewMyTool(mockClient)
-    
-    result, err := tool.Execute(context.Background(), map[string]interface{}{})
-    // Assertions...
-}
-```
-
 ## Configuration
 
 The application automatically detects Kubernetes configuration:
@@ -181,13 +119,8 @@ The application automatically detects Kubernetes configuration:
 2. **Local**: Uses `~/.kube/config` for local development
 3. **Custom**: Specify custom kubeconfig path via `kubernetes.NewClientFromConfig()`
 
-## Dependencies
-
-- `k8s.io/client-go`: Official Kubernetes Go client library
-- `k8s.io/api`: Kubernetes API types
-- `k8s.io/apimachinery`: Kubernetes API machinery
-- `go.uber.org/zap`: High-performance structured logging
-- Go 1.25.1+
+If your kube config file is not `"$HOME/.kube/config"` here. Change the path in the
+`KUBECONFIG_PATH` in the Makefile.
 
 ## Health and Monitoring
 
@@ -198,40 +131,7 @@ The server provides comprehensive health checks:
 - **Tool Registration**: Available tools count
 - **Cluster Information**: Basic cluster metrics
 
-## Security
 
-- Uses standard Kubernetes RBAC for authorization
-- Respects kubeconfig security settings  
-- No secrets stored or logged in plaintext
-- Read-only operations by default
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"Failed to create kubernetes client"**: Check kubeconfig and cluster access
-2. **"Tool execution failed"**: Verify cluster connectivity and RBAC permissions
-3. **"Health check failed"**: Ensure kubectl works from same environment
-
-### Logging Configuration
-
-The application uses Zap for structured logging. Configure logging through environment variables:
-
-```bash
-# Log levels: debug, info, warn, error, fatal
-export LOG_LEVEL=debug
-
-# Log formats: console (development), json (production)
-export LOG_FORMAT=json
-
-# Enable debug mode (uses development logger)
-export DEBUG=true
-
-# Alternative environment variables
-export KUBE_WATCHER_LOG_LEVEL=info
-export KUBE_WATCHER_LOG_FORMAT=console
-export KUBE_WATCHER_DEBUG=true
-```
 
 **Examples:**
 ```bash

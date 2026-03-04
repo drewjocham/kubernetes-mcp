@@ -83,7 +83,9 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 	if err != nil {
 		return fmt.Errorf("store init: %w", err)
 	}
-	defer store.Close()
+	defer func() {
+		_ = store.Close()
+	}()
 
 	celEnv, err := a.initCEL()
 	if err != nil {

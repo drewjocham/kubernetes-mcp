@@ -19,8 +19,8 @@ func setupTestDB(t *testing.T) (*BadgerStore, func()) {
 	require.NoError(t, err)
 
 	cleanup := func() {
-		store.Close()
-		os.RemoveAll(dir)
+		require.NoError(t, store.Close())
+		require.NoError(t, os.RemoveAll(dir))
 	}
 	return store, cleanup
 }
@@ -31,7 +31,7 @@ func TestNewBadgerStore(t *testing.T) {
 		store, err := NewBadgerStore(dir, time.Hour)
 		require.NoError(t, err)
 		assert.NotNil(t, store)
-		store.Close()
+		require.NoError(t, store.Close())
 	})
 
 	t.Run("empty path", func(t *testing.T) {
@@ -43,12 +43,14 @@ func TestNewBadgerStore(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 		path := filepath.Join("~", "badger-test-home")
-		defer os.RemoveAll(filepath.Join(home, "badger-test-home"))
+		defer func() {
+			require.NoError(t, os.RemoveAll(filepath.Join(home, "badger-test-home")))
+		}()
 
 		store, err := NewBadgerStore(path, time.Hour)
 		require.NoError(t, err)
 		assert.NotNil(t, store)
-		store.Close()
+		require.NoError(t, store.Close())
 	})
 }
 
