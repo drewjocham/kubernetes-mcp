@@ -1,0 +1,119 @@
+x-build-args: &common-build-args
+  BUILD_IMAGE: ${BUILD_IMAGE:-golang:1.25.7-alpine3.23}
+  RUNTIME_IMAGE: ${RUNTIME_IMAGE:-gcr.io/distroless/static-debian12:nonroot}
+  DEBUG_RUNTIME_IMAGE: ${DEBUG_RUNTIME_IMAGE:-gcr.io/distroless/static-debian12:debug-nonroot}
+  VERSION: ${VERSION:-dev}
+  GIT_COMMIT: ${GIT_COMMIT:-local}
+  BUILD_DATE: ${BUILD_DATE:-2026-02-22T00:00:00Z}
+
+services:
+  mcp:
+    image: watcher-mcp:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.template
+      args:
+        <<: *common-build-args
+        SERVICE_ROOT: mcp
+        SERVICE_CMD: ./cmd/server
+    environment:
+      LOG_LEVEL: ${MCP_LOG_LEVEL:-info}
+    ports:
+      - "${MCP_HTTP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/app/main", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ${KUBECONFIG_PATH}:/home/nonroot/.kube/config:ro
+
+  watcher:
+    image: watcher:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.template
+      args:
+        <<: *common-build-args
+        SERVICE_ROOT: watcher
+        SERVICE_CMD: ./cmd/engine
+    command:
+      [
+        "--listen", ":8085"
+      ]
+    environment:
+      LOG_LEVEL: ${WATCHER_LOG_LEVEL:-info}
+    ports:
+      - "${WATCHER_HTTP_PORT:-8085}:8085"
+      - "${WATCHER_METRICS_PORT:-9095}:9095"
+    volumes:
+      - ../watcher/internal/config:/watcher/internal/config:ro
+      - watcher-data:/event-engine-badger
+      - ${KUBECONFIG_PATH}:/home/nonroot/.kube/config:ro
+    healthcheck:
+      test: ["CMD", "/app/main", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - watcher-data:/event-engine-badger:ro
+    command:
+      [
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--storage.tsdb.path=/prometheus",
+        "--web.enable-lifecycle"
+      ]
+    ports:
+      - "9090:9090"
+    depends_on:
+      - watcher
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  badger-explorer:
+    image: watcher-badger-explorer:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.template
+      args:
+        <<: *common-build-args
+        SERVICE_ROOT: watcher
+        SERVICE_CMD: ./cmd/explorer
+    command:
+      [
+        "--db",
+        "/event-engine-badger",
+        "--listen",
+        ":4101",
+        "--history-limit",
+        "${EXPLORER_HISTORY_LIMIT:-120}"
+      ]
+    environment:
+      LOG_LEVEL: ${EXPLORER_LOG_LEVEL:-info}
+    ports:
+      - "${EXPLORER_HTTP_PORT:-4101}:4101"
+    volumes:
+      - watcher-data:/event-engine-badger:ro
+    depends_on:
+      - watcher
+
+volumes:
+  watcher-data: {}
+  grafana-data: {}

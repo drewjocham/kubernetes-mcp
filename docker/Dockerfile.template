@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.7-labs
+ARG BUILD_IMAGE=1.25.7-alpine3.23
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot
+ARG DEBUG_RUNTIME_IMAGE=gcr.io/distroless/static-debian12:debug-nonroot
+
+ARG SERVICE_ROOT
+ARG SERVICE_CMD=./cmd/server
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+
+FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS builder
+
+ARG SERVICE_ROOT
+ARG SERVICE_CMD
+ARG VERSION
+ARG GIT_COMMIT
+ARG BUILD_DATE
+
+ENV CGO_ENABLED=0
+WORKDIR /src
+
+COPY go.mod go.sum ./
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+WORKDIR /src/${SERVICE_ROOT}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}" \
+    -o /out/app ${SERVICE_CMD}
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -gcflags="all=-N -l" \
+    -o /out/app-debug ${SERVICE_CMD}
+
+
+# Debug image
+FROM --platform=$TARGETPLATFORM ${DEBUG_RUNTIME_IMAGE} AS runner-debug
+COPY --from=builder /out/app-debug /app/main
+USER 65532:65532
+ENTRYPOINT ["/app/main"]
+
+# Final slim image
+FROM --platform=$TARGETPLATFORM ${RUNTIME_IMAGE} AS final
+COPY --from=builder /out/app /app/main
+USER 65532:65532
+ENTRYPOINT ["/app/main"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/app/main", "--health"]
