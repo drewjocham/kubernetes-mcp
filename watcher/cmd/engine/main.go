@@ -48,6 +48,9 @@ func main() {
 	flag.BoolVar(&healthOnly, "health", false, "run health probe and exit")
 	flag.Parse()
 
+	// simple check to see if we are running in a test
+	isTest := flag.Lookup("test.v") != nil
+
 	logger, err := logging.New(debug, logFile)
 	if err != nil {
 		slog.Default().Error("failed to initialize logger", "error", err)
@@ -62,6 +65,10 @@ func main() {
 	if healthOnly {
 		logger.Info("config validation successful", "paths", config.ResolvedConfigPaths(configPath))
 		return
+	}
+
+	if isTest {
+		cfg.Settings.Metrics.Enabled = false
 	}
 
 	app := &engineApp{cfg: cfg, logger: logger}

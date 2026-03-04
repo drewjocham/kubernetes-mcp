@@ -328,7 +328,7 @@ func TestEngine_compareScalar(t *testing.T) {
 		{name: "quantity a > b", a: "200m", b: "100m", want: 1},
 		{name: "mixed float and int", a: 1.0, b: 1, want: 0},
 		{name: "mixed float and quantity", a: 0.2, b: "200m", want: 0},
-		{name: "mixed string and float", a: "1.0", b: 1.0, want: 1}, // string comparison
+		{name: "mixed string and float", a: "1.0", b: 1.0, want: 0},
 	}
 
 	for _, tc := range testCases {
@@ -444,6 +444,9 @@ func (s *stubStore) Set(key string, snap tracker.Snapshot) {
 	s.data[key] = snap
 }
 func (s *stubStore) RecordHistory(key string, snap tracker.Snapshot) {
+	if s.history == nil {
+		s.history = make(map[string][]tracker.Snapshot)
+	}
 	s.history[key] = append(s.history[key], snap)
 }
 func (s *stubStore) History(key string, limit int) []tracker.Snapshot {

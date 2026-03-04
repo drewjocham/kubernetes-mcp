@@ -3,13 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/text/ca
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"golang.org/x/text/cases"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -294,13 +294,14 @@ func mergeStrings(base, extra []string) []string {
 
 	add := func(list []string) {
 		for _, v := range list {
-			key := strings.ToLower(strings.TrimSpace(v))
+			trimmed := strings.TrimSpace(v)
+			key := strings.ToLower(trimmed)
 			if key == "" {
 				continue
 			}
 			if _, ok := seen[key]; !ok {
 				seen[key] = struct{}{}
-				out = append(out, v)
+				out = append(out, trimmed)
 			}
 		}
 	}

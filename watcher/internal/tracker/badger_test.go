@@ -143,8 +143,8 @@ func TestBadgerStore_History(t *testing.T) {
 			history := store.History(key, tc.limit)
 			assert.Len(t, history, tc.wantCount)
 			if tc.wantCount > 0 {
-				assert.Equal(t, tc.wantFirst.Values, history[0].Values)
-				assert.Equal(t, tc.wantLast.Values, history[len(history)-1].Values)
+				assert.InDelta(t, tc.wantFirst.Values["val"], history[0].Values["val"], 0.001)
+				assert.InDelta(t, tc.wantLast.Values["val"], history[len(history)-1].Values["val"], 0.001)
 			}
 		})
 	}

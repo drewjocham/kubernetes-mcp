@@ -51,6 +51,12 @@ func (t *HistoryInsightsTool) Parameters() []ToolParameter {
 }
 
 func (t *HistoryInsightsTool) Execute(ctx context.Context, args map[string]any) (map[string]any, error) {
+	if err := validateNumericArg(args, "limit"); err != nil {
+		return nil, err
+	}
+	if err := validateNumericArg(args, "since_hours"); err != nil {
+		return nil, err
+	}
 	sinceHours := t.getFloat64(args, "since_hours", 24.0)
 	limit := t.GetIntArg(args, "limit", 20)
 	kind := history.IssueKind(t.GetStringArg(args, "kind", ""))
@@ -150,11 +156,24 @@ func (t *HistoryInsightsTool) generateInsight(f history.FrequencyComparison) str
 	case f.RecentCount == 0:
 		return "No issues detected in the current window."
 	case f.PercentChange > 50:
-		return "Critical: Significant spike in issue frequency detected."
+		return "Critical: Significant spike in issue frequency detected compared to previous window."
 	case f.PercentChange > 0:
 		return "Warning: Issues are trending upward."
 	default:
 		return "Issue frequency is stable or declining."
+	}
+}
+
+func validateNumericArg(args map[string]any, key string) error {
+	v, ok := args[key]
+	if !ok {
+		return nil
+	}
+	switch v.(type) {
+	case float64, float32, int, int32, int64:
+		return nil
+	default:
+		return fmt.Errorf("invalid type for %q: expected number", key)
 	}
 }
 
