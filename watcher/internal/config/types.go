@@ -16,6 +16,7 @@ const (
 	DefaultConfigPath = "watcher/internal/config/config.yaml"
 	LegacyConfigPath  = "watcher/internal/config/event-engine.yaml"
 	defaultStorePath  = "event-engine-badger"
+	memory            = "memory"
 )
 
 var (
@@ -223,7 +224,7 @@ func (c *WatchConfig) Validate() error {
 
 func (c *WatchConfig) applyDefaults() {
 	if c.ResourceTracking.Storage == "" {
-		c.ResourceTracking.Storage = "memory"
+		c.ResourceTracking.Storage = memory
 	}
 	if c.ResourceTracking.Path == "" {
 		c.ResourceTracking.Path = defaultStorePath
