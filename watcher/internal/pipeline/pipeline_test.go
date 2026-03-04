@@ -62,6 +62,10 @@ func (m *mockObserver) Observe(evt events.ResourceEvent) {
 	m.mu.Unlock()
 }
 
+func (m *mockObserver) Close() error {
+	return nil
+}
+
 func TestPipelineIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	cfg := &config.WatchConfig{
