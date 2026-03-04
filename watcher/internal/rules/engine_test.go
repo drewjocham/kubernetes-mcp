@@ -301,7 +301,7 @@ func TestEngine_evaluateCondition(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			met, val, err := engine.evaluateCondition(tc.cond, events.ResourceEvent{}, tc.prev, objJSON)
+			met, val, err := engine.evaluateCondition(tc.cond, tc.prev, objJSON)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
