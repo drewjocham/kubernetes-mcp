@@ -75,7 +75,6 @@ func TestExporter_Observe(t *testing.T) {
 			if tc.expectedMetric != "" {
 				assert.Contains(t, string(body), tc.expectedMetric)
 			} else {
-				// If we don't expect a metric, we should ensure the pod name isn't present in any metric
 				if tc.event.Name != "" {
 					assert.NotContains(t, string(body), tc.event.Name)
 				}

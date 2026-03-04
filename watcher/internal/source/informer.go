@@ -48,11 +48,13 @@ func (s *InformerSource) Run(ctx context.Context, out chan<- events.ResourceEven
 	for _, e := range informersToWatch {
 		entry := e
 		emit := func(obj interface{}) { s.emit(obj, out, entry.kind) }
-		entry.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		if _, err := entry.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    emit,
 			UpdateFunc: func(_, newObj interface{}) { emit(newObj) },
 			DeleteFunc: emit,
-		})
+		}); err != nil {
+			s.logger.Warn("failed to add informer handler", "kind", entry.kind, "error", err)
+		}
 	}
 
 	factory.Start(ctx.Done())

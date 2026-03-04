@@ -13,6 +13,7 @@ VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 MCP_LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
+KUBECONFIG_PATH="$HOME/.kube/config"
 
 GOCMD=go
 GOBUILD=$(GOCMD) build

@@ -33,11 +33,6 @@ func TestCalcChange(t *testing.T) {
 }
 
 func TestToIncident(t *testing.T) {
-	now := time.Now()
-
-	// Mock implementation of Recordable that isn't an Incident
-	type mockRecordable struct{ ID string }
-	// (Implement required methods... simplified for brevity)
 
 	tests := []struct {
 		name  string
@@ -72,7 +67,9 @@ func TestStore_Integration(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
-	defer store.Close()
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
 
 	now := time.Now()
 
