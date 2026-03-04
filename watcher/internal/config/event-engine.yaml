@@ -1,0 +1,59 @@
+resource_tracking:
+  enabled: true
+  fields:
+    - cpu_request
+    - memory_request
+    - ram
+    - replicas
+    - min_pod_count
+    - max_pod_count
+rules:
+  - name: high_restart_count
+    kind: pod
+    conditions:
+      - field: restart_count
+        operator: gt
+        value: 5
+    actions:
+      - alert_critical
+  - name: cpu_request_changed
+    kind: pod
+    conditions:
+      - field: cpu_request
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: ram_changed
+    kind: pod
+    conditions:
+      - field: ram
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: min_pod_count_changed
+    kind: HorizontalPodAutoscaler
+    conditions:
+      - field: min_pod_count
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+  - name: max_pod_count_changed
+    kind: HorizontalPodAutoscaler
+    conditions:
+      - field: max_pod_count
+        operator: changed
+    actions:
+      - alert_info
+      - log_change
+actions:
+  alert_critical:
+    type: alert
+    severity: critical
+  alert_info:
+    type: alert
+    severity: info
+  log_change:
+    type: log

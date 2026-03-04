@@ -1,6 +1,6 @@
 # kube-watcher
 
-A Kubernetes monitoring and analysis MCP (Model Context Protocol) server implemented in Go 1.25.1, designed to provide intelligent cluster insights and monitoring capabilities.
+A Kubernetes monitoring and analysis MCP (Model Context Protocol) server designed to provide cluster insights and monitoring capabilities.
 
 ## Features
 
@@ -16,20 +16,17 @@ The project follows Go best practices with a clean separation of concerns:
 
 ```
 kube-watcher/
-├── cmd/           # Main application entry point
-├── server/        # MCP server implementation
-├── tools/         # Tool implementations (Command pattern)
-├── kubernetes/    # Kubernetes client abstraction
-└── main.go        # Convenience wrapper
+├── mcp/               # MCP server app
+│   ├── cmd/server     # CLI entrypoint
+│   ├── server/        # MCP server implementation
+│   └── tools/         # Tool definitions
+├── watcher/           # Event engine app
+│   ├── cmd/engine     # Event-engine entrypoint
+│   └── internal/      # Rules, pipeline, actions, trackers
+├── monitoring/        # Shared history/recommendation services
+├── pkg/               # Reusable libraries (logging, kube client, etc.)
+└── main.go            # Convenience wrapper for MCP development
 ```
-
-### Design Patterns
-
-- **Interface + Factory Pattern**: All tools implement a common `Tool` interface with factory constructors
-- **Dependency Injection**: Kubernetes client is injected into tools via composition  
-- **Command Pattern**: Each monitoring capability is implemented as a separate tool
-- **Repository Pattern**: Kubernetes operations abstracted behind `ClientInterface`
-
 ## Installation
 
 1. Clone the repository:
@@ -51,30 +48,40 @@ go mod tidy
 
 #### List Available Tools
 ```bash
-go run main.go --list-tools
+go run ./mcp/cmd/server --list-tools
 ```
 
 #### Execute Specific Tools
 ```bash
 # Node status analysis
-go run main.go --exec get_node_status --args '{"include_metrics":true}'
+go run ./mcp/cmd/server --exec get_node_status --args '{"include_metrics":true}'
 
 # Pod resource monitoring
-go run main.go --exec get_pod_resources --args '{"problematic_only":true}'
+go run ./mcp/cmd/server --exec get_pod_resources --args '{"problematic_only":true}'
 
 # Full cluster analysis  
-go run main.go --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
+go run ./mcp/cmd/server --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
 ```
 
 #### Health Check
 ```bash
-go run main.go --health
+go run ./mcp/cmd/server --health
 ```
 
 #### Interactive Server Mode
 ```bash
-go run main.go --server
+go run ./mcp/cmd/server --server
 ```
+### Watcher Event Engine
+
+The watcher analyzes cluster events based on your YAML rules/configuration:
+
+```bash
+go run ./watcher/cmd/engine --config /path/to/event-engine.yaml
+```
+
+Pass `--debug` or `--listen :8085` to enable verbose logging and health endpoints.
+If you omit `--config`, the engine automatically loads `watcher/internal/config/config.yaml`.
 
 ### Available Tools
 
@@ -125,7 +132,7 @@ response, err := server.HandleMCPRequest(ctx, "tools/call", map[string]interface
 
 ### Adding New Tools
 
-1. Create a new tool in `tools/` directory:
+1. Create a new tool in `mcp/tools/` directory:
 ```go
 type MyTool struct {
     BaseTool  
@@ -143,7 +150,7 @@ func (t *MyTool) Execute(ctx context.Context, args map[string]interface{}) (map[
 }
 ```
 
-2. Register it in `server/server.go`:
+2. Register it in `mcp/server/server.go`:
 ```go
 func (s *MCPServer) registerTools() {
     // ... existing tools

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      font-family: "SF Pro Text", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #e6edf3;
+      background-color: #0d1117;
+    }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background-color: #0d1117;
+    }
+    header {
+      margin-bottom: 1rem;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 0.25rem;
+      color: #8b949e;
+    }
+    input {
+      width: 100%;
+      padding: 0.6rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      margin-bottom: 0.75rem;
+    }
+    button {
+      background: #238636;
+      border: none;
+      color: white;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      text-align: left;
+      padding: 0.5rem;
+      border-bottom: 1px solid #30363d;
+      font-size: 0.9rem;
+    }
+    tr {
+      cursor: pointer;
+    }
+    tr:hover {
+      background: rgba(56, 139, 253, 0.1);
+    }
+    .history {
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 0.5rem;
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid #30363d;
+    }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.1rem 0.75rem;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>{{.Title}}</h1>
+  <p>Inspect snapshots, deltas, and signals.</p>
+</header>
+
+<section class="card">
+  <form id="filter-form">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 1rem;">
+      <div>
+        <label for="search">Search</label>
+        <input type="text" id="search" placeholder="pod/default/api" value="{{.Filter.Search}}" />
+      </div>
+      <div>
+        <label for="kind">Kind</label>
+        <input type="text" id="kind" placeholder="pod, hpa, node" value="{{.Filter.Kind}}" />
+      </div>
+      <div>
+        <label for="namespace">Namespace</label>
+        <input type="text" id="namespace" placeholder="default" value="{{.Filter.Namespace}}" />
+      </div>
+    </div>
+    <button type="submit">Refresh</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Resources</h2>
+  <div style="overflow-x: auto;">
+    <table>
+      <thead>
+      <tr>
+        <th>Key</th>
+        <th>Timestamp</th>
+        <th>Restart Δ</th>
+        <th>HPA Stalled</th>
+        <th>OOM</th>
+      </tr>
+      </thead>
+      <tbody id="resource-table">
+      {{range .InitialRecords}}
+      <tr onclick="loadHistory('{{.Key}}')">
+        <td>{{.Key}}</td>
+        <td>{{.Snapshot.Timestamp}}</td>
+        <td>{{if .Snapshot.Values.restart_delta}}{{.Snapshot.Values.restart_delta}}{{else}}-{{end}}</td>
+        <td>{{if .Snapshot.Values.hpa_is_stalled}}<span class="pill" style="background:#A371F7;">true</span>{{else}}-{{end}}</td>
+        <td>{{if .Snapshot.Values.oom_killed}}<span class="pill" style="background:#DA3633;">OOM</span>{{else}}-{{end}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5">No resources found.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>History</h2>
+  <div class="history" id="history-panel">Select a resource to load history.</div>
+</section>
+
+<script>
+  const table = document.getElementById("resource-table");
+  const historyPanel = document.getElementById("history-panel");
+  const form = document.getElementById("filter-form");
+
+  async function fetchResources() {
+    const params = new URLSearchParams({
+      search: document.getElementById("search").value,
+      kind: document.getElementById("kind").value,
+      namespace: document.getElementById("namespace").value,
+      limit: 100
+    });
+
+    const res = await fetch(`/api/resources?${params}`);
+    const data = await res.json();
+    renderTable(data);
+  }
+
+  function renderTable(records) {
+    table.innerHTML = records.length ? "" : '<tr><td colspan="5">No resources found.</td></tr>';
+    records.forEach((r) => {
+      const row = document.createElement("tr");
+      row.onclick = () => loadHistory(r.key);
+      row.innerHTML = `
+            <td>${r.key}</td>
+            <td>${r.snapshot.timestamp || ""}</td>
+            <td>${r.snapshot.values?.restart_delta ?? "-"}</td>
+            <td>${r.snapshot.values?.hpa_is_stalled ? '<span class="pill" style="background:#A371F7;">true</span>' : "-"}</td>
+            <td>${r.snapshot.values?.oom_killed ? '<span class="pill" style="background:#DA3633;">OOM</span>' : "-"}</td>
+          `;
+      table.appendChild(row);
+    });
+  }
+
+  async function loadHistory(key) {
+    historyPanel.textContent = "Loading history...";
+    const res = await fetch(`/api/history?key=${encodeURIComponent(key)}&limit=120`);
+    const data = await res.json();
+
+    if (!data || !data.length) {
+      historyPanel.textContent = "No history available.";
+      return;
+    }
+
+    historyPanel.innerHTML = data.map(snap => `
+          <pre><strong>${snap.timestamp}</strong>\n${JSON.stringify(snap.values, null, 2)}</pre>
+        `).join("<hr/>");
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    fetchResources();
+  });
+
+  // Periodic refresh
+  setInterval(fetchResources, 30000);
+</script>
+</body>
+</html>
