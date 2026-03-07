@@ -21,34 +21,44 @@ rules:
     actions:
       - slack-dev-team
       - ops-pager
+      - google-chat
+      - oz-investigate
   - name: Image-Pull-Failure
     kind: Pod
     duration: 2m
     condition: "evt.waiting_reasons.exists(r, r.contains('ImagePull'))"
     actions:
       - slack-dev-team
+      - google-chat
+      - oz-investigate
   - name: HPA-Stalled-At-Ceiling
     kind: HorizontalPodAutoscaler
     duration: 5m
     condition: "evt.hpa_is_stalled == true"
     actions:
       - ops-pager
+      - google-chat
+      - oz-investigate
   - name: Node-Memory-Pressure
     kind: Node
     condition: "evt.node_memory_pressure == true"
     actions:
       - ops-pager
+      - google-chat
+      - oz-investigate
   - name: Dangerous-Resource-Gap
     kind: Pod
     condition: "evt.node_memory_pressure == true && evt.mem_limit_gap > 2048"
     actions:
       - personal-channel
+      - oz-investigate
   - name: Pod-Stuck-In-Pending
     kind: Pod
     duration: 10m
     condition: "evt.is_ready == false && evt.waiting_reason == 'ContainerCreating'"
     actions:
       - personal-channel
+      - oz-investigate
 actions:
   slack-dev-team:
     type: alert
@@ -67,6 +77,19 @@ actions:
     template: "Rule '{{ .RuleName }}' triggered for resource '{{ .Context.resource.kind }}/{{ .Context.resource.metadata.name }}'"
     config:
       url: "https://chat.googleapis.com/v1/spaces/AAQAKFdXW08/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=KTXFCf54GSEhe4DXv9-HWAmaow7HBdlLIc6qpjyMCZ0"
+  oz-investigate:
+    type: oz-agent
+    template: |
+      Alert '{{ .RuleName }}' fired for {{ .Kind }}/{{ .Name }} in namespace '{{ .Namespace }}'.
+      Investigate this Kubernetes issue. Check pod logs, events, describe the resource,
+      and identify the root cause. If applicable check Solace broker connectivity.
+      Provide a summary of findings and recommended remediation steps as a comment
+      on the relevant GitHub issue or create a new one.
+    throttle:
+      max_per_hour: 6
+    config:
+      environment_id: "YOUR_OZ_ENVIRONMENT_ID"
+      api_key_env: "OZ_API_KEY"
 settings:
   metrics:
     enabled: true

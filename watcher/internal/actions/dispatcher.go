@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"text/template"
 	"time"
@@ -17,12 +19,19 @@ import (
 	"kube-watcher/watcher/internal/rules"
 )
 
+const (
+	defaultOzAPIURL    = "https://app.warp.dev/api/v1/agent/run"
+	defaultOzAPIKeyEnv = "OZ_API_KEY"
+)
+
 type Dispatcher struct {
 	logger  *slog.Logger
 	actions map[string]config.Action
 	pool    *ants.PoolWithFunc
 	mu      sync.Mutex
 	lastRun map[string]time.Time
+	client  *http.Client
+	getEnv  func(string) string
 }
 
 type dispatchTask struct {
@@ -39,6 +48,8 @@ func NewDispatcher(logger *slog.Logger, actions map[string]config.Action, size i
 		logger:  logger,
 		actions: actions,
 		lastRun: make(map[string]time.Time),
+		client:  http.DefaultClient,
+		getEnv:  os.Getenv,
 	}
 
 	pool, err := ants.NewPoolWithFunc(size, func(i interface{}) {
@@ -67,6 +78,8 @@ func (d *Dispatcher) execute(task dispatchTask) {
 		d.handleLog(inv)
 	case "notification":
 		d.handleNotification(inv)
+	case "oz-agent":
+		d.handleOzAgent(inv)
 	default:
 		d.logger.Info("action executed",
 			"type", inv.Action.Type, "rule", inv.RuleName)
@@ -116,7 +129,7 @@ func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
 	}
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := d.client.Do(req)
 	if err != nil {
 		d.logger.Warn("failed to send notification",
 			"error", err, "rule", inv.RuleName)
@@ -134,6 +147,99 @@ func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
 
 	d.logger.Info("rule action executed",
 		"rule", inv.RuleName, "action", inv.ActionID, "type", "notification")
+}
+
+func (d *Dispatcher) handleOzAgent(inv rules.ActionInvocation) {
+	envVarName := inv.Action.Config["api_key_env"]
+	if envVarName == "" {
+		envVarName = defaultOzAPIKeyEnv
+	}
+	apiKey := d.getEnv(envVarName)
+	if apiKey == "" {
+		d.logger.Warn("oz-agent action missing API key",
+			"env_var", envVarName, "rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	envID := inv.Action.Config["environment_id"]
+	if envID == "" {
+		d.logger.Warn("oz-agent action missing environment_id",
+			"rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	prompt, err := d.renderTemplate(inv.Action.Template, map[string]interface{}{
+		"RuleName":  inv.RuleName,
+		"ActionID":  inv.ActionID,
+		"Context":   inv.Context,
+		"Event":     inv.Event,
+		"Kind":      inv.Event.Kind,
+		"Namespace": inv.Event.Namespace,
+		"Name":      inv.Event.Name,
+	})
+	if err != nil {
+		d.logger.Warn("oz-agent template failure",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+
+	apiURL := inv.Action.Config["api_url"]
+	if apiURL == "" {
+		apiURL = defaultOzAPIURL
+	}
+
+	body := map[string]interface{}{
+		"prompt": prompt,
+		"config": map[string]string{
+			"environment_id": envID,
+		},
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		d.logger.Warn("oz-agent failed to marshal request",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", apiURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		d.logger.Warn("oz-agent failed to create request",
+			"error", err, "rule", inv.RuleName)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		d.logger.Warn("oz-agent API call failed",
+			"error", err, "rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		d.logger.Warn("oz-agent API returned non-success status",
+			"status", resp.Status, "body", string(respBody),
+			"rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	var result map[string]interface{}
+	runID := "unknown"
+	if err := json.Unmarshal(respBody, &result); err == nil {
+		if id, ok := result["id"].(string); ok {
+			runID = id
+		}
+	}
+
+	d.logger.Info("oz-agent spawned",
+		"rule", inv.RuleName, "action", inv.ActionID,
+		"run_id", runID, "environment_id", envID)
 }
 
 func (d *Dispatcher) renderTemplate(tmplStr string, data interface{}) (string, error) {
