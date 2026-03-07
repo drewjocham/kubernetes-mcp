@@ -16,7 +16,7 @@ func New(debug bool, logFile string) (*slog.Logger, error) {
 
 	var output io.Writer = os.Stdout
 	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return nil, err
 		}

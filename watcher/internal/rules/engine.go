@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"kube-watcher/pkg/convert"
 	"kube-watcher/watcher/internal/config"
 	"kube-watcher/watcher/internal/events"
 	"kube-watcher/watcher/internal/tracker"
@@ -198,19 +199,7 @@ func compareScalar(a, b interface{}) int {
 }
 
 func (e *Engine) toFloat(v interface{}) (float64, bool) {
-	switch t := v.(type) {
-	case float64:
-		return t, true
-	case int:
-		return float64(t), true
-	case int64:
-		return float64(t), true
-	case string:
-		if q, err := resource.ParseQuantity(t); err == nil {
-			return q.AsApproximateFloat64(), true
-		}
-	}
-	return 0, false
+	return convert.ToFloat64(v)
 }
 
 func (e *Engine) evalCEL(prog cel.Program, evt events.ResourceEvent) (bool, error) {

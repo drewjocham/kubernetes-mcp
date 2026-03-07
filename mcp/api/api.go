@@ -206,8 +206,7 @@ func (a *API) respondError(w http.ResponseWriter, r *http.Request, status int, m
 	span.SetStatus(codes.Error, msg)
 
 	a.respond(w, r, status, map[string]string{
-		"error":   msg,
-		"details": err.Error(),
+		"error": msg,
 	})
 }
 

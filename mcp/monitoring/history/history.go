@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -146,7 +147,7 @@ func (s *Store) CompareFrequency(ctx context.Context, kind IssueKind, recent, pr
 		Kind:             kind,
 		RecentCount:      rCount,
 		PreviousCount:    pCount,
-		PercentChange:    calcChange(pCount, rCount),
+	PercentChange:    CalcChange(pCount, rCount),
 		WindowHours:      recent.Hours(),
 		PreviousWindowHr: previous.Hours(),
 	}, nil
@@ -268,7 +269,15 @@ func resolvePath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-func calcChange(prev, curr int) float64 {
+// SupportedKinds is the canonical list of incident kinds used throughout the application.
+var SupportedKinds = []IssueKind{
+	IncidentTypeNode,
+	IncidentTypePod,
+	IncidentTypeEvent,
+}
+
+// CalcChange computes the percentage change from prev to curr.
+func CalcChange(prev, curr int) float64 {
 	if prev <= 0 {
 		if curr > 0 {
 			return 100.0
@@ -276,6 +285,28 @@ func calcChange(prev, curr int) float64 {
 		return 0.0
 	}
 	return (float64(curr-prev) / float64(prev)) * 100.0
+}
+
+// ListIncidents loads incidents from the recorder for the given kinds and window, sorted by timestamp descending.
+func ListIncidents(ctx context.Context, store Recorder, kind IssueKind, window time.Duration) ([]Incident, error) {
+	targetKinds := SupportedKinds
+	if kind != "" {
+		targetKinds = []IssueKind{kind}
+	}
+
+	var results []Incident
+	for _, k := range targetKinds {
+		items, err := store.List(ctx, k, window)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, items...)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp.After(results[j].Timestamp)
+	})
+	return results, nil
 }
 
 func (i Incident) GetID() string               { return i.ID }

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -11,11 +10,6 @@ import (
 	"kube-watcher/pkg/kube"
 )
 
-var supportedHistoryKinds = []history.IssueKind{
-	history.IncidentTypeNode,
-	history.IncidentTypePod,
-	history.IncidentTypeEvent,
-}
 
 type HistoryInsightsTool struct {
 	BaseTool
@@ -92,25 +86,7 @@ func (t *HistoryInsightsTool) Execute(ctx context.Context, args map[string]any) 
 }
 
 func (t *HistoryInsightsTool) loadIncidents(ctx context.Context, kind history.IssueKind, window time.Duration) ([]history.Incident, error) {
-	targetKinds := supportedHistoryKinds
-	if kind != "" {
-		targetKinds = []history.IssueKind{kind}
-	}
-
-	var results []history.Incident
-	for _, k := range targetKinds {
-		data, err := t.store.List(ctx, k, window)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, data...)
-	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Timestamp.After(results[j].Timestamp)
-	})
-
-	return results, nil
+	return history.ListIncidents(ctx, t.store, kind, window)
 }
 
 func (t *HistoryInsightsTool) filterIncidents(incidents []history.Incident, severity string, limit int) []history.Incident {
@@ -138,7 +114,7 @@ func (t *HistoryInsightsTool) computeFrequency(ctx context.Context, kind history
 		PreviousWindowHr: window.Hours(),
 	}
 
-	for _, k := range supportedHistoryKinds {
+	for _, k := range history.SupportedKinds {
 		f, err := t.store.CompareFrequency(ctx, k, window, window)
 		if err != nil {
 			return combined, err
@@ -147,7 +123,7 @@ func (t *HistoryInsightsTool) computeFrequency(ctx context.Context, kind history
 		combined.PreviousCount += f.PreviousCount
 	}
 
-	combined.PercentChange = calcPercentChange(combined.PreviousCount, combined.RecentCount)
+	combined.PercentChange = history.CalcChange(combined.PreviousCount, combined.RecentCount)
 	return combined, nil
 }
 
@@ -196,12 +172,3 @@ func (t *HistoryInsightsTool) getFloat64(args map[string]any, key string, fallba
 	}
 }
 
-func calcPercentChange(prev, curr int) float64 {
-	if prev == 0 {
-		if curr > 0 {
-			return 100.0
-		}
-		return 0.0
-	}
-	return (float64(curr-prev) / float64(prev)) * 100.0
-}

@@ -6,6 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"kube-watcher/pkg/convert"
 	"kube-watcher/watcher/internal/events"
 )
 
@@ -63,23 +64,5 @@ func cpuGapMilli(v interface{}) (float64, bool) {
 }
 
 func toFloat(v interface{}) (float64, bool) {
-	switch val := v.(type) {
-	case float64:
-		return val, true
-	case float32:
-		return float64(val), true
-	case int:
-		return float64(val), true
-	case int32:
-		return float64(val), true
-	case int64:
-		return float64(val), true
-	case string:
-		q, err := resource.ParseQuantity(val)
-		if err != nil {
-			return 0, false
-		}
-		return q.AsApproximateFloat64(), true
-	}
-	return 0, false
+	return convert.ToFloat64(v)
 }

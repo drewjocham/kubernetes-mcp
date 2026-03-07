@@ -89,34 +89,24 @@ func parseFlags() config {
 }
 
 func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger any) {
-	actions := map[bool]func(){
-		cfg.listTools: func() {
-			fmt.Printf("%+v\n", s.ListTools())
-		},
-		cfg.execTool != "": func() {
-			var args map[string]any
-			if err := json.Unmarshal([]byte(cfg.toolArgs), &args); err != nil {
-				os.Exit(1)
-			}
-			res, _ := s.ExecuteTool(ctx, cfg.execTool, args)
-			fmt.Println(res)
-		},
-		cfg.healthCheck: func() {
-			if h := s.HealthCheck(ctx); h["status"] != "healthy" {
-				os.Exit(1)
-			}
-		},
-	}
-
-	for active, action := range actions {
-		if active {
-			action()
-			return
+	switch {
+	case cfg.listTools:
+		fmt.Printf("%+v\n", s.ListTools())
+	case cfg.execTool != "":
+		var args map[string]any
+		if err := json.Unmarshal([]byte(cfg.toolArgs), &args); err != nil {
+			os.Exit(1)
 		}
-	}
-
-	if err := s.Start(ctx); err != nil {
-		os.Exit(1)
+		res, _ := s.ExecuteTool(ctx, cfg.execTool, args)
+		fmt.Println(res)
+	case cfg.healthCheck:
+		if h := s.HealthCheck(ctx); h["status"] != "healthy" {
+			os.Exit(1)
+		}
+	default:
+		if err := s.Start(ctx); err != nil {
+			os.Exit(1)
+		}
 	}
 }
 

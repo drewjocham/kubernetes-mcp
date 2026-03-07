@@ -66,7 +66,7 @@ func (d *Dispatcher) execute(task dispatchTask) {
 	case "log":
 		d.handleLog(inv)
 	case "notification":
-		d.handleNotification(inv)
+		d.handleNotification(task, inv)
 	default:
 		d.logger.Info("action executed",
 			"type", inv.Action.Type, "rule", inv.RuleName)
@@ -84,7 +84,7 @@ func (d *Dispatcher) handleLog(inv rules.ActionInvocation) {
 		"rule", inv.RuleName, "action", inv.ActionID, "message", msg)
 }
 
-func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
+func (d *Dispatcher) handleNotification(task dispatchTask, inv rules.ActionInvocation) {
 	url, ok := inv.Action.Config["url"]
 	if !ok || url == "" {
 		d.logger.Warn("action notification missing url",
@@ -108,7 +108,7 @@ func (d *Dispatcher) handleNotification(inv rules.ActionInvocation) {
 		return
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewBuffer(jsonPayload))
+	req, err := http.NewRequestWithContext(task.ctx, "POST", url, bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		d.logger.Warn("failed to create notification request",
 			"error", err, "rule", inv.RuleName)

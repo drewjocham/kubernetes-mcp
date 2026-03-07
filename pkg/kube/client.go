@@ -206,6 +206,11 @@ func MapNode(node *corev1.Node) NodeInfo {
 		capacity[string(k)] = v.String()
 	}
 
+	allocatable := make(map[string]string)
+	for k, v := range node.Status.Allocatable {
+		allocatable[string(k)] = v.String()
+	}
+
 	status := "Unknown"
 	for _, cond := range node.Status.Conditions {
 		if cond.Type == corev1.NodeReady && cond.Status == corev1.ConditionTrue {
@@ -220,6 +225,7 @@ func MapNode(node *corev1.Node) NodeInfo {
 		Conditions:  conditions,
 		Taints:      node.Spec.Taints,
 		Capacity:    capacity,
+		Allocatable: allocatable,
 		Age:         time.Since(node.CreationTimestamp.Time),
 		Labels:      node.Labels,
 		Annotations: node.Annotations,

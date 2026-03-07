@@ -11,8 +11,8 @@ import (
 )
 
 type NamespaceListTool struct {
-	k8sManager kube.ClientInterface
-	logger     *slog.Logger
+	BaseTool
+	logger *slog.Logger
 }
 
 type nsDetail struct {
@@ -24,8 +24,8 @@ type nsDetail struct {
 
 func NewNamespaceListTool(k8sManager kube.ClientInterface, logger *slog.Logger) *NamespaceListTool {
 	return &NamespaceListTool{
-		k8sManager: k8sManager,
-		logger:     logger,
+		BaseTool: NewBaseTool(k8sManager),
+		logger:   logger,
 	}
 }
 
@@ -43,10 +43,10 @@ func (t *NamespaceListTool) Parameters() []ToolParameter {
 }
 
 func (t *NamespaceListTool) Execute(ctx context.Context, args map[string]any) (map[string]any, error) {
-	includeSystem, _ := args["include_system"].(bool)
-	includeQuotas, _ := args["include_quotas"].(bool)
+	includeSystem := t.GetBoolArg(args, "include_system", false)
+	includeQuotas := t.GetBoolArg(args, "include_quotas", false)
 
-	allNames, err := t.k8sManager.GetNamespaces(ctx)
+	allNames, err := t.K8sManager.GetNamespaces(ctx)
 	if err != nil {
 		t.logger.Error("Failed to fetch namespaces", "error", err)
 		return nil, err
@@ -104,10 +104,10 @@ func (t *NamespaceListTool) fetchParallel(ctx context.Context, names []string, i
 		go func(n string, sys bool) {
 			defer wg.Done()
 
-			pods, _ := t.k8sManager.GetPods(ctx, n)
+			pods, _ := t.K8sManager.GetPods(ctx, n)
 			var quotas []kube.ResourceQuotaInfo
 			if incQuo {
-				quotas, _ = t.k8sManager.GetResourceQuotas(ctx, n)
+				quotas, _ = t.K8sManager.GetResourceQuotas(ctx, n)
 			}
 
 			mu.Lock()
