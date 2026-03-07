@@ -307,7 +307,15 @@ func (s *MCPServer) IncidentHistory(ctx context.Context, window time.Duration) (
 	if window <= 0 {
 		window = defaultHistoryRange
 	}
-	return history.ListIncidents(ctx, s.history, "", window)
+	var all []history.Incident
+	for _, k := range history.SupportedKinds {
+		incidents, err := s.history.List(ctx, k, window)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, incidents...)
+	}
+	return all, nil
 }
 
 func (s *MCPServer) ToolSummaries() []ToolSummary {

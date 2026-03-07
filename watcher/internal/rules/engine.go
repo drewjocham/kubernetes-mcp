@@ -28,20 +28,6 @@ type ActionInvocation struct {
 	Event    events.ResourceEvent
 }
 
-func extractValue(jsonBytes []byte, path string) (interface{}, error) {
-	if path == "" {
-		return nil, fmt.Errorf("empty path")
-	}
-	if len(jsonBytes) == 0 {
-		return nil, fmt.Errorf("missing object data")
-	}
-	res := gjson.GetBytes(jsonBytes, path)
-	if !res.Exists() {
-		return nil, fmt.Errorf("field %s missing", path)
-	}
-	return res.Value(), nil
-}
-
 type Engine struct {
 	cfg         *config.WatchConfig
 	store       tracker.Store

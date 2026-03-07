@@ -85,7 +85,18 @@ func (t *HistoryInsightsTool) Execute(ctx context.Context, args map[string]any) 
 }
 
 func (t *HistoryInsightsTool) loadIncidents(ctx context.Context, kind history.IssueKind, window time.Duration) ([]history.Incident, error) {
-	return history.ListIncidents(ctx, t.store, kind, window)
+	if kind != "" {
+		return t.store.List(ctx, kind, window)
+	}
+	var all []history.Incident
+	for _, k := range history.SupportedKinds {
+		incidents, err := t.store.List(ctx, k, window)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, incidents...)
+	}
+	return all, nil
 }
 
 func (t *HistoryInsightsTool) filterIncidents(incidents []history.Incident, severity string, limit int) []history.Incident {
