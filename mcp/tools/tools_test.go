@@ -213,7 +213,7 @@ func TestClusterAnalysisTool_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &mockK8sClient{
-				cluster:    tt.cluster,
+				cluster: tt.cluster,
 				clusterErr: func() error {
 					if tt.cluster == nil {
 						return errors.New("cluster unavailable")

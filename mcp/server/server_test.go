@@ -24,11 +24,15 @@ type stubK8sClient struct {
 	healthErr error
 }
 
-func (s *stubK8sClient) GetNodes(_ context.Context) ([]kube.NodeInfo, error)             { return nil, nil }
-func (s *stubK8sClient) GetNode(_ context.Context, _ string) (*kube.NodeInfo, error)      { return nil, nil }
-func (s *stubK8sClient) GetPods(_ context.Context, _ string) ([]kube.PodInfo, error)      { return nil, nil }
-func (s *stubK8sClient) GetPodsAllNamespaces(_ context.Context) ([]kube.PodInfo, error)   { return nil, nil }
-func (s *stubK8sClient) GetPod(_ context.Context, _, _ string) (*kube.PodInfo, error)     { return nil, nil }
+func (s *stubK8sClient) GetNodes(_ context.Context) ([]kube.NodeInfo, error)         { return nil, nil }
+func (s *stubK8sClient) GetNode(_ context.Context, _ string) (*kube.NodeInfo, error) { return nil, nil }
+func (s *stubK8sClient) GetPods(_ context.Context, _ string) ([]kube.PodInfo, error) { return nil, nil }
+func (s *stubK8sClient) GetPodsAllNamespaces(_ context.Context) ([]kube.PodInfo, error) {
+	return nil, nil
+}
+func (s *stubK8sClient) GetPod(_ context.Context, _, _ string) (*kube.PodInfo, error) {
+	return nil, nil
+}
 func (s *stubK8sClient) GetServices(_ context.Context, _ string) ([]kube.ServiceInfo, error) {
 	return nil, nil
 }
@@ -51,7 +55,7 @@ func (s *stubK8sClient) GetClusterInfo(_ context.Context) (*kube.ClusterInfo, er
 func (s *stubK8sClient) GetResource(_ context.Context, _, _ string) ([]runtime.Object, error) {
 	return nil, nil
 }
-func (s *stubK8sClient) HealthCheck(_ context.Context) error { return s.healthErr }
+func (s *stubK8sClient) HealthCheck(_ context.Context) error  { return s.healthErr }
 func (s *stubK8sClient) GetRawInterface() clientset.Interface { return nil }
 
 func newTestServer(t *testing.T) (*MCPServer, *history.Store) {
@@ -195,7 +199,7 @@ func TestMCPServer_IncidentHistory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-		results, err := srv.IncidentHistory(context.Background(), tt.window)
+			results, err := srv.IncidentHistory(context.Background(), tt.window)
 			assert.NoError(t, err)
 			assert.Empty(t, results)
 		})

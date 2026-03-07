@@ -8,10 +8,10 @@ import (
 
 func TestToFloat64(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   interface{}
-		want    float64
-		wantOK  bool
+		name   string
+		input  interface{}
+		want   float64
+		wantOK bool
 	}{
 		{"float64", 42.5, 42.5, true},
 		{"float32", float32(3.14), 3.140000104904175, true},

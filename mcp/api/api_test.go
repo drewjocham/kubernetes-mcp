@@ -28,11 +28,15 @@ import (
 
 type stubK8sClient struct{}
 
-func (s *stubK8sClient) GetNodes(_ context.Context) ([]kube.NodeInfo, error)           { return nil, nil }
-func (s *stubK8sClient) GetNode(_ context.Context, _ string) (*kube.NodeInfo, error)    { return nil, nil }
-func (s *stubK8sClient) GetPods(_ context.Context, _ string) ([]kube.PodInfo, error)    { return nil, nil }
-func (s *stubK8sClient) GetPodsAllNamespaces(_ context.Context) ([]kube.PodInfo, error) { return nil, nil }
-func (s *stubK8sClient) GetPod(_ context.Context, _, _ string) (*kube.PodInfo, error)   { return nil, nil }
+func (s *stubK8sClient) GetNodes(_ context.Context) ([]kube.NodeInfo, error)         { return nil, nil }
+func (s *stubK8sClient) GetNode(_ context.Context, _ string) (*kube.NodeInfo, error) { return nil, nil }
+func (s *stubK8sClient) GetPods(_ context.Context, _ string) ([]kube.PodInfo, error) { return nil, nil }
+func (s *stubK8sClient) GetPodsAllNamespaces(_ context.Context) ([]kube.PodInfo, error) {
+	return nil, nil
+}
+func (s *stubK8sClient) GetPod(_ context.Context, _, _ string) (*kube.PodInfo, error) {
+	return nil, nil
+}
 func (s *stubK8sClient) GetServices(_ context.Context, _ string) ([]kube.ServiceInfo, error) {
 	return nil, nil
 }
@@ -55,8 +59,8 @@ func (s *stubK8sClient) GetClusterInfo(_ context.Context) (*kube.ClusterInfo, er
 func (s *stubK8sClient) GetResource(_ context.Context, _, _ string) ([]runtime.Object, error) {
 	return nil, nil
 }
-func (s *stubK8sClient) HealthCheck(_ context.Context) error           { return nil }
-func (s *stubK8sClient) GetRawInterface() clientset.Interface          { return nil }
+func (s *stubK8sClient) HealthCheck(_ context.Context) error  { return nil }
+func (s *stubK8sClient) GetRawInterface() clientset.Interface { return nil }
 
 type stubChecker struct{ err error }
 

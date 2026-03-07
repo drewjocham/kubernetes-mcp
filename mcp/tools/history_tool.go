@@ -10,7 +10,6 @@ import (
 	"kube-watcher/pkg/kube"
 )
 
-
 type HistoryInsightsTool struct {
 	BaseTool
 	store history.Recorder
@@ -171,4 +170,3 @@ func (t *HistoryInsightsTool) getFloat64(args map[string]any, key string, fallba
 		return fallback
 	}
 }
-

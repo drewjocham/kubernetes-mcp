@@ -147,7 +147,7 @@ func (s *Store) CompareFrequency(ctx context.Context, kind IssueKind, recent, pr
 		Kind:             kind,
 		RecentCount:      rCount,
 		PreviousCount:    pCount,
-	PercentChange:    CalcChange(pCount, rCount),
+		PercentChange:    CalcChange(pCount, rCount),
 		WindowHours:      recent.Hours(),
 		PreviousWindowHr: previous.Hours(),
 	}, nil

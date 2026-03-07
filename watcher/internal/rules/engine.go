@@ -28,20 +28,6 @@ type ActionInvocation struct {
 	Event    events.ResourceEvent
 }
 
-func extractValue(jsonBytes []byte, path string) (interface{}, error) {
-	if path == "" {
-		return nil, fmt.Errorf("empty path")
-	}
-	if len(jsonBytes) == 0 {
-		return nil, fmt.Errorf("missing object data")
-	}
-	res := gjson.GetBytes(jsonBytes, path)
-	if !res.Exists() {
-		return nil, fmt.Errorf("field %s missing", path)
-	}
-	return res.Value(), nil
-}
-
 type Engine struct {
 	cfg         *config.WatchConfig
 	store       tracker.Store
@@ -173,10 +159,6 @@ func (e *Engine) checkTimer(rule config.Rule, evt events.ResourceEvent, met bool
 	return false
 }
 
-func (e *Engine) evaluateCondition(cond config.Condition, prev tracker.Snapshot, objJSON []byte) (bool, interface{}, error) {
-	return e.evalCond(cond, prev, objJSON)
-}
-
 func (e *Engine) compare(a, b interface{}) int {
 	af, aOk := e.toFloat(a)
 	bf, bOk := e.toFloat(b)
@@ -191,11 +173,6 @@ func (e *Engine) compare(a, b interface{}) int {
 	}
 	as, bs := fmt.Sprintf("%v", a), fmt.Sprintf("%v", b)
 	return strings.Compare(as, bs)
-}
-
-func compareScalar(a, b interface{}) int {
-	engine := &Engine{}
-	return engine.compare(a, b)
 }
 
 func (e *Engine) toFloat(v interface{}) (float64, bool) {
