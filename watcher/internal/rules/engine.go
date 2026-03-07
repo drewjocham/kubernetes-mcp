@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"kube-watcher/pkg/convert"
 	"kube-watcher/watcher/internal/config"
 	"kube-watcher/watcher/internal/events"
 	"kube-watcher/watcher/internal/tracker"
@@ -25,20 +26,6 @@ type ActionInvocation struct {
 	Action   config.Action
 	Context  map[string]interface{}
 	Event    events.ResourceEvent
-}
-
-func extractValue(jsonBytes []byte, path string) (interface{}, error) {
-	if path == "" {
-		return nil, fmt.Errorf("empty path")
-	}
-	if len(jsonBytes) == 0 {
-		return nil, fmt.Errorf("missing object data")
-	}
-	res := gjson.GetBytes(jsonBytes, path)
-	if !res.Exists() {
-		return nil, fmt.Errorf("field %s missing", path)
-	}
-	return res.Value(), nil
 }
 
 type Engine struct {
@@ -172,10 +159,6 @@ func (e *Engine) checkTimer(rule config.Rule, evt events.ResourceEvent, met bool
 	return false
 }
 
-func (e *Engine) evaluateCondition(cond config.Condition, prev tracker.Snapshot, objJSON []byte) (bool, interface{}, error) {
-	return e.evalCond(cond, prev, objJSON)
-}
-
 func (e *Engine) compare(a, b interface{}) int {
 	af, aOk := e.toFloat(a)
 	bf, bOk := e.toFloat(b)
@@ -192,25 +175,8 @@ func (e *Engine) compare(a, b interface{}) int {
 	return strings.Compare(as, bs)
 }
 
-func compareScalar(a, b interface{}) int {
-	engine := &Engine{}
-	return engine.compare(a, b)
-}
-
 func (e *Engine) toFloat(v interface{}) (float64, bool) {
-	switch t := v.(type) {
-	case float64:
-		return t, true
-	case int:
-		return float64(t), true
-	case int64:
-		return float64(t), true
-	case string:
-		if q, err := resource.ParseQuantity(t); err == nil {
-			return q.AsApproximateFloat64(), true
-		}
-	}
-	return 0, false
+	return convert.ToFloat64(v)
 }
 
 func (e *Engine) evalCEL(prog cel.Program, evt events.ResourceEvent) (bool, error) {

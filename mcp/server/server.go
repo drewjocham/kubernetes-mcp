@@ -33,12 +33,6 @@ const (
 	defaultHistoryRange = 72 * time.Hour
 )
 
-var incidentKinds = []history.IssueKind{
-	history.IncidentTypeNode,
-	history.IncidentTypePod,
-	history.IncidentTypeEvent,
-}
-
 type Tool interface {
 	Name() string
 	Description() string
@@ -170,7 +164,9 @@ func (s *MCPServer) registerTool(t Tool) {
 	s.mcp.AddTool(mcpTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := make(map[string]interface{})
 		if req.Params.Arguments != nil {
-			_ = json.Unmarshal(req.Params.Arguments, &args)
+			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+				s.logger.Warn("failed to unmarshal tool arguments", "tool", name, "error", err)
+			}
 		}
 
 		res, err := t.Execute(ctx, args)
@@ -181,7 +177,14 @@ func (s *MCPServer) registerTool(t Tool) {
 			}, nil
 		}
 
-		out, _ := json.Marshal(res)
+		out, err := json.Marshal(res)
+		if err != nil {
+			s.logger.Warn("failed to marshal tool result", "tool", name, "error", err)
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: "internal error: failed to marshal result"}},
+			}, nil
+		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(out)}},
 		}, nil
@@ -203,7 +206,10 @@ func (s *MCPServer) listenForAlerts(ctx context.Context, ch <-chan kwatch.Alert)
 }
 
 func (s *MCPServer) processAlert(ctx context.Context, a kwatch.Alert) {
-	rec, _ := s.engine.ForAlert(ctx, a)
+	rec, err := s.engine.ForAlert(ctx, a)
+	if err != nil {
+		s.logger.Warn("failed to generate recommendation", "alert", a.Name, "error", err)
+	}
 	s.alertsMu.Lock()
 	s.alerts = append([]AlertRecord{{Alert: a, Recommendation: rec}}, s.alerts...)
 	if len(s.alerts) > maxAlertRecords {
@@ -211,28 +217,44 @@ func (s *MCPServer) processAlert(ctx context.Context, a kwatch.Alert) {
 	}
 	s.alertsMu.Unlock()
 
-	_ = s.history.Record(ctx, history.Incident{
+	if err := s.history.Record(ctx, history.Incident{
 		ID:        uuid.NewString(),
 		Timestamp: a.OccurredAt,
 		Kind:      history.IssueKind(a.Kind),
 		Severity:  a.Severity,
 		Name:      a.Name,
 		Message:   a.Message,
-	})
+	}); err != nil {
+		s.logger.Warn("failed to record incident", "alert", a.Name, "error", err)
+	}
 
-	_ = s.mcp.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: alertsResourceURI})
+	if err := s.mcp.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: alertsResourceURI}); err != nil {
+		s.logger.Warn("failed to send resource update notification", "error", err)
+	}
 }
 
 func (s *MCPServer) handleReadAlerts(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	data, _ := json.Marshal(s.AlertsSnapshot())
+	data, err := json.Marshal(s.AlertsSnapshot())
+	if err != nil {
+		s.logger.Warn("failed to marshal alerts", "error", err)
+		return nil, err
+	}
 	return &mcp.ReadResourceResult{
 		Contents: []*mcp.ResourceContents{{URI: alertsResourceURI, Text: string(data)}},
 	}, nil
 }
 
 func (s *MCPServer) handleReadHistory(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	results, _ := s.IncidentHistory(ctx, defaultHistoryRange)
-	data, _ := json.Marshal(results)
+	results, err := s.IncidentHistory(ctx, defaultHistoryRange)
+	if err != nil {
+		s.logger.Warn("failed to fetch incident history", "error", err)
+		return nil, err
+	}
+	data, err := json.Marshal(results)
+	if err != nil {
+		s.logger.Warn("failed to marshal history", "error", err)
+		return nil, err
+	}
 	return &mcp.ReadResourceResult{
 		Contents: []*mcp.ResourceContents{{URI: historyResourceURI, Text: string(data)}},
 	}, nil
@@ -285,18 +307,15 @@ func (s *MCPServer) IncidentHistory(ctx context.Context, window time.Duration) (
 	if window <= 0 {
 		window = defaultHistoryRange
 	}
-	var results []history.Incident
-	for _, k := range incidentKinds {
-		items, err := s.history.List(ctx, k, window)
+	var all []history.Incident
+	for _, k := range history.SupportedKinds {
+		incidents, err := s.history.List(ctx, k, window)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, items...)
+		all = append(all, incidents...)
 	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Timestamp.After(results[j].Timestamp)
-	})
-	return results, nil
+	return all, nil
 }
 
 func (s *MCPServer) ToolSummaries() []ToolSummary {

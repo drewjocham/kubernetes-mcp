@@ -8,8 +8,7 @@ import (
 	"strings"
 
 	"github.com/panjf2000/ants/v2"
-	"k8s.io/apimachinery/pkg/api/resource"
-
+	"kube-watcher/pkg/convert"
 	"kube-watcher/watcher/internal/config"
 	"kube-watcher/watcher/internal/events"
 	"kube-watcher/watcher/internal/graph"
@@ -212,25 +211,7 @@ func (p *Pipeline) recordMetrics(evt events.ResourceEvent) {
 }
 
 func extractNumeric(v interface{}) (float64, bool) {
-	switch val := v.(type) {
-	case float64:
-		return val, true
-	case float32:
-		return float64(val), true
-	case int:
-		return float64(val), true
-	case int32:
-		return float64(val), true
-	case int64:
-		return float64(val), true
-	case string:
-		q, err := resource.ParseQuantity(val)
-		if err != nil {
-			return 0, false
-		}
-		return q.AsApproximateFloat64(), true
-	}
-	return 0, false
+	return convert.ToFloat64(v)
 }
 
 func (p *Pipeline) maybeAttachGraph(evt events.ResourceEvent, inv rules.ActionInvocation) rules.ActionInvocation {

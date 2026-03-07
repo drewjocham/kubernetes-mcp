@@ -1,0 +1,104 @@
+version: 2
+
+project_name: kube-watcher
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kube-watcher
+    main: ./mcp/cmd/server
+    binary: kube-watcher
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.gitCommit={{.ShortCommit}}
+      - -X main.buildDate={{.Date}}
+
+  - id: watcher-engine
+    main: ./watcher/cmd/engine
+    binary: watcher-engine
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: kube-watcher
+    builds:
+      - kube-watcher
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - docs/*
+
+  - id: watcher-engine
+    builds:
+      - watcher-engine
+    format: tar.gz
+    name_template: "watcher-engine_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - watcher/internal/config/config.yaml
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - name: kube-watcher
+    ids:
+      - kube-watcher
+    repository:
+      owner: drewjocham
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    directory: Formula
+    homepage: "https://github.com/drewjocham/kubernetes-mcp"
+    description: "Kubernetes monitoring MCP server — exposes cluster insights to AI assistants and REST APIs"
+    license: "MIT"
+    dependencies:
+      - name: go
+        type: optional
+    install: |
+      bin.install "kube-watcher"
+    test: |
+      system "#{bin}/kube-watcher", "--version"
+
+release:
+  github:
+    owner: drewjocham
+    name: kubernetes-mcp
+  prerelease: auto
+  name_template: "v{{ .Version }}"

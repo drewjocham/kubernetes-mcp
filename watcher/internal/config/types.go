@@ -232,9 +232,6 @@ func (c *WatchConfig) applyDefaults() {
 	if c.ResourceTracking.Retention <= 0 {
 		c.ResourceTracking.Retention = time.Hour
 	}
-	if c.ResourceTracking.Retention == 0 {
-		c.ResourceTracking.Retention = 1 * time.Hour
-	}
 	if c.Settings.QueueDepth == 0 {
 		c.Settings.QueueDepth = 256
 	}
