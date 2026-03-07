@@ -29,7 +29,7 @@ git add . && git commit -m "init tap" && git push
 In the **kubernetes-mcp** repo, add a secret:
 
 - Go to **Settings → Secrets and variables → Actions**
-- Create `HOMEBREW_TAP_GITHUB_TOKEN` with a PAT that has `repo` scope on `drewjocham/homebrew-tap`
+- Create `HOMEBREW_TAP_TOKEN` with a PAT that has `repo` scope on `drewjocham/homebrew-tap`
 
 ### 3. Verify GoReleaser config
 
@@ -41,7 +41,7 @@ brews:
     repository:
       owner: drewjocham
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
 ```
 
