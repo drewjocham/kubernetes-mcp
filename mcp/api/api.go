@@ -103,7 +103,7 @@ func (a *API) Routes() http.Handler {
 
 func (a *API) handleRoot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, "kube-watcher MCP API (%s)", a.serviceName)
+	_, _ = w.Write([]byte(fmt.Sprintf("kube-watcher MCP API (%s)", a.serviceName)))
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +230,7 @@ func decodeJSON[T any](r *http.Request) (T, error) {
 	if r.Body == nil || r.Body == http.NoBody {
 		return val, nil
 	}
-	defer func() { _ = r.Body.Close() }()
+	defer r.Body.Close()
 
 	err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&val)
 	return val, err

@@ -287,28 +287,6 @@ func CalcChange(prev, curr int) float64 {
 	return (float64(curr-prev) / float64(prev)) * 100.0
 }
 
-// ListIncidents loads incidents from the recorder for the given kinds and window, sorted by timestamp descending.
-func ListIncidents(ctx context.Context, store Recorder, kind IssueKind, window time.Duration) ([]Incident, error) {
-	targetKinds := SupportedKinds
-	if kind != "" {
-		targetKinds = []IssueKind{kind}
-	}
-
-	var results []Incident
-	for _, k := range targetKinds {
-		items, err := store.List(ctx, k, window)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, items...)
-	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Timestamp.After(results[j].Timestamp)
-	})
-	return results, nil
-}
-
 func (i Incident) GetID() string               { return i.ID }
 func (i Incident) GetTimestamp() time.Time     { return i.Timestamp }
 func (i Incident) GetKind() IssueKind          { return i.Kind }

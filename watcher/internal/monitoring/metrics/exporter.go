@@ -64,5 +64,18 @@ func cpuGapMilli(v interface{}) (float64, bool) {
 }
 
 func toFloat(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case string:
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			return 0, false
+		}
+		return float64(q.MilliValue()), true
+	default:
+		return toFloat(v)
+	}
+}
+
+func toFloat(v interface{}) (float64, bool) {
 	return convert.ToFloat64(v)
 }
