@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"kube-watcher/mcp/monitoring/history"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
 	"kube-watcher/pkg/kube"
 	"kube-watcher/pkg/kube/watch"
@@ -88,23 +89,41 @@ func parseFlags() config {
 	return c
 }
 
-func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger any) {
+func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger *slog.Logger) {
 	switch {
 	case cfg.listTools:
-		fmt.Printf("%+v\n", s.ListTools())
+		out, err := json.MarshalIndent(s.ListTools(), "", "  ")
+		if err != nil {
+			logger.Error("failed to marshal tools", "error", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
 	case cfg.execTool != "":
 		var args map[string]any
 		if err := json.Unmarshal([]byte(cfg.toolArgs), &args); err != nil {
+			logger.Error("invalid tool args", "error", err)
 			os.Exit(1)
 		}
-		res, _ := s.ExecuteTool(ctx, cfg.execTool, args)
-		fmt.Println(res)
+		res, err := s.ExecuteTool(ctx, cfg.execTool, args)
+		if err != nil {
+			logger.Error("tool execution failed", "tool", cfg.execTool, "error", err)
+			os.Exit(1)
+		}
+		out, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			logger.Error("failed to marshal result", "error", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
 	case cfg.healthCheck:
 		if h := s.HealthCheck(ctx); h["status"] != "healthy" {
+			logger.Error("health check failed", "status", h["status"])
 			os.Exit(1)
 		}
+		logger.Info("health check passed")
 	default:
 		if err := s.Start(ctx); err != nil {
+			logger.Error("server failed", "error", err)
 			os.Exit(1)
 		}
 	}
@@ -112,7 +131,7 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 
 func handleErr(err error, msg string) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", msg, err)
+		slog.Error(msg, "error", err)
 		os.Exit(1)
 	}
 }
