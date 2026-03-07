@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7-labs
-ARG BUILD_IMAGE=1.25.7-alpine3.23
+ARG BUILD_IMAGE=golang:1.25.7-alpine3.23
 ARG RUNTIME_IMAGE=alpine:3.23
 ARG DEBUG_RUNTIME_IMAGE=alpine:3.23
 

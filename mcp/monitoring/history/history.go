@@ -146,7 +146,7 @@ func (s *Store) CompareFrequency(ctx context.Context, kind IssueKind, recent, pr
 		Kind:             kind,
 		RecentCount:      rCount,
 		PreviousCount:    pCount,
-		PercentChange:    calcChange(pCount, rCount),
+		PercentChange:    CalcChange(pCount, rCount),
 		WindowHours:      recent.Hours(),
 		PreviousWindowHr: previous.Hours(),
 	}, nil
@@ -268,7 +268,15 @@ func resolvePath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-func calcChange(prev, curr int) float64 {
+// SupportedKinds is the canonical list of incident kinds used throughout the application.
+var SupportedKinds = []IssueKind{
+	IncidentTypeNode,
+	IncidentTypePod,
+	IncidentTypeEvent,
+}
+
+// CalcChange computes the percentage change from prev to curr.
+func CalcChange(prev, curr int) float64 {
 	if prev <= 0 {
 		if curr > 0 {
 			return 100.0

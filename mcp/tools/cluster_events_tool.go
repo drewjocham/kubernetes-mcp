@@ -15,12 +15,12 @@ import (
 var ErrFailedToGetClusterEvents = errors.New("failed to get cluster events")
 
 type ClusterEventsTool struct {
-	k8sManager kube.ClientInterface
-	logger     *slog.Logger
+	BaseTool
+	logger *slog.Logger
 }
 
 func NewClusterEventsTool(k8sManager kube.ClientInterface, logger *slog.Logger) *ClusterEventsTool {
-	return &ClusterEventsTool{k8sManager: k8sManager, logger: logger}
+	return &ClusterEventsTool{BaseTool: NewBaseTool(k8sManager), logger: logger}
 }
 
 func (t *ClusterEventsTool) Name() string        { return "get_cluster_events" }
@@ -36,10 +36,10 @@ func (t *ClusterEventsTool) Parameters() []ToolParameter {
 }
 
 func (t *ClusterEventsTool) Execute(ctx context.Context, args map[string]any) (map[string]any, error) {
-	ns, _ := args["namespace"].(string)
-	limit := t.getArg(args, "limit", 50.0).(float64)
-	evType := t.getArg(args, "event_type", "all").(string)
-	hours := t.getArg(args, "hours_back", 24.0).(float64)
+	ns := t.GetStringArg(args, "namespace", "")
+	limit := float64(t.GetIntArg(args, "limit", 50))
+	evType := t.GetStringArg(args, "event_type", "all")
+	hours := t.getFloat(args, "hours_back", 24.0)
 
 	events, err := t.fetchEvents(ctx, ns)
 	if err != nil {
@@ -64,9 +64,9 @@ func (t *ClusterEventsTool) Execute(ctx context.Context, args map[string]any) (m
 
 func (t *ClusterEventsTool) fetchEvents(ctx context.Context, ns string) ([]kube.EventInfo, error) {
 	if ns == "" {
-		return t.k8sManager.GetEventsAllNamespaces(ctx)
+		return t.K8sManager.GetEventsAllNamespaces(ctx)
 	}
-	return t.k8sManager.GetEvents(ctx, ns)
+	return t.K8sManager.GetEvents(ctx, ns)
 }
 
 func (t *ClusterEventsTool) filterAndSort(events []kube.EventInfo, evType string, hours float64) []kube.EventInfo {
@@ -174,18 +174,9 @@ func (t *ClusterEventsTool) formatEvents(events []kube.EventInfo, max int) []map
 	return out
 }
 
-func (t *ClusterEventsTool) getArg(args map[string]any, key string, fallback any) any {
-	if v, ok := args[key]; ok && v != nil {
-		switch val := v.(type) {
-		case string:
-			if val != "" {
-				return val
-			}
-		case float64:
-			if val != 0 {
-				return val
-			}
-		}
+func (t *ClusterEventsTool) getFloat(args map[string]any, key string, fallback float64) float64 {
+	if val, ok := args[key].(float64); ok && val != 0 {
+		return val
 	}
 	return fallback
 }

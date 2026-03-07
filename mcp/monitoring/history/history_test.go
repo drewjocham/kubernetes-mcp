@@ -26,7 +26,7 @@ func TestCalcChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calcChange(tt.prev, tt.curr)
+			got := CalcChange(tt.prev, tt.curr)
 			assert.Equal(t, tt.expected, got)
 		})
 	}

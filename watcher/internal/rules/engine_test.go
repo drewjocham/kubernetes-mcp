@@ -198,7 +198,7 @@ func TestEngine_Concurrency(t *testing.T) {
 				Kind: "Pod", Name: string(rune(id)),
 				Object: map[string]interface{}{"status": "Fail"},
 			}
-			engine.Evaluate(context.Background(), evt)
+			_, _ = engine.Evaluate(context.Background(), evt)
 			time.Sleep(10 * time.Millisecond)
 			inv, _ := engine.Evaluate(context.Background(), evt)
 			assert.Len(t, inv, 1)
