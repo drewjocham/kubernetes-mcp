@@ -4,7 +4,7 @@ google_chat:
   auth_header: "X-Bridge-Token"
   auth_token_env: "CHAT_BRIDGE_TOKEN"
 investigation:
-  provider: "oz" # one of: oz, llstudio, openapi
+  provider: "oz"
   timeout: 5m
   poll_interval: 5s
   prompt_template: |

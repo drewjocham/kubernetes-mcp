@@ -27,7 +27,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - ${KUBECONFIG_PATH:?KUBECONFIG_PATH is required}:/home/nonroot/.kube/config:ro
+      - ${KUBECONFIG_PATH:-${HOME}/.kube/config}:/home/nonroot/.kube/config:ro
 
   watcher:
     image: watcher:latest
@@ -45,6 +45,7 @@ services:
     environment:
       LOG_LEVEL: ${WATCHER_LOG_LEVEL:-info}
       HOME: /home/nonroot
+    user: "0:0"
     ports:
       - "${WATCHER_HTTP_PORT:-8085}:8085"
       - "${WATCHER_METRICS_PORT:-9095}:9095"
@@ -109,12 +110,14 @@ services:
       ]
     environment:
       LOG_LEVEL: ${EXPLORER_LOG_LEVEL:-info}
+    user: "0:0"
     ports:
       - "${EXPLORER_HTTP_PORT:-4101}:4101"
     volumes:
-      - watcher-data:/event-engine-badger:ro
+      - watcher-data:/event-engine-badger
     depends_on:
-      - watcher
+      watcher:
+        condition: service_healthy
 
 volumes:
   watcher-data: {}

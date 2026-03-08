@@ -44,6 +44,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Debug image
 FROM --platform=$TARGETPLATFORM ${DEBUG_RUNTIME_IMAGE} AS runner-debug
 COPY --from=builder /out/app-debug /app/main
+USER root
+RUN mkdir -p /home/nonroot /app && chown -R 65532:65532 /home/nonroot /app
 ENV HOME=/home/nonroot
 USER 65532:65532
 ENTRYPOINT ["/app/main"]
@@ -51,6 +53,8 @@ ENTRYPOINT ["/app/main"]
 # Final slim image
 FROM --platform=$TARGETPLATFORM ${RUNTIME_IMAGE} AS final
 COPY --from=builder /out/app /app/main
+USER root
+RUN mkdir -p /home/nonroot /app && chown -R 65532:65532 /home/nonroot /app
 ENV HOME=/home/nonroot
 USER 65532:65532
 ENTRYPOINT ["/app/main"]

@@ -224,7 +224,11 @@ func (c *WatchConfig) Validate() error {
 
 func (c *WatchConfig) applyDefaults() {
 	if c.ResourceTracking.Storage == "" {
-		c.ResourceTracking.Storage = memory
+		if c.ResourceTracking.Enabled {
+			c.ResourceTracking.Storage = "disk"
+		} else {
+			c.ResourceTracking.Storage = memory
+		}
 	}
 	if c.ResourceTracking.Path == "" {
 		c.ResourceTracking.Path = defaultStorePath
