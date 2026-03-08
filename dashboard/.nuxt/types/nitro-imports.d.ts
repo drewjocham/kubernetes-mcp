@@ -3,6 +3,7 @@ declare global {
   const H3Event: typeof import('../../node_modules/h3').H3Event
   const __buildAssetsURL: typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/utils/paths').buildAssetsURL
   const __publicAssetsURL: typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/utils/paths').publicAssetsURL
+  const __resetDashboardStoreForTests: typeof import('../../server/utils/alert-store').__resetDashboardStoreForTests
   const appendCorsHeaders: typeof import('../../node_modules/h3').appendCorsHeaders
   const appendCorsPreflightHeaders: typeof import('../../node_modules/h3').appendCorsPreflightHeaders
   const appendHeader: typeof import('../../node_modules/h3').appendHeader
@@ -159,5 +160,5 @@ export { defineTask, runTask } from 'nitropack/runtime/internal/task';
 export { defineNitroErrorHandler } from 'nitropack/runtime/internal/error/utils';
 export { buildAssetsURL as __buildAssetsURL, publicAssetsURL as __publicAssetsURL } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@nuxt/nitro-server/dist/runtime/utils/paths';
 export { defineAppConfig } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@nuxt/nitro-server/dist/runtime/utils/config';
-export { listAlerts, getAlert, createAlert, updateAlert, pushThinkingStep, setThinking, setReport, setFailed, getWorkflowConfig, setWorkflowConfig, onStoreUpdates } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/alert-store';
+export { listAlerts, getAlert, createAlert, updateAlert, pushThinkingStep, setThinking, setReport, setFailed, getWorkflowConfig, setWorkflowConfig, onStoreUpdates, __resetDashboardStoreForTests } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/alert-store';
 export { runWorkflow } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/workflow';
