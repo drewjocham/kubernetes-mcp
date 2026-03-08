@@ -79,6 +79,25 @@ go run ./watcher/cmd/engine --config /path/to/event-engine.yaml
 Pass `--debug` or `--listen :8085` to enable verbose logging and health endpoints.
 If you omit `--config`, the engine automatically loads `watcher/internal/config/config.yaml`.
 
+### Explorer CLI (with hotkeys)
+The explorer is launched from CLI and serves a local web UI for browsing watcher Badger snapshots/history:
+
+```bash
+go run ./watcher/cmd/explorer --db event-engine-badger --listen :4101
+```
+
+Then open `http://localhost:4101`.
+
+#### Hotkeys
+- `/` focus search field
+- `g` focus kind field
+- `n` focus namespace field
+- `r` refresh resources now
+- `j` or `↓` move selection to next resource row
+- `k` or `↑` move selection to previous resource row
+- `Enter` load history for selected row
+- `?` toggle hotkey help
+
 ### Available Tools
 
 #### `get_node_status`
@@ -143,4 +162,14 @@ LOG_FORMAT=json LOG_LEVEL=info go run main.go --health
 
 # Debug level logging
 LOG_LEVEL=debug go run main.go --exec analyze_cluster
+```
+
+## Alert dashboard UI module
+For the Nuxt 3 + Naive UI alert dashboard setup and end-to-end wiring (`kube-watcher` → dashboard API → MCP/agent RCA), see `dashboard/README.md`.
+
+## Integration tests (engine → UI → MCP channel)
+Run the watcher integration test that validates alert flow from engine dispatch to UI ingest webhook and MCP enrichment handoff:
+
+```bash
+go test ./watcher/internal/integration -run 'TestChannelEngineToUIAnd.*Integration' -v
 ```

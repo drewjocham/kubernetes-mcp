@@ -1,0 +1,41 @@
+server:
+  listen: ":8092"
+google_chat:
+  auth_header: "X-Bridge-Token"
+  auth_token_env: "CHAT_BRIDGE_TOKEN"
+investigation:
+  provider: "openapi"
+  timeout: 7m
+  poll_interval: 5s
+  prompt_template: |
+    Investigate {{.Kind}} incident from Google Chat.
+    Space: {{.SpaceName}}
+    Thread: {{.ThreadName}}
+    Sender: {{.SenderName}}
+    Message: {{.MessageText}}
+providers:
+  openapi:
+    base_url: "https://api.example.com"
+    api_key_env: "GENERIC_PROVIDER_API_KEY"
+    start_method: "POST"
+    start_path: "/runs"
+    start_body_template: |
+      {"prompt": {{printf "%q" .Prompt}}, "metadata": {"kind": {{printf "%q" .Kind}}, "event_id": {{printf "%q" .EventID}}, "space": {{printf "%q" .SpaceName}}, "thread": {{printf "%q" .ThreadName}}}}
+    status_method: "GET"
+    status_path_template: "/runs/{{.run_id}}"
+    run_id_paths: ["run_id", "id", "data.id"]
+    state_paths: ["state", "status", "data.state"]
+    output_paths: ["output", "result", "data.output"]
+    terminal_states: ["succeeded", "completed", "failed", "cancelled", "error"]
+    success_states: ["succeeded", "completed"]
+trigger:
+  require_prefixes: ["@oz", "/investigate"]
+  kubernetes_keywords: ["k8s", "kubernetes", "pod", "node", "cluster"]
+  solace_keywords: ["solace", "queue", "broker", "topic"]
+  allow_spaces: []
+reliability:
+  idempotency_ttl: 10m
+  retry_count: 2
+  retry_backoff: 2s
+reporting:
+  webhook_url_env: "GOOGLE_CHAT_WEBHOOK_URL"
