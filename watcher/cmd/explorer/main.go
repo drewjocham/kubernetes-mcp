@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -43,15 +46,96 @@ type Store struct {
 	db           *badger.DB
 	historyLimit int
 	logger       *slog.Logger
+	snapshotPath string
 }
 
 func NewStore(path string, historyLimit int, logger *slog.Logger) (*Store, error) {
-	opts := badger.DefaultOptions(path).WithReadOnly(true).WithLogger(nil)
-	db, err := badger.Open(opts)
+	db, err := openReadOnlyWithRecovery(path, logger)
 	if err != nil {
+		if strings.Contains(err.Error(), "Cannot acquire directory lock") {
+			snapshotPath := filepath.Join(os.TempDir(), fmt.Sprintf("watcher-explorer-snapshot-%d", time.Now().UnixNano()))
+			logger.Warn("badger lock held by another process, using snapshot copy", "source", path, "snapshot", snapshotPath)
+			if copyErr := copyDir(path, snapshotPath); copyErr != nil {
+				return nil, fmt.Errorf("badger open: lock held and snapshot copy failed: %w", copyErr)
+			}
+			db, err = openReadOnlyWithRecovery(snapshotPath, logger)
+			if err != nil {
+				_ = os.RemoveAll(snapshotPath)
+				return nil, fmt.Errorf("badger open snapshot: %w", err)
+			}
+			return &Store{db: db, historyLimit: historyLimit, logger: logger, snapshotPath: snapshotPath}, nil
+		}
 		return nil, fmt.Errorf("badger open: %w", err)
 	}
 	return &Store{db: db, historyLimit: historyLimit, logger: logger}, nil
+}
+
+func openReadOnlyWithRecovery(path string, logger *slog.Logger) (*badger.DB, error) {
+	opts := badger.DefaultOptions(path).WithReadOnly(true).WithLogger(nil)
+	db, err := badger.Open(opts)
+	if err != nil && strings.Contains(err.Error(), "Log truncate required") {
+		logger.Warn("badger requires log truncate, attempting one-time recovery", "path", path)
+		recoverOpts := badger.DefaultOptions(path).WithLogger(nil)
+		recovered, recoverErr := badger.Open(recoverOpts)
+		if recoverErr != nil {
+			return nil, fmt.Errorf("badger recovery open: %w", recoverErr)
+		}
+		if closeErr := recovered.Close(); closeErr != nil {
+			return nil, fmt.Errorf("badger recovery close: %w", closeErr)
+		}
+		db, err = badger.Open(opts)
+	}
+	return db, err
+}
+
+func copyDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		return copyFile(path, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+func (s *Store) Close() error {
+	var firstErr error
+	if err := s.db.Close(); err != nil {
+		firstErr = err
+	}
+	if s.snapshotPath != "" {
+		if err := os.RemoveAll(s.snapshotPath); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func (s *Store) List(ctx context.Context, f ResourceFilter) ([]ResourceRecord, error) {
@@ -321,6 +405,6 @@ func main() {
 	defer cancel()
 
 	_ = srv.Shutdown(ctx)
-	_ = store.db.Close()
+	_ = store.Close()
 	logger.Info("shutdown complete")
 }

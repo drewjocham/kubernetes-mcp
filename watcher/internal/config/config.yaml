@@ -17,7 +17,7 @@ resource_tracking:
 rules:
   - name: Pod-Restarting-Frequently
     kind: Pod
-    condition: "evt.restart_delta > 0 && evt.waiting_reason == 'CrashLoopBackOff'"
+    condition: "evt.restart_delta > 3 && evt.waiting_reason == 'CrashLoopBackOff'"
     actions:
       - slack-dev-team
       - ops-pager

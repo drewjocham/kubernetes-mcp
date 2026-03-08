@@ -1,4 +1,7 @@
 # kube-watcher Makefile
+THIS_MAKEFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
+MAKEFILE_DIR := $(dir $(THIS_MAKEFILE_PATH))
+REPO_ROOT := $(abspath $(MAKEFILE_DIR)/..)
 
 BIN_DIR=bin
 BINARY_NAME?=$(MCP_BINARY_NAME)
@@ -15,7 +18,7 @@ VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 MCP_LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
-KUBECONFIG_PATH="$HOME/.kube/config"
+KUBECONFIG_PATH="${HOME}/.kube/config"
 
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -168,7 +171,7 @@ dashboard-deps:
 
 dashboard-dev:
 	@echo "Running dashboard in development mode..."
-	cd $(DASHBOARD_DIR) && npm run dev
+	cd $(DASHBOARD_DIR) && CI=true npm run dev
 
 dashboard-build:
 	@echo "Building dashboard..."
@@ -176,9 +179,9 @@ dashboard-build:
 
 dashboard-preview:
 	@echo "Previewing dashboard..."
-	cd $(DASHBOARD_DIR) && npm run preview
+	cd $(DASHBOARD_DIR) && CI=true npm run preview
 
-dashboard-lint:
+dashboard-lint:F
 	@echo "Linting dashboard..."
 	cd $(DASHBOARD_DIR) && npm run lint
 

@@ -47,6 +47,11 @@ go mod tidy
 go run ./mcp/cmd/server --list-tools
 ```
 
+```shell
+    export KUBECONFIG_PATH="${HOME}/.kube/config"
+    docker compose -f docker/compose.yaml up 
+```
+
 #### Execute Specific Tools
 ```bash
 # Node status analysis
@@ -118,6 +123,24 @@ Monitors pod resource usage, restart counts, and identifies problematic pods.
 - `include_containers` (boolean): Include container details [default: true]
 - `problematic_only` (boolean): Only problematic pods [default: false]
 
+#### `list_namespaces`
+Returns namespace inventory with per-namespace pod counts/status breakdowns (and optional quota analysis).
+
+**Parameters:**
+- `include_system` (boolean): Include system namespaces like `kube-system` [default: false]
+- `include_quotas` (boolean): Include ResourceQuota details [default: false]
+
+#### `get_pod_logs`
+Fetches logs for a specific pod/container in a namespace.
+
+**Parameters:**
+- `namespace` (string): Namespace containing the pod [required]
+- `pod_name` (string): Pod name [required]
+- `container` (string): Container name for multi-container pods [optional]
+- `tail_lines` (number): Number of trailing log lines to return [default: 200]
+- `since_seconds` (number): Only logs newer than this many seconds [default: 0]
+- `previous` (boolean): Return logs for previous container instance [default: false]
+
 #### `analyze_cluster`
 Comprehensive cluster analysis with health scoring and recommendations.
 
@@ -138,8 +161,7 @@ The application automatically detects Kubernetes configuration:
 2. **Local**: Uses `~/.kube/config` for local development
 3. **Custom**: Specify custom kubeconfig path via `kubernetes.NewClientFromConfig()`
 
-If your kube config file is not `"$HOME/.kube/config"` here. Change the path in the
-`KUBECONFIG_PATH` in the Makefile.
+If your kubeconfig is not at `${HOME}/.kube/config`, update `KUBECONFIG_PATH` in `Makefile`.
 
 ## Health and Monitoring
 
