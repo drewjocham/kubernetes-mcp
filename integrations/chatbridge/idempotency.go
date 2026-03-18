@@ -6,36 +6,38 @@ import (
 )
 
 type IdempotencyStore struct {
+	mu    sync.RWMutex
+	cache map[string]time.Time
 	ttl   time.Duration
-	mu    sync.Mutex
-	items map[string]time.Time
 }
 
 func NewIdempotencyStore(ttl time.Duration) *IdempotencyStore {
 	return &IdempotencyStore{
+		cache: make(map[string]time.Time),
 		ttl:   ttl,
-		items: make(map[string]time.Time),
 	}
 }
 
-func (s *IdempotencyStore) SeenOrAdd(key string, now time.Time) bool {
+func (s *IdempotencyStore) SeenOrAdd(id string, now time.Time) bool {
+	if id == "" {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.cleanupLocked(now)
-
-	exp, ok := s.items[key]
-	if ok && exp.After(now) {
-		return true
-	}
-	s.items[key] = now.Add(s.ttl)
-	return false
-}
-
-func (s *IdempotencyStore) cleanupLocked(now time.Time) {
-	for key, exp := range s.items {
-		if !exp.After(now) {
-			delete(s.items, key)
+	// Cleanup expired entries occasionally
+	if len(s.cache) > 1000 {
+		for k, v := range s.cache {
+			if now.Sub(v) > s.ttl {
+				delete(s.cache, k)
+			}
 		}
 	}
+
+	if t, ok := s.cache[id]; ok && now.Sub(t) < s.ttl {
+		return true
+	}
+
+	s.cache[id] = now
+	return false
 }

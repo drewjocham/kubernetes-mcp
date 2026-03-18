@@ -61,20 +61,19 @@ func (b *HTTPPollingBackend) startRun(ctx context.Context, req InvestigationRequ
 		return "", fmt.Errorf("render start body: %w", err)
 	}
 
-	method := strings.ToUpper(strings.TrimSpace(b.cfg.StartMethod))
-	if method == "" {
-		method = http.MethodPost
-	}
+	method := nvl(strings.ToUpper(b.cfg.StartMethod), http.MethodPost)
 	path := strings.TrimSpace(b.cfg.StartPath)
 	if path == "" {
 		return "", errors.New("provider start_path is required")
 	}
+
 	respBytes, err := b.doWithRetries(ctx, method, path, bodyBytes)
 	if err != nil {
 		return "", fmt.Errorf("start request failed: %w", err)
 	}
-	payload, err := parseJSONMap(respBytes)
-	if err != nil {
+
+	var payload map[string]any
+	if err := json.Unmarshal(respBytes, &payload); err != nil {
 		return "", fmt.Errorf("decode start response: %w", err)
 	}
 
@@ -82,6 +81,7 @@ func (b *HTTPPollingBackend) startRun(ctx context.Context, req InvestigationRequ
 	if len(paths) == 0 {
 		paths = []string{"run_id", "runId", "id", "data.run_id", "data.id"}
 	}
+
 	runID := firstString(payload, paths)
 	if runID == "" {
 		return "", errors.New("run id not found in provider start response")
@@ -103,13 +103,14 @@ func (b *HTTPPollingBackend) pollRun(ctx context.Context, runID string) (Investi
 		case <-ticker.C:
 			payload, err := b.fetchStatus(timeoutCtx, runID)
 			if err != nil {
-				continue
+				continue // Optional: log error before continuing
 			}
 
 			state := firstString(payload, statePathsOrDefault(b.cfg.StatePaths))
 			if state == "" {
 				continue
 			}
+
 			if !containsIgnoreCase(stateSetOrDefault(b.cfg.TerminalStates), state) {
 				continue
 			}
@@ -117,7 +118,7 @@ func (b *HTTPPollingBackend) pollRun(ctx context.Context, runID string) (Investi
 			if !containsIgnoreCase(successSetOrDefault(b.cfg.SuccessStates), state) {
 				errText := firstString(payload, errorPathsOrDefault(b.cfg.ErrorPaths))
 				if errText == "" {
-					errText = fmt.Sprintf("provider reported terminal non-success state: %s", state)
+					errText = fmt.Sprintf("terminal non-success state: %s", state)
 				}
 				return InvestigationResult{}, errors.New(errText)
 			}
@@ -137,7 +138,7 @@ func (b *HTTPPollingBackend) pollRun(ctx context.Context, runID string) (Investi
 	}
 }
 
-func (b *HTTPPollingBackend) fetchStatus(ctx context.Context, runID string) (map[string]interface{}, error) {
+func (b *HTTPPollingBackend) fetchStatus(ctx context.Context, runID string) (map[string]any, error) {
 	pathTmpl := strings.TrimSpace(b.cfg.StatusPathTemplate)
 	if pathTmpl == "" {
 		return nil, errors.New("provider status_path_template is required")
@@ -145,36 +146,34 @@ func (b *HTTPPollingBackend) fetchStatus(ctx context.Context, runID string) (map
 
 	tpl, err := template.New("statusPath").Parse(pathTmpl)
 	if err != nil {
-		return nil, fmt.Errorf("parse status_path_template: %w", err)
+		return nil, err
 	}
+
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, map[string]string{"run_id": runID}); err != nil {
-		return nil, fmt.Errorf("render status_path_template: %w", err)
+		return nil, err
 	}
 
-	method := strings.ToUpper(strings.TrimSpace(b.cfg.StatusMethod))
-	if method == "" {
-		method = http.MethodGet
-	}
-
+	method := nvl(strings.ToUpper(b.cfg.StatusMethod), http.MethodGet)
 	respBytes, err := b.doWithRetries(ctx, method, buf.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	return parseJSONMap(respBytes)
+
+	var out map[string]any
+	err = json.Unmarshal(respBytes, &out)
+	return out, err
 }
 
 func (b *HTTPPollingBackend) renderStartBody(req InvestigationRequest) ([]byte, error) {
 	if strings.TrimSpace(b.cfg.StartBodyTemplate) == "" {
-		def := map[string]interface{}{
+		def := map[string]any{
 			"prompt": req.Prompt,
 			"title":  fmt.Sprintf("incident %s in %s", req.Kind, req.SpaceName),
 			"metadata": map[string]string{
 				"kind":           string(req.Kind),
 				"correlation_id": req.CorrelationID,
 				"space":          req.SpaceName,
-				"thread":         req.ThreadName,
-				"event_id":       req.EventID,
 			},
 		}
 		return json.Marshal(def)
@@ -184,6 +183,7 @@ func (b *HTTPPollingBackend) renderStartBody(req InvestigationRequest) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, req); err != nil {
 		return nil, err
@@ -199,13 +199,12 @@ func (b *HTTPPollingBackend) doWithRetries(ctx context.Context, method, path str
 			return respBytes, nil
 		}
 		lastErr = err
+
 		if attempt < b.retryCount {
-			timer := time.NewTimer(b.retryBackoff)
 			select {
 			case <-ctx.Done():
-				timer.Stop()
 				return nil, ctx.Err()
-			case <-timer.C:
+			case <-time.After(b.retryBackoff):
 			}
 		}
 	}
@@ -218,139 +217,107 @@ func (b *HTTPPollingBackend) doOnce(ctx context.Context, method, path string, bo
 	if err != nil {
 		return nil, err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
 	for k, v := range b.cfg.Headers {
 		req.Header.Set(k, v)
 	}
 
-	if token := b.loadAPIKey(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if keyEnv := strings.TrimSpace(b.cfg.APIKeyEnv); keyEnv != "" {
+		if token := os.Getenv(keyEnv); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 	}
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("provider HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return nil, fmt.Errorf("provider HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
 }
 
-func (b *HTTPPollingBackend) loadAPIKey() string {
-	keyEnv := strings.TrimSpace(b.cfg.APIKeyEnv)
-	if keyEnv == "" {
-		return ""
-	}
-	return strings.TrimSpace(os.Getenv(keyEnv))
-}
-
-func parseJSONMap(raw []byte) (map[string]interface{}, error) {
-	var out map[string]interface{}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func firstString(payload map[string]interface{}, paths []string) string {
+func firstString(payload map[string]any, paths []string) string {
 	for _, path := range paths {
 		if val, ok := findPath(payload, path); ok {
-			switch v := val.(type) {
-			case string:
-				if strings.TrimSpace(v) != "" {
-					return strings.TrimSpace(v)
-				}
-			case fmt.Stringer:
-				s := strings.TrimSpace(v.String())
-				if s != "" {
-					return s
-				}
-			case float64, bool, int:
-				return strings.TrimSpace(fmt.Sprintf("%v", v))
+			s := strings.TrimSpace(fmt.Sprintf("%v", val))
+			if s != "" {
+				return s
 			}
 		}
 	}
 	return ""
 }
 
-func findPath(payload map[string]interface{}, path string) (interface{}, bool) {
-	cur := interface{}(payload)
+func findPath(payload map[string]any, path string) (any, bool) {
+	var cur any = payload
 	for _, segment := range strings.Split(path, ".") {
-		seg := strings.TrimSpace(segment)
-		if seg == "" {
-			return nil, false
-		}
-		m, ok := cur.(map[string]interface{})
+		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false
 		}
-		next, ok := m[seg]
+		cur, ok = m[segment]
 		if !ok {
 			return nil, false
 		}
-		cur = next
 	}
 	return cur, true
 }
 
+func nvl(val, fallback string) string {
+	if strings.TrimSpace(val) == "" {
+		return fallback
+	}
+	return val
+}
+
 func containsIgnoreCase(set []string, state string) bool {
-	state = strings.TrimSpace(strings.ToUpper(state))
-	for _, candidate := range set {
-		if strings.TrimSpace(strings.ToUpper(candidate)) == state {
+	state = strings.ToUpper(strings.TrimSpace(state))
+	for _, s := range set {
+		if strings.ToUpper(strings.TrimSpace(s)) == state {
 			return true
 		}
 	}
 	return false
 }
 
-func compactJSON(v interface{}) string {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
+func compactJSON(v any) string {
+	raw, _ := json.Marshal(v)
 	return string(raw)
 }
 
-func statePathsOrDefault(paths []string) []string {
-	if len(paths) > 0 {
-		return paths
+func statePathsOrDefault(p []string) []string {
+	if len(p) > 0 {
+		return p
 	}
-	return []string{"state", "status", "data.state", "run.state"}
+	return []string{"state", "status"}
 }
-
-func outputPathsOrDefault(paths []string) []string {
-	if len(paths) > 0 {
-		return paths
+func outputPathsOrDefault(p []string) []string {
+	if len(p) > 0 {
+		return p
 	}
-	return []string{"output", "result", "final_output", "data.output", "response"}
+	return []string{"output", "result"}
 }
-
-func errorPathsOrDefault(paths []string) []string {
-	if len(paths) > 0 {
-		return paths
+func errorPathsOrDefault(p []string) []string {
+	if len(p) > 0 {
+		return p
 	}
-	return []string{"error", "error.message", "message", "status_message"}
+	return []string{"error", "message"}
 }
-
-func stateSetOrDefault(states []string) []string {
-	if len(states) > 0 {
-		return states
+func stateSetOrDefault(p []string) []string {
+	if len(p) > 0 {
+		return p
 	}
-	return []string{"SUCCEEDED", "FAILED", "CANCELLED", "COMPLETED", "ERROR"}
+	return []string{"SUCCEEDED", "FAILED"}
 }
-
-func successSetOrDefault(states []string) []string {
-	if len(states) > 0 {
-		return states
+func successSetOrDefault(p []string) []string {
+	if len(p) > 0 {
+		return p
 	}
-	return []string{"SUCCEEDED", "COMPLETED"}
+	return []string{"SUCCEEDED"}
 }

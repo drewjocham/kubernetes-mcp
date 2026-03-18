@@ -71,3 +71,22 @@ func (e GoogleChatEvent) EventID() string {
 	}
 	return out
 }
+
+type Space struct {
+	Name string `json:"name"`
+}
+
+type Message struct {
+	Name   string `json:"name"` // This is the unique ID (e.g., spaces/AAA/messages/123)
+	Text   string `json:"text"`
+	Thread Thread `json:"thread"`
+	Sender Sender `json:"sender"`
+}
+
+type Thread struct {
+	Name string `json:"name"`
+}
+
+type Sender struct {
+	DisplayName string `json:"displayName"`
+}

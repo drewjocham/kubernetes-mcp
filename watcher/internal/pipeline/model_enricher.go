@@ -119,10 +119,12 @@ func (m *ModelEnricher) analyze(ctx context.Context, evt events.ResourceEvent) (
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return modelAnalysisResponse{}, fmt.Errorf("read model response: %w", err)
 	}
+
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > http.StatusNoContent {
 		return modelAnalysisResponse{}, fmt.Errorf("model endpoint returned %s", resp.Status)
 	}
