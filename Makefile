@@ -10,15 +10,18 @@ KUBECONFIG_PATH?=$(HOME)/.kube/config
 COMPOSE_ENV=KUBECONFIG_PATH=$(KUBECONFIG_PATH)
 MCP_BINARY_NAME=kube-watcher
 WATCHER_BINARY_NAME=watcher-engine
+DEPLOY_BINARY_NAME=watcher-deploy
 CHAT_BRIDGE_BINARY_NAME=chatbridge
 MCP_CMD=./mcp/cmd/server
 WATCHER_CMD=./watcher/cmd/engine
+DEPLOY_CMD=./watcher/cmd/deploy
 CHAT_BRIDGE_CMD=./integrations/cmd/chatbridge
 VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 MCP_LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
 KUBECONFIG_PATH="${HOME}/.kube/config"
+MCP_DB_PATH?=$(HOME)/.kube-watcher/history.make.db
 
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -33,7 +36,7 @@ GORUN=$(GOCMD) run
 all: fmt vet test build
 
 # Build the applications
-build: build-mcp build-watcher build-chatbridge
+build: build-mcp build-watcher build-deploy build-chatbridge
 
 build-mcp:
 	@echo "Building $(MCP_BINARY_NAME)..."
@@ -42,6 +45,10 @@ build-mcp:
 build-watcher:
 	@echo "Building $(WATCHER_BINARY_NAME)..."
 	$(GOBUILD) -o $(BIN_DIR)/$(WATCHER_BINARY_NAME) $(WATCHER_CMD)
+
+build-deploy:
+	@echo "Building $(DEPLOY_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(DEPLOY_BINARY_NAME) $(DEPLOY_CMD)
 
 build-chatbridge:
 	@echo "Building $(CHAT_BRIDGE_BINARY_NAME)..."
@@ -61,18 +68,22 @@ run-watcher:
 	@echo "Running $(WATCHER_BINARY_NAME)..."
 	$(GORUN) $(WATCHER_CMD) $(ARGS)
 
+run-deploy:
+	@echo "Running $(DEPLOY_BINARY_NAME)..."
+	$(GORUN) $(DEPLOY_CMD) $(ARGS)
+
 run-chatbridge:
 	@echo "Running $(CHAT_BRIDGE_BINARY_NAME)..."
 	$(GORUN) $(CHAT_BRIDGE_CMD) $(ARGS)
 
 run-health:
-	$(GORUN) $(MCP_CMD) --health
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --health
 
 run-list:
-	$(GORUN) $(MCP_CMD) --list-tools
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --list-tools
 
 run-server:
-	$(GORUN) $(MCP_CMD) --server
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
 
 mcp-up:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build mcp
@@ -146,15 +157,15 @@ build-windows:
 
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t $(BINARY_NAME):$(VERSION) .
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) build mcp
 
 docker-run:
 	@echo "Running Docker container..."
-	docker run --rm -it -v ~/.kube:/root/.kube $(BINARY_NAME):$(VERSION)
+	docker run --rm -v ~/.kube:/home/nonroot/.kube watcher-mcp:latest --health
 
 # Development
 dev: fmt vet
-	$(GORUN) $(MCP_CMD) --server
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
 
 dev-tools: deps
 	@echo "Installing development tools..."
@@ -164,6 +175,7 @@ dev-tools: deps
 .PHONY: dashboard-dev dashboard-build dashboard-preview dashboard-lint dashboard-typecheck dashboard-deps
 
 DASHBOARD_DIR=dashboard
+DASHBOARD_PREVIEW_PORT?=4173
 
 dashboard-deps:
 	@echo "Installing dashboard dependencies..."
@@ -179,9 +191,9 @@ dashboard-build:
 
 dashboard-preview:
 	@echo "Previewing dashboard..."
-	cd $(DASHBOARD_DIR) && CI=true npm run preview
+	cd $(DASHBOARD_DIR) && CI=true npm run preview -- --port $(DASHBOARD_PREVIEW_PORT)
 
-dashboard-lint:F
+dashboard-lint:
 	@echo "Linting dashboard..."
 	cd $(DASHBOARD_DIR) && npm run lint
 
@@ -195,9 +207,10 @@ help:
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
+	@echo "  run-deploy    - Run deploy/cleanup CLI for kube anomaly detection (use ARGS= for arguments)"
 	@echo "  run-chatbridge - Run the Google Chat bridge CLI (use ARGS= for arguments)"
-	@echo "  up-mcp        - docker compose up --build mcp"
-	@echo "  up-watcher    - docker compose up --build watcher"
+	@echo "  mcp-up        - docker compose up --build mcp"
+	@echo "  watcher-up    - docker compose up --build watcher"
 	@echo "  up            -       docker compose up --build (all services)"
 	@echo "  down          - docker compose down"
 	@echo "  run-health    - Run health check"

@@ -57,6 +57,9 @@ func (s *mcpStubK8sClient) GetPodsAllNamespaces(context.Context) ([]kube.PodInfo
 func (s *mcpStubK8sClient) GetPod(context.Context, string, string) (*kube.PodInfo, error) {
 	return nil, nil
 }
+func (s *mcpStubK8sClient) GetPodLogs(context.Context, string, string, string, int64, int64, bool) (string, error) {
+	return "", nil
+}
 func (s *mcpStubK8sClient) GetServices(context.Context, string) ([]kube.ServiceInfo, error) {
 	return nil, nil
 }

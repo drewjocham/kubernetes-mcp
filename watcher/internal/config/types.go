@@ -78,14 +78,28 @@ type Throttle struct {
 }
 
 type Settings struct {
-	CEL struct {
-		Enabled bool `yaml:"enabled"`
-	} `yaml:"cel"`
-	QueueDepth int `yaml:"queue_depth"`
-	Metrics    struct {
-		Enabled bool   `yaml:"enabled"`
-		Listen  string `yaml:"listen"`
-	} `yaml:"metrics"`
+	CEL        CELSettings   `yaml:"cel"`
+	QueueDepth int           `yaml:"queue_depth"`
+	Metrics    MetricsConfig `yaml:"metrics"`
+	Model      ModelSettings `yaml:"model"`
+}
+
+type CELSettings struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Listen  string `yaml:"listen"`
+}
+
+type ModelSettings struct {
+	Enabled       bool          `yaml:"enabled"`
+	Endpoint      string        `yaml:"endpoint"`
+	Timeout       time.Duration `yaml:"timeout"`
+	APIKeyEnv     string        `yaml:"api_key_env"`
+	SystemPrompt  string        `yaml:"system_prompt"`
+	MinConfidence float64       `yaml:"min_confidence"`
 }
 
 func Load(path string) (*WatchConfig, error) {
@@ -242,6 +256,15 @@ func (c *WatchConfig) applyDefaults() {
 	if c.Settings.Metrics.Listen == "" {
 		c.Settings.Metrics.Listen = ":9095"
 	}
+	if c.Settings.Model.Timeout <= 0 {
+		c.Settings.Model.Timeout = 5 * time.Second
+	}
+	if c.Settings.Model.MinConfidence <= 0 {
+		c.Settings.Model.MinConfidence = 0.65
+	}
+	if c.Settings.Model.SystemPrompt == "" {
+		c.Settings.Model.SystemPrompt = "You are a Kubernetes SRE anomaly detector. Return only strict JSON."
+	}
 	if c.Actions == nil {
 		c.Actions = make(map[string]Action)
 	}
@@ -284,6 +307,24 @@ func (c *WatchConfig) merge(other WatchConfig) {
 	}
 	if other.Settings.CEL.Enabled {
 		c.Settings.CEL.Enabled = true
+	}
+	if other.Settings.Model.Enabled {
+		c.Settings.Model.Enabled = true
+	}
+	if other.Settings.Model.Endpoint != "" {
+		c.Settings.Model.Endpoint = other.Settings.Model.Endpoint
+	}
+	if other.Settings.Model.Timeout > 0 {
+		c.Settings.Model.Timeout = other.Settings.Model.Timeout
+	}
+	if other.Settings.Model.APIKeyEnv != "" {
+		c.Settings.Model.APIKeyEnv = other.Settings.Model.APIKeyEnv
+	}
+	if other.Settings.Model.SystemPrompt != "" {
+		c.Settings.Model.SystemPrompt = other.Settings.Model.SystemPrompt
+	}
+	if other.Settings.Model.MinConfidence > 0 {
+		c.Settings.Model.MinConfidence = other.Settings.Model.MinConfidence
 	}
 }
 

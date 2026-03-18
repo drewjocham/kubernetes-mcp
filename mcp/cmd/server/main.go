@@ -116,11 +116,17 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 		}
 		fmt.Println(string(out))
 	case cfg.healthCheck:
-		if h := s.HealthCheck(ctx); h["status"] != "healthy" {
-			logger.Error("health check failed", "status", h["status"])
+		h := s.HealthCheck(ctx)
+		status, _ := h["status"].(string)
+		switch status {
+		case "healthy":
+			logger.Info("health check passed", "status", status)
+		case "degraded":
+			logger.Warn("health check degraded", "status", status)
+		default:
+			logger.Error("health check failed", "status", status)
 			os.Exit(1)
 		}
-		logger.Info("health check passed")
 	default:
 		if err := s.Start(ctx); err != nil {
 			logger.Error("server failed", "error", err)
