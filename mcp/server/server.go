@@ -136,6 +136,7 @@ func (s *MCPServer) setupTools(cfg Config) {
 	allTools := []Tool{
 		tools.NewNodeStatusTool(s.client),
 		tools.NewPodResourcesTool(s.client),
+		tools.NewPodLogsTool(s.client),
 		tools.NewNamespaceListTool(s.client, s.logger),
 		tools.NewHistoryInsightsTool(s.history),
 		tools.NewVersionTool(cfg.Version, cfg.GitCommit, cfg.BuildDate),

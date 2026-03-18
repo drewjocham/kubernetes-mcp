@@ -1,0 +1,55 @@
+server:
+  listen: ":8092"
+google_chat:
+  auth_header: "X-Bridge-Token"
+  auth_token_env: "CHAT_BRIDGE_TOKEN"
+investigation:
+  provider: "oz"
+  timeout: 7m
+  poll_interval: 5s
+  prompt_template: |
+    Investigate {{.Kind}} incident from Google Chat.
+    Space: {{.SpaceName}}
+    Thread: {{.ThreadName}}
+    Sender: {{.SenderName}}
+    Message: {{.MessageText}}
+    Use MCP evidence first, then return concise findings and a prioritized action plan.
+  fallback_action_plan:
+    - "Collect current alerts/history and confirm impact scope."
+    - "Apply immediate mitigation to restore service health."
+    - "Validate recovery with events/metrics and define permanent fix follow-ups."
+providers:
+  oz:
+    base_url: "https://app.warp.dev"
+    api_key_env: "OZ_API_KEY"
+    start_method: "POST"
+    start_path: "/api/v1/agent/run"
+    start_body_template: |
+      {
+        "prompt": {{printf "%q" .Prompt}},
+        "title": {{printf "%q" (printf "Chat incident %s" .Kind)}},
+        "config": {
+          "name": "google-chat-incident-investigation",
+          "mcp_servers": [
+            {"name":"kube-watcher"}
+          ]
+        }
+      }
+    status_method: "GET"
+    status_path_template: "/api/v1/agent/runs/{{.run_id}}"
+    run_id_paths: ["run_id", "runId", "id"]
+    state_paths: ["state", "run.state"]
+    output_paths: ["output", "response", "result", "status_message.message"]
+    terminal_states: ["SUCCEEDED", "FAILED", "CANCELLED", "ERROR"]
+    success_states: ["SUCCEEDED"]
+trigger:
+  require_prefixes: ["@oz", "/investigate"]
+  kubernetes_keywords: ["k8s", "kubernetes", "pod", "node", "cluster", "crashloopbackoff", "kubectl"]
+  solace_keywords: ["solace", "pubsub+", "queue", "broker", "topic"]
+  allow_spaces: []
+reliability:
+  idempotency_ttl: 10m
+  retry_count: 2
+  retry_backoff: 2s
+reporting:
+  webhook_url_env: "GOOGLE_CHAT_WEBHOOK_URL"

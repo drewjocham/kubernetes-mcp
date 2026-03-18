@@ -17,16 +17,16 @@ resource_tracking:
 rules:
   - name: Pod-Restarting-Frequently
     kind: Pod
-    condition: "evt.restart_delta > 0 && evt.waiting_reason == 'CrashLoopBackOff'"
+    condition: "evt.restart_delta > 3 && evt.waiting_reason == 'CrashLoopBackOff'"
     actions:
-      - slack-dev-team
+      - google-space-alert-chat
       - ops-pager
   - name: Image-Pull-Failure
     kind: Pod
     duration: 2m
     condition: "evt.waiting_reasons.exists(r, r.contains('ImagePull'))"
     actions:
-      - slack-dev-team
+      - google-space-alert-chat
   - name: HPA-Stalled-At-Ceiling
     kind: HorizontalPodAutoscaler
     duration: 5m
@@ -49,8 +49,24 @@ rules:
     condition: "evt.is_ready == false && evt.waiting_reason == 'ContainerCreating'"
     actions:
       - personal-channel
+  - name: Model-Detected-Critical-Pod-Issue
+    kind: Pod
+    condition: "evt.model_issue_detected == true && evt.model_issue_severity == 'critical'"
+    actions:
+      - ops-pager
+      - google-space-alert-chat
+  - name: Model-Detected-Critical-Node-Issue
+    kind: Node
+    condition: "evt.model_issue_detected == true && evt.model_issue_severity == 'critical'"
+    actions:
+      - ops-pager
+  - name: Model-Detected-Critical-HPA-Issue
+    kind: HorizontalPodAutoscaler
+    condition: "evt.model_issue_detected == true && evt.model_issue_severity == 'critical'"
+    actions:
+      - ops-pager
 actions:
-  slack-dev-team:
+  google-space-alert-chat:
     type: alert
     severity: critical
   ops-pager:
@@ -71,3 +87,10 @@ settings:
   metrics:
     enabled: true
     listen: ":9095"
+  model:
+    enabled: false
+    endpoint: ""
+    timeout: 5s
+    api_key_env: "MODEL_API_KEY"
+    min_confidence: 0.65
+    system_prompt: "You are a Kubernetes SRE anomaly detector. Return only strict JSON."

@@ -390,6 +390,7 @@ func (p *PodEnricher) enrichNode(obj map[string]interface{}) {
 		}
 	}
 }
+
 func (p *PodEnricher) enrichHPA(obj map[string]interface{}) {
 	min, minOK := hpaReplicaBound(obj, "min")
 	max, maxOK := hpaReplicaBound(obj, "max")

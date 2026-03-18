@@ -24,6 +24,8 @@ type mockK8sClient struct {
 	cluster    *kube.ClusterInfo
 	clusterErr error
 	healthErr  error
+	podLogs    string
+	podLogsErr error
 }
 
 func (m *mockK8sClient) GetNodes(_ context.Context) ([]kube.NodeInfo, error) {
@@ -52,6 +54,10 @@ func (m *mockK8sClient) GetPodsAllNamespaces(_ context.Context) ([]kube.PodInfo,
 
 func (m *mockK8sClient) GetPod(_ context.Context, _, _ string) (*kube.PodInfo, error) {
 	return nil, nil
+}
+
+func (m *mockK8sClient) GetPodLogs(_ context.Context, _, _, _ string, _, _ int64, _ bool) (string, error) {
+	return m.podLogs, m.podLogsErr
 }
 
 func (m *mockK8sClient) GetServices(_ context.Context, _ string) ([]kube.ServiceInfo, error) {

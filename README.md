@@ -38,6 +38,47 @@ go mod tidy
 
 3. Ensure you have kubectl configured and access to a Kubernetes cluster.
 
+### Homebrew commands
+If installed via Homebrew, the formula currently installs the `kube-watcher` binary.
+
+```bash
+kube-watcher --version
+```
+Prints the installed version, git commit, and build date.
+
+```bash
+kube-watcher --list-tools
+```
+Lists available MCP tools exposed by the server.
+
+```bash
+kube-watcher --health
+```
+Runs a health check (server wiring + Kubernetes connectivity).
+
+```bash
+kube-watcher --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
+```
+Executes a specific tool once and prints JSON output.
+
+The deployment helper (`watcher/cmd/deploy`) is currently run from source:
+
+```bash
+go run ./watcher/cmd/deploy --action deploy --target kube --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
+```
+Deploys anomaly detection to Kubernetes (default namespace `kubewatcher`, override with `--namespace`).
+
+```bash
+go run ./watcher/cmd/deploy --action deploy --target docker --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
+```
+Runs anomaly detection locally in Docker.
+
+```bash
+go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name <cluster-name>
+go run ./watcher/cmd/deploy --action cleanup --target docker --cluster-name <cluster-name>
+```
+Cleans up Kubernetes or Docker deployment resources.
+
 ## Usage
 
 ### Command Line Interface
@@ -45,6 +86,11 @@ go mod tidy
 #### List Available Tools
 ```bash
 go run ./mcp/cmd/server --list-tools
+```
+
+```shell
+    export KUBECONFIG_PATH="${HOME}/.kube/config"
+    docker compose -f docker/compose.yaml up 
 ```
 
 #### Execute Specific Tools
@@ -79,6 +125,77 @@ go run ./watcher/cmd/engine --config /path/to/event-engine.yaml
 Pass `--debug` or `--listen :8085` to enable verbose logging and health endpoints.
 If you omit `--config`, the engine automatically loads `watcher/internal/config/config.yaml`.
 
+### Kubernetes anomaly detection deploy CLI
+Use the deploy helper to run `kube-anomaly-detection` from a Docker image (or build it from a local source path) with minimal required inputs:
+- `--cluster-name`
+- `--prometheus-endpoint`
+
+Defaults:
+- namespace: `kubewatcher` (override with `--namespace`)
+- deployment name: `kube-anomaly-detection-<cluster-name>`
+- for `--target kube`, namespace creation is enabled by default
+- Kubernetes data storage uses a PVC by default:
+  - claim name: `<deployment-name>-data` (override with `--pvc-name`)
+  - claim size: `5Gi` (override with `--pvc-size`)
+
+```bash
+# Deploy to Kubernetes from image
+go run ./watcher/cmd/deploy \
+  --action deploy \
+  --target kube \
+  --cluster-name dev-cluster \
+  --prometheus-endpoint http://prom-prometheus-server.monitoring.svc.cluster.local:80/metrics\
+  --pvc-size 10Gi
+```
+
+```bash
+# Deploy to Kubernetes by building from local source path first
+go run ./watcher/cmd/deploy \
+  --action deploy \
+  --target kube \
+  --cluster-name dev-cluster \
+  --prometheus-endpoint http://prom-prometheus-server.monitoring.svc.cluster.local:80/metrics \
+  --source-path /absolute/path/to/kubernetes-anomaly-detection-source \
+  --image kube-anomaly-detection:latest
+```
+
+```bash
+# Run locally in Docker (use local or port-forwarded Prometheus endpoint)
+go run ./watcher/cmd/deploy \
+  --action deploy \
+  --target docker \
+  --cluster-name dev-cluster \
+  --prometheus-endpoint http://host.docker.internal:9090/metrics
+```
+
+```bash
+# Cleanup
+go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name dev-cluster
+go run ./watcher/cmd/deploy --action cleanup --target docker --cluster-name dev-cluster
+
+# Optional: delete the namespace created for deployment
+go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name dev-cluster --delete-namespace
+```
+
+### Explorer CLI (with hotkeys)
+The explorer is launched from CLI and serves a local web UI for browsing watcher Badger snapshots/history:
+
+```bash
+go run ./watcher/cmd/explorer --db event-engine-badger --listen :4101
+```
+
+Then open `http://localhost:4101`.
+
+#### Hotkeys
+- `/` focus search field
+- `g` focus kind field
+- `n` focus namespace field
+- `r` refresh resources now
+- `j` or `↓` move selection to next resource row
+- `k` or `↑` move selection to previous resource row
+- `Enter` load history for selected row
+- `?` toggle hotkey help
+
 ### Available Tools
 
 #### `get_node_status`
@@ -98,6 +215,24 @@ Monitors pod resource usage, restart counts, and identifies problematic pods.
 - `high_restart_threshold` (number): Restart count threshold [default: 5]
 - `include_containers` (boolean): Include container details [default: true]
 - `problematic_only` (boolean): Only problematic pods [default: false]
+
+#### `list_namespaces`
+Returns namespace inventory with per-namespace pod counts/status breakdowns (and optional quota analysis).
+
+**Parameters:**
+- `include_system` (boolean): Include system namespaces like `kube-system` [default: false]
+- `include_quotas` (boolean): Include ResourceQuota details [default: false]
+
+#### `get_pod_logs`
+Fetches logs for a specific pod/container in a namespace.
+
+**Parameters:**
+- `namespace` (string): Namespace containing the pod [required]
+- `pod_name` (string): Pod name [required]
+- `container` (string): Container name for multi-container pods [optional]
+- `tail_lines` (number): Number of trailing log lines to return [default: 200]
+- `since_seconds` (number): Only logs newer than this many seconds [default: 0]
+- `previous` (boolean): Return logs for previous container instance [default: false]
 
 #### `analyze_cluster`
 Comprehensive cluster analysis with health scoring and recommendations.
@@ -119,8 +254,7 @@ The application automatically detects Kubernetes configuration:
 2. **Local**: Uses `~/.kube/config` for local development
 3. **Custom**: Specify custom kubeconfig path via `kubernetes.NewClientFromConfig()`
 
-If your kube config file is not `"$HOME/.kube/config"` here. Change the path in the
-`KUBECONFIG_PATH` in the Makefile.
+If your kubeconfig is not at `${HOME}/.kube/config`, update `KUBECONFIG_PATH` in `Makefile`.
 
 ## Health and Monitoring
 
@@ -143,4 +277,14 @@ LOG_FORMAT=json LOG_LEVEL=info go run main.go --health
 
 # Debug level logging
 LOG_LEVEL=debug go run main.go --exec analyze_cluster
+```
+
+## Alert dashboard UI module
+For the Nuxt 3 + Naive UI alert dashboard setup and end-to-end wiring (`kube-watcher` → dashboard API → MCP/agent RCA), see `dashboard/README.md`.
+
+## Integration tests (engine → UI → MCP channel)
+Run the watcher integration test that validates alert flow from engine dispatch to UI ingest webhook and MCP enrichment handoff:
+
+```bash
+go test ./watcher/internal/integration -run 'TestChannelEngineToUIAnd.*Integration' -v
 ```

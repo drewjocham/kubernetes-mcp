@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -112,6 +113,32 @@ func (c *Client) GetPodsAllNamespaces(ctx context.Context) ([]PodInfo, error) {
 
 func (c *Client) GetPod(ctx context.Context, namespace, name string) (*PodInfo, error) {
 	return getResource(ctx, c.clientset.CoreV1().Pods(namespace).Get, name, MapPod)
+}
+
+func (c *Client) GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines, sinceSeconds int64, previous bool) (string, error) {
+	opts := &corev1.PodLogOptions{
+		Container: container,
+		Previous:  previous,
+	}
+	if tailLines > 0 {
+		opts.TailLines = &tailLines
+	}
+	if sinceSeconds > 0 {
+		opts.SinceSeconds = &sinceSeconds
+	}
+
+	stream, err := c.clientset.CoreV1().Pods(namespace).GetLogs(podName, opts).Stream(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = stream.Close() }()
+
+	data, err := io.ReadAll(stream)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
 }
 
 func (c *Client) GetServices(ctx context.Context, namespace string) ([]ServiceInfo, error) {

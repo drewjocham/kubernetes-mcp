@@ -1,4 +1,7 @@
 # kube-watcher Makefile
+THIS_MAKEFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
+MAKEFILE_DIR := $(dir $(THIS_MAKEFILE_PATH))
+REPO_ROOT := $(abspath $(MAKEFILE_DIR)/..)
 
 BIN_DIR=bin
 BINARY_NAME?=$(MCP_BINARY_NAME)
@@ -7,13 +10,18 @@ KUBECONFIG_PATH?=$(HOME)/.kube/config
 COMPOSE_ENV=KUBECONFIG_PATH=$(KUBECONFIG_PATH)
 MCP_BINARY_NAME=kube-watcher
 WATCHER_BINARY_NAME=watcher-engine
+DEPLOY_BINARY_NAME=watcher-deploy
+CHAT_BRIDGE_BINARY_NAME=chatbridge
 MCP_CMD=./mcp/cmd/server
 WATCHER_CMD=./watcher/cmd/engine
+DEPLOY_CMD=./watcher/cmd/deploy
+CHAT_BRIDGE_CMD=./integrations/cmd/chatbridge
 VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 MCP_LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
-KUBECONFIG_PATH="$HOME/.kube/config"
+KUBECONFIG_PATH="${HOME}/.kube/config"
+MCP_DB_PATH?=$(HOME)/.kube-watcher/history.make.db
 
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -22,13 +30,13 @@ GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GORUN=$(GOCMD) run
 
-.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down
+.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down test-integration-channel
 
 # Default target
 all: fmt vet test build
 
 # Build the applications
-build: build-mcp build-watcher
+build: build-mcp build-watcher build-deploy build-chatbridge
 
 build-mcp:
 	@echo "Building $(MCP_BINARY_NAME)..."
@@ -37,6 +45,14 @@ build-mcp:
 build-watcher:
 	@echo "Building $(WATCHER_BINARY_NAME)..."
 	$(GOBUILD) -o $(BIN_DIR)/$(WATCHER_BINARY_NAME) $(WATCHER_CMD)
+
+build-deploy:
+	@echo "Building $(DEPLOY_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(DEPLOY_BINARY_NAME) $(DEPLOY_CMD)
+
+build-chatbridge:
+	@echo "Building $(CHAT_BRIDGE_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(CHAT_BRIDGE_BINARY_NAME) $(CHAT_BRIDGE_CMD)
 
 tidy:
 	go mod tidy
@@ -52,14 +68,22 @@ run-watcher:
 	@echo "Running $(WATCHER_BINARY_NAME)..."
 	$(GORUN) $(WATCHER_CMD) $(ARGS)
 
+run-deploy:
+	@echo "Running $(DEPLOY_BINARY_NAME)..."
+	$(GORUN) $(DEPLOY_CMD) $(ARGS)
+
+run-chatbridge:
+	@echo "Running $(CHAT_BRIDGE_BINARY_NAME)..."
+	$(GORUN) $(CHAT_BRIDGE_CMD) $(ARGS)
+
 run-health:
-	$(GORUN) $(MCP_CMD) --health
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --health
 
 run-list:
-	$(GORUN) $(MCP_CMD) --list-tools
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --list-tools
 
 run-server:
-	$(GORUN) $(MCP_CMD) --server
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
 
 mcp-up:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build mcp
@@ -81,6 +105,10 @@ clean:
 test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
+
+test-integration-channel:
+	@echo "Running integration test: engine -> UI -> MCP channel..."
+	$(GOTEST) -v ./watcher/internal/integration -run 'TestChannelEngineToUIAnd.*Integration'
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -129,19 +157,49 @@ build-windows:
 
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t $(BINARY_NAME):$(VERSION) .
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) build mcp
 
 docker-run:
 	@echo "Running Docker container..."
-	docker run --rm -it -v ~/.kube:/root/.kube $(BINARY_NAME):$(VERSION)
+	docker run --rm -v ~/.kube:/home/nonroot/.kube watcher-mcp:latest --health
 
 # Development
 dev: fmt vet
-	$(GORUN) $(MCP_CMD) --server
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
 
 dev-tools: deps
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# Dashboard commands
+.PHONY: dashboard-dev dashboard-build dashboard-preview dashboard-lint dashboard-typecheck dashboard-deps
+
+DASHBOARD_DIR=dashboard
+DASHBOARD_PREVIEW_PORT?=4173
+
+dashboard-deps:
+	@echo "Installing dashboard dependencies..."
+	cd $(DASHBOARD_DIR) && npm install
+
+dashboard-dev:
+	@echo "Running dashboard in development mode..."
+	cd $(DASHBOARD_DIR) && CI=true npm run dev
+
+dashboard-build:
+	@echo "Building dashboard..."
+	cd $(DASHBOARD_DIR) && npm run build
+
+dashboard-preview:
+	@echo "Previewing dashboard..."
+	cd $(DASHBOARD_DIR) && CI=true npm run preview -- --port $(DASHBOARD_PREVIEW_PORT)
+
+dashboard-lint:
+	@echo "Linting dashboard..."
+	cd $(DASHBOARD_DIR) && npm run lint
+
+dashboard-typecheck:
+	@echo "Typechecking dashboard..."
+	cd $(DASHBOARD_DIR) && npm run typecheck
 
 help:
 	@echo "Available targets:"
@@ -149,8 +207,10 @@ help:
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
-	@echo "  up-mcp        - docker compose up --build mcp"
-	@echo "  up-watcher    - docker compose up --build watcher"
+	@echo "  run-deploy    - Run deploy/cleanup CLI for kube anomaly detection (use ARGS= for arguments)"
+	@echo "  run-chatbridge - Run the Google Chat bridge CLI (use ARGS= for arguments)"
+	@echo "  mcp-up        - docker compose up --build mcp"
+	@echo "  watcher-up    - docker compose up --build watcher"
 	@echo "  up            -       docker compose up --build (all services)"
 	@echo "  down          - docker compose down"
 	@echo "  run-health    - Run health check"
@@ -158,6 +218,7 @@ help:
 	@echo "  run-server    - Run in server mode"
 	@echo "  clean         - Clean build artifacts"
 	@echo "  test          - Run tests"
+	@echo "  test-integration-channel - Run engine -> UI -> MCP channel integration test"
 	@echo "  test-coverage - Run tests with coverage report"
 	@echo "  deps          - Download and tidy dependencies"
 	@echo "  lint          - Run linter"
@@ -169,4 +230,10 @@ help:
 	@echo "  docker-run    - Run Docker container"
 	@echo "  dev           - Format, vet and run in development mode"
 	@echo "  dev-tools     - Install development tools"
+	@echo "  dashboard-deps - Install dashboard dependencies"
+	@echo "  dashboard-dev - Run dashboard in development mode"
+	@echo "  dashboard-build - Build dashboard"
+	@echo "  dashboard-preview - Preview dashboard"
+	@echo "  dashboard-lint - Lint dashboard"
+	@echo "  dashboard-typecheck - Typecheck dashboard"
 	@echo "  help          - Show this help message"

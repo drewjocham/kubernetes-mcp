@@ -107,7 +107,8 @@ func TestEventEngineIntegration(t *testing.T) {
 	src := eventSource{events: []events.ResourceEvent{podEvent, nodeEvent}}
 	filter := pipeline.NewRuleAwareFilter(cfg)
 
-	pipe := pipeline.New(logger, src, filter, nil, engine, dispatcher, store, nil, cfg.Settings.QueueDepth, 2, 10)
+	pipe := pipeline.New(logger, src, filter, nil, engine, dispatcher,
+		store, nil, cfg.Settings.QueueDepth, 2, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

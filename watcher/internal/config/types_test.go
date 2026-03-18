@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,15 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestWatchConfig_ApplyDefaults_ModelSettings(t *testing.T) {
+	cfg := &WatchConfig{}
+	cfg.applyDefaults()
+
+	assert.Equal(t, 5*time.Second, cfg.Settings.Model.Timeout)
+	assert.Equal(t, 0.65, cfg.Settings.Model.MinConfidence)
+	assert.NotEmpty(t, cfg.Settings.Model.SystemPrompt)
+}
+
 func TestWatchConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -152,12 +162,21 @@ func TestWatchConfig_Merge(t *testing.T) {
 		ResourceTracking: ResourceTrackingConfig{Enabled: true, Storage: "memory", Fields: []string{"cpu"}},
 		Rules:            []Rule{{Name: "rule1"}},
 		Actions:          map[string]Action{"a1": {Type: "log"}},
+		Settings:         Settings{Model: ModelSettings{Enabled: false, MinConfidence: 0.5}},
 	}
 	other := WatchConfig{
 		ResourceTracking: ResourceTrackingConfig{Storage: "disk", Fields: []string{"mem"}},
 		Rules:            []Rule{{Name: "rule2"}},
 		Actions:          map[string]Action{"a2": {Type: "slack"}},
-		Settings:         Settings{QueueDepth: 500},
+		Settings: Settings{
+			QueueDepth: 500,
+			Model: ModelSettings{
+				Enabled:       true,
+				Endpoint:      "http://localhost:9999/analyze",
+				APIKeyEnv:     "MODEL_API_KEY",
+				MinConfidence: 0.8,
+			},
+		},
 	}
 
 	base.merge(other)
@@ -168,6 +187,10 @@ func TestWatchConfig_Merge(t *testing.T) {
 	assert.Len(t, base.Rules, 2)
 	assert.Contains(t, base.Actions, "a2")
 	assert.Equal(t, 500, base.Settings.QueueDepth)
+	assert.True(t, base.Settings.Model.Enabled)
+	assert.Equal(t, "http://localhost:9999/analyze", base.Settings.Model.Endpoint)
+	assert.Equal(t, "MODEL_API_KEY", base.Settings.Model.APIKeyEnv)
+	assert.Equal(t, 0.8, base.Settings.Model.MinConfidence)
 }
 
 func Test_MergeStrings(t *testing.T) {

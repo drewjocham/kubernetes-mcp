@@ -1,0 +1,74 @@
+server:
+  listen: ":8092"
+google_chat:
+  auth_header: "X-Bridge-Token"
+  auth_token_env: "CHAT_BRIDGE_TOKEN"
+investigation:
+  provider: "oz"
+  timeout: 5m
+  poll_interval: 5s
+  prompt_template: |
+    Investigate {{.Kind}} incident from Google Chat.
+    Space: {{.SpaceName}}
+    Thread: {{.ThreadName}}
+    Sender: {{.SenderName}}
+    Message: {{.MessageText}}
+    Return concise findings and a practical action plan.
+  fallback_action_plan:
+    - "Check logs/events/metrics in the impacted components."
+    - "Mitigate immediate impact and restore service stability."
+    - "Validate recovery and create follow-up remediation tasks."
+providers:
+  oz:
+    base_url: "https://app.warp.dev"
+    api_key_env: "OZ_API_KEY"
+    start_method: "POST"
+    start_path: "/api/v1/agent/run"
+    start_body_template: |
+      {"prompt": {{printf "%q" .Prompt}}}
+    status_method: "GET"
+    status_path_template: "/api/v1/agent/runs/{{.run_id}}"
+    run_id_paths: ["run_id", "runId", "id"]
+    state_paths: ["state", "run.state"]
+    output_paths: ["output", "response", "result"]
+    terminal_states: ["SUCCEEDED", "FAILED", "CANCELLED", "ERROR"]
+    success_states: ["SUCCEEDED"]
+  llstudio:
+    base_url: "https://llstudio.example.com"
+    api_key_env: "LLSTUDIO_API_KEY"
+    start_method: "POST"
+    start_path: "/v1/runs"
+    start_body_template: |
+      {"input": {{printf "%q" .Prompt}}}
+    status_method: "GET"
+    status_path_template: "/v1/runs/{{.run_id}}"
+    run_id_paths: ["id", "run_id", "data.id"]
+    state_paths: ["state", "status"]
+    output_paths: ["output", "result", "data.output"]
+    terminal_states: ["completed", "failed", "cancelled"]
+    success_states: ["completed"]
+  openapi:
+    base_url: "https://api.example.com"
+    api_key_env: "GENERIC_PROVIDER_API_KEY"
+    start_method: "POST"
+    start_path: "/runs"
+    start_body_template: |
+      {"prompt": {{printf "%q" .Prompt}}, "metadata": {"kind": {{printf "%q" .Kind}}, "event_id": {{printf "%q" .EventID}}}}
+    status_method: "GET"
+    status_path_template: "/runs/{{.run_id}}"
+    run_id_paths: ["run_id", "id", "data.id"]
+    state_paths: ["state", "status", "data.state"]
+    output_paths: ["output", "result", "data.output"]
+    terminal_states: ["succeeded", "failed", "cancelled", "completed", "error"]
+    success_states: ["succeeded", "completed"]
+trigger:
+  require_prefixes: ["@oz", "/investigate"]
+  kubernetes_keywords: ["k8s", "kubernetes", "pod", "node", "cluster", "crashloopbackoff", "kubectl"]
+  solace_keywords: ["solace", "pubsub+", "queue", "broker", "topic"]
+  allow_spaces: [] # optional allowlist of Google Chat space names
+reliability:
+  idempotency_ttl: 10m
+  retry_count: 2
+  retry_backoff: 2s
+reporting:
+  webhook_url_env: "GOOGLE_CHAT_WEBHOOK_URL"

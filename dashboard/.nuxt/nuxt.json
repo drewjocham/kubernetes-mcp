@@ -1,0 +1,9 @@
+{
+  "_hash": "tSZ_HMx_HUkMqvPRWKQUMcU2PlLZGFufZxdf35I17ys",
+  "project": {
+    "rootDir": "/Users/jocham/programming/pim/mcp/kube-watcher/dashboard"
+  },
+  "versions": {
+    "nuxt": "3.21.1"
+  }
+}

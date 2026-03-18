@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +26,12 @@ var (
 	buildDate = "unknown"
 )
 
+type config struct {
+	showVersion, showHelp, listTools, healthCheck, debug bool
+	execTool, toolArgs, logFile, dbPath                  string
+	interval                                             time.Duration
+}
+
 func main() {
 	cfg := parseFlags()
 
@@ -32,22 +40,21 @@ func main() {
 		return
 	}
 
-	if cfg.showHelp {
-		showUsage()
-		return
+	logger, err := logging.New(cfg.debug, cfg.logFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		os.Exit(1)
 	}
 
-	logger, err := logging.New(cfg.debug, cfg.logFile)
-	handleErr(err, "logger init failed")
+	dbPath := expandPath(cfg.dbPath)
+	handleErr(ensureDir(dbPath), "failed to create database directory", logger)
 
 	k8sClient, err := kube.NewClient(logger)
-	handleErr(err, "kubernetes client init failed")
+	handleErr(err, "kubernetes client init failed", logger)
 
-	historyStore, err := history.NewStore(cfg.dbPath)
-	handleErr(err, "storage init failed")
-	defer func() {
-		_ = historyStore.Close()
-	}()
+	historyStore, err := history.NewStore(dbPath)
+	handleErr(err, "storage init failed", logger)
+	defer historyStore.Close()
 
 	watchManager := watch.NewManager(k8sClient, logger, cfg.interval)
 
@@ -59,7 +66,7 @@ func main() {
 		HistoryStore: historyStore,
 		Watcher:      watchManager,
 	})
-	handleErr(err, "mcp server init failed")
+	handleErr(err, "mcp server init failed", logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -67,41 +74,49 @@ func main() {
 	executeAction(ctx, mcpServer, cfg, logger)
 }
 
-type config struct {
-	showVersion, showHelp, listTools, healthCheck, debug bool
-	execTool, toolArgs, logFile, dbPath                  string
-	interval                                             time.Duration
-}
-
 func parseFlags() config {
 	c := config{}
-	flag.BoolVar(&c.showVersion, "version", false, "")
-	flag.BoolVar(&c.showHelp, "help", false, "")
-	flag.BoolVar(&c.listTools, "list-tools", false, "")
-	flag.StringVar(&c.execTool, "exec", "", "")
-	flag.StringVar(&c.toolArgs, "args", "{}", "")
-	flag.BoolVar(&c.healthCheck, "health", false, "")
-	flag.BoolVar(&c.debug, "debug", false, "")
-	flag.StringVar(&c.logFile, "log-file", "", "")
-	flag.StringVar(&c.dbPath, "db-path", "~/.kube-watcher/history.db", "")
-	flag.DurationVar(&c.interval, "interval", 30*time.Second, "")
+	home, _ := os.UserHomeDir()
+	defaultDB := filepath.Join(home, ".kube-watcher", "history.db")
+
+	flag.BoolVar(&c.showVersion, "version", false, "display version information")
+	flag.BoolVar(&c.showHelp, "help", false, "display help message")
+	flag.BoolVar(&c.listTools, "list-tools", false, "list available MCP tools and exit")
+	flag.StringVar(&c.execTool, "exec", "", "execute a specific tool by name")
+	flag.StringVar(&c.toolArgs, "args", "{}", "JSON arguments for the tool execution")
+	flag.BoolVar(&c.healthCheck, "health", false, "run a health check and exit")
+	flag.BoolVar(&c.debug, "debug", false, "enable verbose debug logging")
+	flag.StringVar(&c.logFile, "log-file", "", "path to write logs (defaults to stderr)")
+	flag.StringVar(&c.dbPath, "db-path", defaultDB, "path to the history database")
+	flag.DurationVar(&c.interval, "interval", 30*time.Second, "polling interval for watchers")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "kube-watcher v%s\n", version)
+		fmt.Fprintf(os.Stderr, "Usage: kube-watcher [options]\n\nOptions:\n")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
+
+	if c.showHelp {
+		flag.Usage()
+		os.Exit(0)
+	}
+
 	return c
 }
 
 func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger *slog.Logger) {
 	switch {
 	case cfg.listTools:
-		out, err := json.MarshalIndent(s.ListTools(), "", "  ")
-		if err != nil {
-			logger.Error("failed to marshal tools", "error", err)
-			os.Exit(1)
-		}
+		tools := s.ListTools()
+		out, _ := json.MarshalIndent(tools, "", "  ")
 		fmt.Println(string(out))
+
 	case cfg.execTool != "":
 		var args map[string]any
 		if err := json.Unmarshal([]byte(cfg.toolArgs), &args); err != nil {
-			logger.Error("invalid tool args", "error", err)
+			logger.Error("invalid tool args JSON", "error", err)
 			os.Exit(1)
 		}
 		res, err := s.ExecuteTool(ctx, cfg.execTool, args)
@@ -109,33 +124,47 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 			logger.Error("tool execution failed", "tool", cfg.execTool, "error", err)
 			os.Exit(1)
 		}
-		out, err := json.MarshalIndent(res, "", "  ")
-		if err != nil {
-			logger.Error("failed to marshal result", "error", err)
-			os.Exit(1)
-		}
+		out, _ := json.MarshalIndent(res, "", "  ")
 		fmt.Println(string(out))
+
 	case cfg.healthCheck:
-		if h := s.HealthCheck(ctx); h["status"] != "healthy" {
-			logger.Error("health check failed", "status", h["status"])
+		h := s.HealthCheck(ctx)
+		status, _ := h["status"].(string)
+		if status != "healthy" {
+			logger.Error("system unhealthy", "details", h)
 			os.Exit(1)
 		}
-		logger.Info("health check passed")
+		logger.Info("system healthy")
+
 	default:
+		logger.Info("starting kube-watcher server", "version", version)
 		if err := s.Start(ctx); err != nil {
-			logger.Error("server failed", "error", err)
+			logger.Error("server exit with error", "error", err)
 			os.Exit(1)
 		}
 	}
 }
 
-func handleErr(err error, msg string) {
+func handleErr(err error, msg string, logger *slog.Logger) {
 	if err != nil {
-		slog.Error(msg, "error", err)
+		if logger != nil {
+			logger.Error(msg, "error", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "FATAL: %s: %v\n", msg, err)
+		}
 		os.Exit(1)
 	}
 }
 
-func showUsage() {
-	fmt.Printf("kube-watcher v%s\nusage: kube-watcher [options]\n", version)
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+func ensureDir(path string) error {
+	dir := filepath.Dir(path)
+	return os.MkdirAll(dir, 0755)
 }

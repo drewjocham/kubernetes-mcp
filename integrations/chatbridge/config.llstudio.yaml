@@ -1,0 +1,41 @@
+server:
+  listen: ":8092"
+google_chat:
+  auth_header: "X-Bridge-Token"
+  auth_token_env: "CHAT_BRIDGE_TOKEN"
+investigation:
+  provider: "llstudio"
+  timeout: 7m
+  poll_interval: 5s
+  prompt_template: |
+    Investigate {{.Kind}} incident from Google Chat.
+    Space: {{.SpaceName}}
+    Thread: {{.ThreadName}}
+    Sender: {{.SenderName}}
+    Message: {{.MessageText}}
+providers:
+  llstudio:
+    base_url: "https://llstudio.example.com"
+    api_key_env: "LLSTUDIO_API_KEY"
+    start_method: "POST"
+    start_path: "/v1/runs"
+    start_body_template: |
+      {"input": {{printf "%q" .Prompt}}, "metadata": {"event_id": {{printf "%q" .EventID}}, "kind": {{printf "%q" .Kind}}}}
+    status_method: "GET"
+    status_path_template: "/v1/runs/{{.run_id}}"
+    run_id_paths: ["id", "run_id", "data.id"]
+    state_paths: ["state", "status", "data.state"]
+    output_paths: ["output", "result", "data.output"]
+    terminal_states: ["completed", "failed", "cancelled"]
+    success_states: ["completed"]
+trigger:
+  require_prefixes: ["@oz", "/investigate"]
+  kubernetes_keywords: ["k8s", "kubernetes", "pod", "node", "cluster"]
+  solace_keywords: ["solace", "queue", "broker", "topic"]
+  allow_spaces: []
+reliability:
+  idempotency_ttl: 10m
+  retry_count: 2
+  retry_backoff: 2s
+reporting:
+  webhook_url_env: "GOOGLE_CHAT_WEBHOOK_URL"
