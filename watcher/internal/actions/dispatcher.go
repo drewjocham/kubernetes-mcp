@@ -101,7 +101,6 @@ func (d *Dispatcher) handleNotification(task dispatchTask, inv rules.ActionInvoc
 		return
 	}
 
-	// Google Chat webhooks expect a message format like {"text": "..."}
 	payload := map[string]string{"text": msg}
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {

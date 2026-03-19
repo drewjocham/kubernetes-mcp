@@ -65,7 +65,8 @@ func (e *Engine) Evaluate(ctx context.Context, evt events.ResourceEvent) ([]Acti
 
 		matched, err := e.execRule(rule, evt, prev, currentVals, objJSON)
 		if err != nil {
-			e.logger.Warn("rule evaluation failed", "rule", rule.Name, "error", err)
+			e.logger.Warn("rule evaluation failed",
+				"rule", rule.Name, "error", err)
 			continue
 		}
 
