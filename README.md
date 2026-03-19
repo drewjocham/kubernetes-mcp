@@ -21,7 +21,7 @@ kube-watcher/
 │   └── internal/      # Rules, pipeline, actions, trackers
 ├── monitoring/        # Shared history/recommendation services
 ├── pkg/               # Reusable libraries (logging, kube client, etc.)
-└── main.go            # Convenience wrapper for MCP development
+└── main.go            # Unified CLI (MCP + deploy management)
 ```
 ## Installation
 
@@ -42,50 +42,96 @@ go mod tidy
 If installed via Homebrew, the formula currently installs the `kube-watcher` binary.
 
 ```bash
-kube-watcher --version
+kube-watcher version
 ```
 Prints the installed version, git commit, and build date.
 
 ```bash
-kube-watcher --list-tools
+kube-watcher mcp tools --output table
 ```
 Lists available MCP tools exposed by the server.
 
 ```bash
-kube-watcher --health
+kube-watcher mcp health --output yaml
 ```
 Runs a health check (server wiring + Kubernetes connectivity).
 
 ```bash
-kube-watcher --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
+kube-watcher mcp run --tool analyze_cluster --args '{"include_pods":true,"include_events":true}' --output yaml
 ```
-Executes a specific tool once and prints JSON output.
-
-The deployment helper (`watcher/cmd/deploy`) is currently run from source:
+Executes an MCP tool and prints formatted output.
 
 ```bash
-go run ./watcher/cmd/deploy --action deploy --target kube --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
+kube-watcher deploy --action deploy --target kube --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
 ```
 Deploys anomaly detection to Kubernetes (default namespace `kubewatcher`, override with `--namespace`).
 
 ```bash
-go run ./watcher/cmd/deploy --action deploy --target docker --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
+kube-watcher deploy --action deploy --target docker --cluster-name <cluster-name> --prometheus-endpoint <prometheus-metrics-url>
 ```
 Runs anomaly detection locally in Docker.
 
 ```bash
-go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name <cluster-name>
-go run ./watcher/cmd/deploy --action cleanup --target docker --cluster-name <cluster-name>
+kube-watcher deploy --action status --target kube --cluster-name <cluster-name>
+kube-watcher deploy --action logs --target docker --cluster-name <cluster-name> --follow
 ```
-Cleans up Kubernetes or Docker deployment resources.
+Checks runtime status and streams logs using the unified CLI.
 
 ## Usage
+### CLI HowTo (Quick Reference)
+
+#### Show help
+```bash
+kw --help
+```
+
+#### Print example config
+```bash
+kw config example
+```
+
+#### Manage agents
+```bash
+kw agent create "sre-bot" "Specialist in CrashLoopBackOff analysis"
+kw agent list
+kw agent show sre-bot
+```
+
+#### MCP tools (formatted output)
+```bash
+kw view tools --output table
+kw view run --tool analyze_cluster --args '{"include_pods":true,"include_events":true}' --output yaml
+kw view status
+kw view insights --hours 6
+```
+
+#### Deploy components (docker/binary/kube)
+```bash
+# Docker
+kw ops deploy mcp --target docker
+kw ops deploy watcher --target docker
+
+# Local binaries
+kw ops deploy mcp --target binary --binary-mcp /path/to/mcp-server
+kw ops deploy watcher --target binary --binary-watcher /path/to/watcher-engine
+
+# Kubernetes
+kw ops deploy mcp --target kube --kube-namespace kubewatcher
+kw ops deploy watcher --target kube --kube-namespace kubewatcher
+```
+
+#### Ops status/logs/cleanup
+```bash
+kw ops status mcp
+kw ops logs watcher --tail 200 --follow
+kw ops cleanup mcp
+```
 
 ### Command Line Interface
 
 #### List Available Tools
 ```bash
-go run ./mcp/cmd/server --list-tools
+kube-watcher mcp tools --output table
 ```
 
 ```shell
@@ -96,23 +142,23 @@ go run ./mcp/cmd/server --list-tools
 #### Execute Specific Tools
 ```bash
 # Node status analysis
-go run ./mcp/cmd/server --exec get_node_status --args '{"include_metrics":true}'
+kube-watcher mcp run --tool get_node_status --args '{"include_metrics":true}' --output yaml
 
 # Pod resource monitoring
-go run ./mcp/cmd/server --exec get_pod_resources --args '{"problematic_only":true}'
+kube-watcher mcp run --tool get_pod_resources --args '{"problematic_only":true}' --output yaml
 
 # Full cluster analysis  
-go run ./mcp/cmd/server --exec analyze_cluster --args '{"include_pods":true,"include_events":true}'
+kube-watcher mcp run --tool analyze_cluster --args '{"include_pods":true,"include_events":true}' --output yaml
 ```
 
 #### Health Check
 ```bash
-go run ./mcp/cmd/server --health
+kube-watcher mcp health --output yaml
 ```
 
 #### Interactive Server Mode
 ```bash
-go run ./mcp/cmd/server --server
+kube-watcher mcp serve
 ```
 ### Watcher Event Engine
 
@@ -140,7 +186,7 @@ Defaults:
 
 ```bash
 # Deploy to Kubernetes from image
-go run ./watcher/cmd/deploy \
+kube-watcher deploy \
   --action deploy \
   --target kube \
   --cluster-name dev-cluster \
@@ -150,7 +196,7 @@ go run ./watcher/cmd/deploy \
 
 ```bash
 # Deploy to Kubernetes by building from local source path first
-go run ./watcher/cmd/deploy \
+kube-watcher deploy \
   --action deploy \
   --target kube \
   --cluster-name dev-cluster \
@@ -161,7 +207,7 @@ go run ./watcher/cmd/deploy \
 
 ```bash
 # Run locally in Docker (use local or port-forwarded Prometheus endpoint)
-go run ./watcher/cmd/deploy \
+kube-watcher deploy \
   --action deploy \
   --target docker \
   --cluster-name dev-cluster \
@@ -170,11 +216,15 @@ go run ./watcher/cmd/deploy \
 
 ```bash
 # Cleanup
-go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name dev-cluster
-go run ./watcher/cmd/deploy --action cleanup --target docker --cluster-name dev-cluster
+kube-watcher deploy --action cleanup --target kube --cluster-name dev-cluster
+kube-watcher deploy --action cleanup --target docker --cluster-name dev-cluster
 
 # Optional: delete the namespace created for deployment
-go run ./watcher/cmd/deploy --action cleanup --target kube --cluster-name dev-cluster --delete-namespace
+kube-watcher deploy --action cleanup --target kube --cluster-name dev-cluster --delete-namespace
+
+# Runtime status and logs
+kube-watcher deploy --action status --target kube --cluster-name dev-cluster
+kube-watcher deploy --action logs --target docker --cluster-name dev-cluster --tail-lines 200 --follow
 ```
 
 ### Explorer CLI (with hotkeys)
