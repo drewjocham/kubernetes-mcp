@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
+	"kube-watcher/pkg/audit"
 	"kube-watcher/pkg/kube"
 	"kube-watcher/pkg/logging"
 	"kube-watcher/watcher/internal/actions"
@@ -88,10 +89,15 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 
 	cfg := snapshotWatchConfig(a.cfg)
 
-	k8sClient, err := kube.NewClient(a.logger)
+	// Create base Kubernetes client
+	baseClient, err := kube.NewClient(a.logger)
 	if err != nil {
 		return fmt.Errorf("k8s client: %w", err)
 	}
+
+	// Wrap with audit logging
+	auditLogger := audit.NewSlogLogger(a.logger)
+	k8sClient := kube.NewAuditClient(baseClient, auditLogger, a.logger, kube.AuditOptionsFromEnv()...)
 
 	store, err := a.initStore(cfg)
 	if err != nil {
@@ -169,7 +175,7 @@ func (a *engineApp) initCEL(cfg *config.WatchConfig) (*cel.Env, error) {
 	)
 }
 
-func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client *kube.Client, st tracker.Store, ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
+func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInterface, st tracker.Store, ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
 	engine := rules.NewEngine(a.logger, cfg, st, env)
 	src := source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second)
 	podEnricher := pipeline.NewPodEnricher(getEnrichmentFields(cfg.ResourceTracking.Fields, cfg.Rules))

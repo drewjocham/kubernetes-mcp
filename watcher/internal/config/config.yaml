@@ -86,7 +86,7 @@ actions:
 settings:
   metrics:
     enabled: true
-    listen: ":9095"
+    listen: ":9090"
   model:
     enabled: false
     endpoint: ""

@@ -15,6 +15,7 @@ import (
 
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
+	"kube-watcher/pkg/audit"
 	"kube-watcher/pkg/kube"
 	"kube-watcher/pkg/kube/watch"
 	"kube-watcher/pkg/logging"
@@ -49,12 +50,17 @@ func main() {
 	dbPath := expandPath(cfg.dbPath)
 	handleErr(ensureDir(dbPath), "failed to create database directory", logger)
 
-	k8sClient, err := kube.NewClient(logger)
+	// Create base Kubernetes client
+	baseClient, err := kube.NewClient(logger)
 	handleErr(err, "kubernetes client init failed", logger)
+
+	// Wrap with audit logging
+	auditLogger := audit.NewSlogLogger(logger)
+	k8sClient := kube.NewAuditClient(baseClient, auditLogger, logger, kube.AuditOptionsFromEnv()...)
 
 	historyStore, err := history.NewStore(dbPath)
 	handleErr(err, "storage init failed", logger)
-	defer historyStore.Close()
+	defer func() { _ = historyStore.Close() }()
 
 	watchManager := watch.NewManager(k8sClient, logger, cfg.interval)
 

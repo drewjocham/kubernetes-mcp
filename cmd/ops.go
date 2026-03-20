@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +60,7 @@ func newOpsCleanupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer cli.Close()
+			defer func() { _ = cli.Close() }()
 			return removeContainer(cmd.Context(), cli, containerName(args[0], cfg))
 		},
 	}
@@ -80,7 +80,7 @@ func newOpsStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer cli.Close()
+			defer func() { _ = cli.Close() }()
 			return printContainerStatus(cmd.Context(), cli, containerName(args[0], cfg))
 		},
 	}
@@ -100,7 +100,7 @@ func newOpsLogsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer cli.Close()
+			defer func() { _ = cli.Close() }()
 			return streamContainerLogs(cmd.Context(), cli, containerName(args[0], cfg), cfg.followLogs, cfg.tailLines)
 		},
 	}
@@ -187,10 +187,10 @@ func runDeployDocker(ctx context.Context, component string, cfg opsConfig) error
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	fmt.Printf("checking for image: %s\n", cfg.image)
-	if _, _, err := cli.ImageInspectWithRaw(ctx, cfg.image); err != nil {
+	if _, err := cli.ImageInspect(ctx, cfg.image); err != nil {
 		if !cfg.buildIfMissing {
 			return fmt.Errorf("image %q not available locally: %w", cfg.image, err)
 		}
@@ -423,7 +423,7 @@ func removeContainer(ctx context.Context, cli *client.Client, name string) error
 	timeout := int(defaultRuntimeTimeout().Seconds())
 	_ = cli.ContainerStop(ctx, name, container.StopOptions{Timeout: &timeout})
 	if err := cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true}); err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("remove container %q: %w", name, err)
@@ -435,7 +435,7 @@ func removeContainer(ctx context.Context, cli *client.Client, name string) error
 func printContainerStatus(ctx context.Context, cli *client.Client, name string) error {
 	info, err := cli.ContainerInspect(ctx, name)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			fmt.Printf("container %s not found\n", name)
 			return nil
 		}
@@ -467,21 +467,11 @@ func streamContainerLogs(ctx context.Context, cli *client.Client, name string, f
 	if err != nil {
 		return fmt.Errorf("read logs for %q: %w", name, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	_, err = io.Copy(os.Stdout, reader)
 	if err != nil {
 		return fmt.Errorf("stream logs for %q: %w", name, err)
 	}
-	return nil
-}
-
-func pullImageIfRequested(ctx context.Context, cli *client.Client, imageRef string) error {
-	reader, err := cli.ImagePull(ctx, imageRef, image.PullOptions{})
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-	_, _ = io.Copy(io.Discard, reader)
 	return nil
 }

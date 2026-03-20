@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -179,4 +180,59 @@ func TestKubeManifest_UsesSecretAndPVC(t *testing.T) {
 	assertContains("secretName: kube-anomaly-detection-dev-cluster-config")
 	assertContains("name: CLUSTER_NAME")
 	assertContains(`value: "dev-cluster"`)
+}
+
+func TestNormalizeAndValidate_GoogleChatWebhookEnv(t *testing.T) {
+	// Save original environment variable
+	originalValue := os.Getenv("GOOGLE_CHAT_WEBHOOK_URL")
+	defer func() {
+		// Restore original value
+		if originalValue != "" {
+			_ = os.Setenv("GOOGLE_CHAT_WEBHOOK_URL", originalValue)
+		} else {
+			_ = os.Unsetenv("GOOGLE_CHAT_WEBHOOK_URL")
+		}
+	}()
+
+	// Test 1: Environment variable should be read when GoogleChatWebhook is empty
+	_ = os.Setenv("GOOGLE_CHAT_WEBHOOK_URL", "https://chat.example.com/webhook")
+	cfg := Config{
+		Action:             "deploy",
+		Target:             "kube",
+		ClusterName:        "test-cluster",
+		PrometheusEndpoint: "http://prometheus:9090/metrics",
+		GoogleChatWebhook:  "", // Empty, should read from env
+	}
+
+	result, err := NormalizeAndValidate(cfg)
+	if err != nil {
+		t.Fatalf("NormalizeAndValidate failed: %v", err)
+	}
+
+	if result.GoogleChatWebhook != "https://chat.example.com/webhook" {
+		t.Errorf("Expected GoogleChatWebhook to be read from environment variable, got: %q", result.GoogleChatWebhook)
+	}
+
+	// Test 2: Command-line flag should take precedence over environment variable
+	cfg.GoogleChatWebhook = "https://flag.example.com/webhook"
+	result, err = NormalizeAndValidate(cfg)
+	if err != nil {
+		t.Fatalf("NormalizeAndValidate failed: %v", err)
+	}
+
+	if result.GoogleChatWebhook != "https://flag.example.com/webhook" {
+		t.Errorf("Expected command-line flag to take precedence, got: %q", result.GoogleChatWebhook)
+	}
+
+	// Test 3: Empty environment variable should not override empty flag
+	_ = os.Unsetenv("GOOGLE_CHAT_WEBHOOK_URL")
+	cfg.GoogleChatWebhook = ""
+	result, err = NormalizeAndValidate(cfg)
+	if err != nil {
+		t.Fatalf("NormalizeAndValidate failed: %v", err)
+	}
+
+	if result.GoogleChatWebhook != "" {
+		t.Errorf("Expected empty GoogleChatWebhook, got: %q", result.GoogleChatWebhook)
+	}
 }
