@@ -13,6 +13,7 @@ import (
 
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
+	"kube-watcher/pkg/audit"
 	"kube-watcher/pkg/kube"
 	kwatch "kube-watcher/pkg/kube/watch"
 	"kube-watcher/pkg/logging"
@@ -41,10 +42,15 @@ func newMCPRuntime(cfg mcpRuntimeConfig) (*mcpRuntime, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	k8sClient, err := kube.NewClient(logger)
+	// Create base Kubernetes client
+	baseClient, err := kube.NewClient(logger)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes client init failed: %w", err)
 	}
+
+	// Wrap with audit logging
+	auditLogger := audit.NewSlogLogger(logger)
+	k8sClient := kube.NewAuditClient(baseClient, auditLogger, logger, kube.AuditOptionsFromEnv()...)
 
 	historyStore, err := history.NewStore(dbPath)
 	if err != nil {
@@ -61,7 +67,8 @@ func newMCPRuntime(cfg mcpRuntimeConfig) (*mcpRuntime, error) {
 		Watcher:      watchManager,
 	})
 	if err != nil {
-		historyStore.Close()
+		_ = historyStore.Close()
+
 		return nil, fmt.Errorf("mcp server init failed: %w", err)
 	}
 

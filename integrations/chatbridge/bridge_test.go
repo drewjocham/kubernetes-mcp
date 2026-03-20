@@ -93,8 +93,8 @@ func TestBridge_HandleChatEvent_Success(t *testing.T) {
 }
 
 func TestBridge_HandleChatEvent_Unauthorized(t *testing.T) {
-	os.Setenv("BRIDGE_SECRET", "super-secret")
-	defer os.Unsetenv("BRIDGE_SECRET")
+	_ = os.Setenv("BRIDGE_SECRET", "super-secret")
+	defer func() { _ = os.Unsetenv("BRIDGE_SECRET") }()
 
 	bridge := &Bridge{
 		logger: slog.Default(),
@@ -143,7 +143,10 @@ func TestBridge_HandleChatEvent_DuplicateIgnored(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 	assert.Contains(t, rec2.Body.String(), "duplicate")
 
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	assert.Equal(t, 1, backend.calls)
+	// Wait for the goroutine to complete
+	require.Eventually(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return backend.calls == 1
+	}, 2*time.Second, 50*time.Millisecond, "backend should have been called exactly once")
 }

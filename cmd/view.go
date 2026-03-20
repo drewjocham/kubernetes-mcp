@@ -181,10 +181,16 @@ func printMCPTools(tools []server.ToolSummary, output string) error {
 		return renderOutput(map[string]any{"tools": tools}, output)
 	case "table":
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "TOOL\tDESCRIPTION")
-		fmt.Fprintln(w, "----\t-----------")
+		if _, err := fmt.Fprintln(w, "TOOL\tDESCRIPTION"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, "----\t-----------"); err != nil {
+			return err
+		}
 		for _, tool := range tools {
-			fmt.Fprintf(w, "%s\t%s\n", tool.Name, tool.Description)
+			if _, err := fmt.Fprintf(w, "%s\t%s\n", tool.Name, tool.Description); err != nil {
+				return err
+			}
 		}
 		return w.Flush()
 	default:
@@ -196,8 +202,12 @@ func printNodeStatusTable(result map[string]any) {
 	nodes := toSlice(result["nodes"])
 	fmt.Println("\nNODE STATUS")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tREADY\tCPU\tMEMORY\tPRESSURE_SCORE")
-	fmt.Fprintln(w, "----\t------\t-----\t---\t------\t--------------")
+	if _, err := fmt.Fprintln(w, "NAME\tSTATUS\tREADY\tCPU\tMEMORY\tPRESSURE_SCORE"); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintln(w, "----\t------\t-----\t---\t------\t--------------"); err != nil {
+		return
+	}
 
 	for _, n := range nodes {
 		node := toMap(n)
@@ -211,7 +221,9 @@ func printNodeStatusTable(result map[string]any) {
 		mem := fmt.Sprintf("%v", util["memory_allocatable"])
 		score := fmt.Sprintf("%v", util["pressure_score_pct"])
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", name, status, ready, cpu, mem, score)
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", name, status, ready, cpu, mem, score); err != nil {
+			return
+		}
 	}
 	_ = w.Flush()
 }
@@ -222,15 +234,33 @@ func printPodSummaryTable(result map[string]any) {
 
 	fmt.Println("\nPOD SUMMARY")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "METRIC\tVALUE")
-	fmt.Fprintln(w, "------\t-----")
-	fmt.Fprintf(w, "Total Pods\t%v\n", summary["total"])
-	fmt.Fprintf(w, "Running\t%v\n", phases["running"])
-	fmt.Fprintf(w, "Pending\t%v\n", phases["pending"])
-	fmt.Fprintf(w, "Failed\t%v\n", phases["failed"])
-	fmt.Fprintf(w, "Succeeded\t%v\n", phases["succeeded"])
-	fmt.Fprintf(w, "Unknown\t%v\n", phases["unknown"])
-	fmt.Fprintf(w, "Problematic Count\t%d\n", len(toSlice(summary["problematic"])))
+	if _, err := fmt.Fprintln(w, "METRIC\tVALUE"); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintln(w, "------\t-----"); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Total Pods\t%v\n", summary["total"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Running\t%v\n", phases["running"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Pending\t%v\n", phases["pending"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Failed\t%v\n", phases["failed"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Succeeded\t%v\n", phases["succeeded"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Unknown\t%v\n", phases["unknown"]); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "Problematic Count\t%d\n", len(toSlice(summary["problematic"]))); err != nil {
+		return
+	}
 	_ = w.Flush()
 }
 
@@ -284,9 +314,7 @@ func toSlice(v any) []any {
 	}
 	if s, ok := v.([]interface{}); ok {
 		out := make([]any, len(s))
-		for i := range s {
-			out[i] = s[i]
-		}
+		copy(out, s)
 		return out
 	}
 	b, _ := json.Marshal(v)

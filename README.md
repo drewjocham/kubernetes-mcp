@@ -183,6 +183,7 @@ Defaults:
 - Kubernetes data storage uses a PVC by default:
   - claim name: `<deployment-name>-data` (override with `--pvc-name`)
   - claim size: `5Gi` (override with `--pvc-size`)
+- Google Chat webhook URL can be provided via `GOOGLE_CHAT_WEBHOOK_URL` environment variable (recommended for security) or `--google-chat-webhook-url` flag
 
 ```bash
 # Deploy to Kubernetes from image
@@ -295,6 +296,41 @@ Comprehensive cluster analysis with health scoring and recommendations.
 - `detailed_analysis` (boolean): Generate recommendations [default: true]
 
 ## MCP Integration
+
+## Security
+
+### Secret Management
+- **Webhook URLs and API tokens**: Use environment variables instead of command-line arguments to prevent exposure in process listings.
+- **Google Chat Webhook**: Set `GOOGLE_CHAT_WEBHOOK_URL` environment variable instead of using `--google-chat-webhook-url` flag.
+- **ChatBridge tokens**: Configure via `auth_token_env` and `webhook_url_env` fields in YAML configuration to read from environment variables.
+- **Model API keys**: Use `api_key_env` configuration to read from environment variables.
+
+### Input Validation
+- Kubernetes resource names (namespaces, deployment names) are validated as DNS labels to prevent injection attacks.
+- Shell command execution uses secure `exec.Command` with separate arguments instead of shell string evaluation.
+
+### Security Best Practices
+- Run with minimal required Kubernetes RBAC permissions
+- Regularly update dependencies for security patches
+- Monitor logs for unauthorized access attempts
+- Use network policies to restrict access to monitoring components
+
+### Audit Logging & RBAC Validation
+- **Audit Logging**: All Kubernetes API operations are logged with structured audit events including:
+  - Timestamp, resource type, namespace, name, action, and outcome
+  - Service account used for the operation
+  - Success/failure status and error details
+  - Events are logged at INFO level for successes and WARN level for failures/denials
+- **RBAC Validation**: Optional pre-flight RBAC checks using Kubernetes SubjectAccessReview API
+  - Enabled via `KUBE_WATCHER_AUDIT_RBAC_ENABLED=true` environment variable
+  - Service account name can be set via `KUBE_WATCHER_SERVICE_ACCOUNT` (default: "unknown")
+  - Helps identify permission issues before actual API calls
+- **Audit Events Include**:
+  - Authentication events (authn)
+  - Authorization events (authz)  
+  - Resource access events (access)
+  - Configuration changes (config)
+  - Security events (security)
 
 ## Configuration
 

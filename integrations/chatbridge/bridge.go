@@ -152,7 +152,7 @@ func (b *Bridge) processInvestigation(ctx context.Context, req InvestigationRequ
 }
 
 func (b *Bridge) decodeAndLogEvent(body io.ReadCloser) (GoogleChatEvent, error) {
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(body, 1<<20))
 	if err != nil {
 		return GoogleChatEvent{}, err

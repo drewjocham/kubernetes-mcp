@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,15 +12,16 @@ import (
 )
 
 const (
-	DefaultImage         = "kube-anomaly-detection:latest"
-	DefaultAppName       = "kube-anomaly-detection"
-	DefaultNamespace     = "kubewatcher"
-	DefaultPrometheusURL = ""
-	DefaultConfigPath    = "/app/config/config.yaml"
-	DefaultDataDir       = "kad-data"
+	DefaultImage         = "drewjocham/kube-anomaly-detection:latest"
+	DefaultNamespace     = "kube-anomaly-detection"
+	DefaultPrometheusURL = "http://localhost:9090/metrics"
 	DefaultDockerConfig  = ".kube-watcher/kad/config.yaml"
-	DefaultPVCSize       = "5Gi"
-	DefaultTailLines     = 200
+	DefaultDataDir       = "kube-anomaly-detection-data"
+	DefaultPVCSize       = "1Gi"
+	DefaultTailLines     = 100
+	DefaultAppName       = "kube-anomaly-detection"
+	DefaultConfigPath    = "/app/config.yaml"
+	GoogleChatWebhookEnv = "GOOGLE_CHAT_WEBHOOK_URL"
 )
 
 type Config struct {
@@ -81,8 +83,23 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return cfg, errors.New("--cluster-name must include at least one alphanumeric character")
 	}
 
+	// Set default namespace if empty
+	if strings.TrimSpace(cfg.Namespace) == "" {
+		cfg.Namespace = DefaultNamespace
+	}
+
+	// Validate namespace name
+	if !IsValidDNSLabel(cfg.Namespace) {
+		return cfg, fmt.Errorf("invalid namespace %q: must be a valid DNS label (lowercase alphanumeric characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Namespace)
+	}
+
 	if strings.TrimSpace(cfg.Name) == "" {
 		cfg.Name = fmt.Sprintf("%s-%s", DefaultAppName, sanitizedCluster)
+	} else {
+		// Validate user-provided name
+		if !IsValidDNSLabel(cfg.Name) {
+			return cfg, fmt.Errorf("invalid name %q: must be a valid Kubernetes resource name (lowercase alphanumeric characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Name)
+		}
 	}
 
 	if cfg.DockerDataDir == DefaultDataDir {
@@ -103,6 +120,12 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 
 	if cfg.TailLines <= 0 {
 		cfg.TailLines = DefaultTailLines
+	}
+
+	if cfg.GoogleChatWebhook == "" {
+		if envWebhook := os.Getenv(GoogleChatWebhookEnv); envWebhook != "" {
+			cfg.GoogleChatWebhook = envWebhook
+		}
 	}
 
 	cfg.ClusterName = sanitizedCluster
@@ -176,8 +199,7 @@ func logs(ctx context.Context, cfg Config) error {
 
 func deployKube(ctx context.Context, cfg Config) error {
 	if cfg.CreateNamespace {
-		applyNamespace := fmt.Sprintf("kubectl create namespace %s --dry-run=client -o yaml | kubectl apply -f -", cfg.Namespace)
-		if err := runShellCmd(ctx, applyNamespace); err != nil {
+		if err := createNamespaceIfNotExists(ctx, cfg.Namespace); err != nil {
 			return fmt.Errorf("apply namespace %q: %w", cfg.Namespace, err)
 		}
 	}
@@ -450,11 +472,35 @@ func runCmd(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func runShellCmd(ctx context.Context, command string) error {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func createNamespaceIfNotExists(ctx context.Context, namespace string) error {
+	// Run kubectl create namespace with dry-run to generate manifest
+	createCmd := exec.CommandContext(ctx, "kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml")
+
+	// Capture output of create command
+	createOutput, err := createCmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("kubectl create namespace failed: %s", exitErr.Stderr)
+		}
+		return fmt.Errorf("kubectl create namespace failed: %w", err)
+	}
+
+	// Pipe the output to kubectl apply -f -
+	applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+	applyCmd.Stdin = bytes.NewReader(createOutput)
+	applyCmd.Stdout = os.Stdout
+	applyCmd.Stderr = os.Stderr
+
+	if err := applyCmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("kubectl apply failed: exit code %d", exitErr.ExitCode())
+		}
+		return fmt.Errorf("kubectl apply failed: %w", err)
+	}
+
+	return nil
 }
 
 func SanitizeForResourceName(input string) string {
@@ -481,4 +527,30 @@ func SanitizeForResourceName(input string) string {
 		out = strings.Trim(out[:63], "-")
 	}
 	return out
+}
+
+// IsValidDNSLabel validates a string as a DNS label according to RFC 1123
+// Used for Kubernetes resource names and namespace names
+func IsValidDNSLabel(name string) bool {
+	if len(name) == 0 || len(name) > 63 {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			// valid character
+			continue
+		}
+		return false
+	}
+	// Must start and end with alphanumeric
+	if (name[0] >= 'a' && name[0] <= 'z') || (name[0] >= '0' && name[0] <= '9') {
+		// valid start
+	} else {
+		return false
+	}
+	last := name[len(name)-1]
+	if (last >= 'a' && last <= 'z') || (last >= '0' && last <= '9') {
+		return true
+	}
+	return false
 }

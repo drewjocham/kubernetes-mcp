@@ -39,7 +39,7 @@ func TestStore_Integration(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err, "Failed to initialize store in temp dir")
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	now := time.Now().Truncate(time.Millisecond) // Truncate to avoid nano-precision jitter in some environments
 
@@ -77,7 +77,7 @@ func TestStore_Integration(t *testing.T) {
 	t.Run("FrequencyAnalysis", func(t *testing.T) {
 		// Clean start for frequency test
 		fStore, _ := NewStore(t.TempDir())
-		defer fStore.Close()
+		defer func() { _ = fStore.Close() }()
 
 		// 3 incidents in the last hour (Recent)
 		for i := 0; i < 3; i++ {
@@ -95,7 +95,7 @@ func TestStore_Integration(t *testing.T) {
 
 	t.Run("Cleanup", func(t *testing.T) {
 		cStore, _ := NewStore(t.TempDir())
-		defer cStore.Close()
+		defer func() { _ = cStore.Close() }()
 
 		old := now.Add(-24 * time.Hour)
 		fresh := now.Add(-5 * time.Minute)
