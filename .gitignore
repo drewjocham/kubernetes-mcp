@@ -77,3 +77,7 @@ tmp/
 cpu.prof
 mem.prof
 profile.cov
+
+# Nuxt generated output (do not commit)
+dashboard/.nuxt/
+dashboard/.output/
