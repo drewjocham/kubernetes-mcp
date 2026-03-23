@@ -30,7 +30,7 @@ GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GORUN=$(GOCMD) run
 
-.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down test-integration-channel
+.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down test-integration-channel start-all stop-all
 
 # Default target
 all: fmt vet test build
@@ -201,6 +201,34 @@ dashboard-typecheck:
 	@echo "Typechecking dashboard..."
 	cd $(DASHBOARD_DIR) && npm run typecheck
 
+start-all:
+	@echo "Starting all services..."
+	@echo "Starting Docker containers (mcp, watcher, prometheus, grafana)..."
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build -d
+	@sleep 5
+	@echo "Starting dashboard..."
+	@( cd dashboard && CI=true npm run dev > /tmp/kube-watcher-dashboard.log 2>&1 & echo $$! > /tmp/kube-watcher-dashboard.pid )
+	@sleep 3
+	@echo "Dashboard started at http://localhost:3000"
+	@echo "MCP Tools API at http://localhost:8080"
+	@echo "Watcher metrics at http://localhost:9095"
+	@echo "Dashboard log: /tmp/kube-watcher-dashboard.log"
+	@echo ""
+	@echo "To stop all services: make stop-all"
+	@echo "To view dashboard logs: tail -f /tmp/kube-watcher-dashboard.log"
+
+stop-all:
+	@echo "Stopping all services..."
+	@echo "Stopping dashboard (PID file if present)..."
+	-@if [ -f /tmp/kube-watcher-dashboard.pid ]; then \
+		kill $$(cat /tmp/kube-watcher-dashboard.pid) 2>/dev/null || true; \
+		rm -f /tmp/kube-watcher-dashboard.pid; \
+	fi
+	@sleep 1
+	@echo "Stopping Docker containers..."
+	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) down
+	@echo "All services stopped."
+
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the application binary"
@@ -212,6 +240,8 @@ help:
 	@echo "  mcp-up        - docker compose up --build mcp"
 	@echo "  watcher-up    - docker compose up --build watcher"
 	@echo "  up            -       docker compose up --build (all services)"
+	@echo "  start-all     - Start all services (docker compose + dashboard)"
+	@echo "  stop-all      - Stop dashboard (PID file) and docker compose stack"
 	@echo "  down          - docker compose down"
 	@echo "  run-health    - Run health check"
 	@echo "  run-list      - List available tools"

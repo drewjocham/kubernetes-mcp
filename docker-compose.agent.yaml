@@ -1,0 +1,25 @@
+services:
+  kw-probe:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    container_name: kw-agent-probe
+    restart: always
+    privileged: true
+    environment:
+      - API_ENDPOINT=https://your-cloud-run-app.a.run.app/ingest
+      - AGENT_ID=production-server-01
+      - AUTH_TOKEN=${AGENT_SECRET_TOKEN}
+      - USER_ID=${USER_ID}
+      - TENANT_ID=${TENANT_ID}
+      - SCAN_INTERVAL=10s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge

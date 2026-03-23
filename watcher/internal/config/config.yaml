@@ -21,6 +21,7 @@ rules:
     actions:
       - google-space-alert-chat
       - ops-pager
+      - dashboard-webhook
   - name: Image-Pull-Failure
     kind: Pod
     duration: 2m
@@ -78,11 +79,27 @@ actions:
   log_change:
     type: log
     template: "{{ .rule.name }} triggered for {{ .resource.metadata.name }}"
+  # Example: merge a local file or set config.url via your deploy pipeline.
+  # Never commit real webhook URLs or API keys to the repository.
   google-chat:
     type: notification
     template: "Rule '{{ .RuleName }}' triggered for resource '{{ .Context.resource.kind }}/{{ .Context.resource.metadata.name }}'"
     config:
-      url: "https://chat.googleapis.com/v1/spaces/AAQAKFdXW08/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=KTXFCf54GSEhe4DXv9-HWAmaow7HBdlLIc6qpjyMCZ0"
+      url: ""
+  dashboard-webhook:
+    type: webhook
+    template: |
+      {
+        "kind": "Unknown",
+        "cluster": "local",
+        "namespace": "{{ .Event.Namespace }}",
+        "pod": "{{ .Event.Name }}",
+        "ruleName": "{{ .RuleName }}",
+        "severity": "critical",
+        "source": "kube-watcher"
+      }
+    config:
+      url: "http://host.docker.internal:3000/api/alerts/ingest"
 settings:
   metrics:
     enabled: true
@@ -94,3 +111,8 @@ settings:
     api_key_env: "MODEL_API_KEY"
     min_confidence: 0.65
     system_prompt: "You are a Kubernetes SRE anomaly detector. Return only strict JSON."
+  heartbeat:
+    enabled: true
+    dashboard_url: "http://host.docker.internal:3000"
+    cluster_name: "local"
+    interval: 30s
