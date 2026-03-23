@@ -52,4 +52,5 @@ export interface WorkflowConfig {
   agentApiKey: string
   watchedErrors: AlertKind[]
   autoApplyFixes: boolean
+  toolsEndpoint: string
 }

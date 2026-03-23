@@ -18,7 +18,8 @@ function defaultConfig(): WorkflowConfig {
     agentApiKeyHeader: 'Authorization',
     agentApiKey: '',
     watchedErrors: ['CrashLoopBackOff', 'OOMKilled', 'ImagePullBackOff'],
-    autoApplyFixes: false
+    autoApplyFixes: false,
+    toolsEndpoint: 'http://localhost:8080/v1'
   }
 }
 

@@ -10,6 +10,9 @@
             <NFormItem label="MCP API Key (optional)">
               <NInput v-model:value="config.mcpApiKey" type="password" show-password-on="click" />
             </NFormItem>
+            <NFormItem label="MCP Tools API endpoint">
+              <NInput v-model:value="config.toolsEndpoint" placeholder="http://localhost:8080" />
+            </NFormItem>
             <NFormItem label="Agent RCA endpoint">
               <NInput v-model:value="config.agentEndpoint" placeholder="https://agent.internal/report" />
             </NFormItem>
@@ -32,9 +35,13 @@
       <NGridItem :span="16">
         <NCard :title="`Alert Dashboard (${alerts.length})`">
           <template #header-extra>
-            <NTag :type="connected ? 'success' : 'warning'">
-              {{ connected ? 'SSE Connected' : 'Reconnecting…' }}
-            </NTag>
+            <NSpace>
+              <NButton size="small" tag="a" href="/clusters">Clusters</NButton>
+              <NButton size="small" tag="a" href="/tools">Tools</NButton>
+              <NTag :type="connected ? 'success' : 'warning'">
+                {{ connected ? 'SSE Connected' : 'Reconnecting…' }}
+              </NTag>
+            </NSpace>
           </template>
           <NDataTable
             :columns="columns"
@@ -103,7 +110,8 @@ const config = reactive<WorkflowConfig>({
   agentApiKeyHeader: cfgData.value?.config.agentApiKeyHeader ?? 'Authorization',
   agentApiKey: cfgData.value?.config.agentApiKey ?? '',
   watchedErrors: cfgData.value?.config.watchedErrors ?? ['CrashLoopBackOff', 'OOMKilled', 'ImagePullBackOff'],
-  autoApplyFixes: cfgData.value?.config.autoApplyFixes ?? false
+  autoApplyFixes: cfgData.value?.config.autoApplyFixes ?? false,
+  toolsEndpoint: cfgData.value?.config.toolsEndpoint ?? ''
 })
 
 const { alerts, connected } = useAlertStream(alertData.value?.alerts ?? [])

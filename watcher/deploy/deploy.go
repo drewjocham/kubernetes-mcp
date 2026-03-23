@@ -13,6 +13,7 @@ import (
 
 const (
 	DefaultImage         = "drewjocham/kube-anomaly-detection:latest"
+	DefaultWatcherImage  = "watcher:latest"
 	DefaultNamespace     = "kube-anomaly-detection"
 	DefaultPrometheusURL = "http://localhost:9090/metrics"
 	DefaultDockerConfig  = ".kube-watcher/kad/config.yaml"
@@ -22,6 +23,7 @@ const (
 	DefaultAppName       = "kube-anomaly-detection"
 	DefaultConfigPath    = "/app/config.yaml"
 	GoogleChatWebhookEnv = "GOOGLE_CHAT_WEBHOOK_URL"
+	AlertWebhookEnv      = "ALERT_WEBHOOK_URL"
 )
 
 type Config struct {
@@ -36,12 +38,19 @@ type Config struct {
 	DeleteNamespace    bool
 	PrometheusEndpoint string
 	GoogleChatWebhook  string
+	AlertWebhook       string
+	DashboardWebhook   string
+	KubeconfigPath     string
 	DockerConfigPath   string
 	DockerDataDir      string
 	PVCName            string
 	PVCSize            string
 	TailLines          int
 	Follow             bool
+	AppType            string
+	ComposeFile        string
+	ComposeService     string
+	ComposeProject     string
 }
 
 func DefaultConfig() Config {
@@ -52,21 +61,23 @@ func DefaultConfig() Config {
 		Namespace:          DefaultNamespace,
 		CreateNamespace:    true,
 		PrometheusEndpoint: DefaultPrometheusURL,
+		KubeconfigPath:     "",
 		DockerConfigPath:   DefaultDockerConfig,
 		DockerDataDir:      DefaultDataDir,
 		PVCSize:            DefaultPVCSize,
 		TailLines:          DefaultTailLines,
+		AppType:            "kad",
 	}
 }
 
 func NormalizeAndValidate(cfg Config) (Config, error) {
 	switch cfg.Action {
-	case "deploy", "cleanup", "status", "logs":
+	case "deploy", "cleanup", "status", "logs", "print-manifest":
 	default:
 		return cfg, fmt.Errorf("unsupported action %q", cfg.Action)
 	}
 
-	if cfg.Target != "kube" && cfg.Target != "docker" {
+	if cfg.Target != "kube" && cfg.Target != "docker" && cfg.Target != "compose" {
 		return cfg, fmt.Errorf("unsupported target %q", cfg.Target)
 	}
 
@@ -74,8 +85,9 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return cfg, errors.New("--cluster-name is required")
 	}
 
-	if cfg.Action == "deploy" && strings.TrimSpace(cfg.PrometheusEndpoint) == "" {
-		return cfg, errors.New("--prometheus-endpoint is required for deploy")
+	// For KAD deployments, prometheus endpoint is required
+	if cfg.Action == "deploy" && cfg.AppType != "watcher" && strings.TrimSpace(cfg.PrometheusEndpoint) == "" {
+		return cfg, errors.New("--prometheus-endpoint is required for deploy (kad app type)")
 	}
 
 	sanitizedCluster := SanitizeForResourceName(cfg.ClusterName)
@@ -94,7 +106,12 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 	}
 
 	if strings.TrimSpace(cfg.Name) == "" {
-		cfg.Name = fmt.Sprintf("%s-%s", DefaultAppName, sanitizedCluster)
+		// Default app name based on app type
+		if cfg.AppType == "watcher" {
+			cfg.Name = fmt.Sprintf("watcher-%s", sanitizedCluster)
+		} else {
+			cfg.Name = fmt.Sprintf("%s-%s", DefaultAppName, sanitizedCluster)
+		}
 	} else {
 		// Validate user-provided name
 		if !IsValidDNSLabel(cfg.Name) {
@@ -102,12 +119,22 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		}
 	}
 
+	// Adjust default image based on app type
+	if cfg.AppType == "watcher" && cfg.Image == DefaultImage {
+		cfg.Image = DefaultWatcherImage
+	}
+
 	if cfg.DockerDataDir == DefaultDataDir {
 		cfg.DockerDataDir = fmt.Sprintf("%s-%s", DefaultDataDir, sanitizedCluster)
 	}
 
 	if cfg.DockerConfigPath == DefaultDockerConfig {
-		cfg.DockerConfigPath = filepath.Join(".kube-watcher", "kad", sanitizedCluster, "config.yaml")
+		// Separate config path for watcher vs kad
+		if cfg.AppType == "watcher" {
+			cfg.DockerConfigPath = filepath.Join(".kube-watcher", "watcher", sanitizedCluster, "config.yaml")
+		} else {
+			cfg.DockerConfigPath = filepath.Join(".kube-watcher", "kad", sanitizedCluster, "config.yaml")
+		}
 	}
 
 	if strings.TrimSpace(cfg.PVCName) == "" {
@@ -127,6 +154,17 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 			cfg.GoogleChatWebhook = envWebhook
 		}
 	}
+	if cfg.AlertWebhook == "" {
+		if envWebhook := os.Getenv(AlertWebhookEnv); envWebhook != "" {
+			cfg.AlertWebhook = envWebhook
+		}
+	}
+	if cfg.AlertWebhook == "" && cfg.GoogleChatWebhook != "" {
+		cfg.AlertWebhook = cfg.GoogleChatWebhook
+	}
+	if cfg.Target == "compose" && cfg.Action != "print-manifest" && strings.TrimSpace(cfg.ComposeFile) == "" {
+		return cfg, errors.New("--compose-file is required for compose target")
+	}
 
 	cfg.ClusterName = sanitizedCluster
 	return cfg, nil
@@ -142,6 +180,8 @@ func Run(ctx context.Context, cfg Config) error {
 		return status(ctx, cfg)
 	case "logs":
 		return logs(ctx, cfg)
+	case "print-manifest":
+		return printManifest(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported action %q", cfg.Action)
 	}
@@ -159,6 +199,8 @@ func deploy(ctx context.Context, cfg Config) error {
 		return deployKube(ctx, cfg)
 	case "docker":
 		return deployDocker(ctx, cfg)
+	case "compose":
+		return deployCompose(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported target %q", cfg.Target)
 	}
@@ -170,6 +212,8 @@ func cleanup(ctx context.Context, cfg Config) error {
 		return cleanupKube(ctx, cfg)
 	case "docker":
 		return cleanupDocker(ctx, cfg)
+	case "compose":
+		return cleanupCompose(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported target %q", cfg.Target)
 	}
@@ -181,6 +225,8 @@ func status(ctx context.Context, cfg Config) error {
 		return statusKube(ctx, cfg)
 	case "docker":
 		return statusDocker(ctx, cfg)
+	case "compose":
+		return statusCompose(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported target %q", cfg.Target)
 	}
@@ -192,6 +238,8 @@ func logs(ctx context.Context, cfg Config) error {
 		return logsKube(ctx, cfg)
 	case "docker":
 		return logsDocker(ctx, cfg)
+	case "compose":
+		return logsCompose(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported target %q", cfg.Target)
 	}
@@ -264,14 +312,36 @@ func deployDocker(ctx context.Context, cfg Config) error {
 	_ = runCmd(ctx, "docker", "rm", "-f", cfg.Name)
 	_ = runCmd(ctx, "docker", "volume", "create", cfg.DockerDataDir)
 
-	if err := runCmd(
-		ctx,
-		"docker", "run", "-d",
+	image := cfg.Image
+	if cfg.AppType == "watcher" && image == DefaultImage {
+		image = DefaultWatcherImage
+	}
+
+	args := []string{"--config", DefaultConfigPath}
+	if cfg.AppType == "watcher" {
+		args = []string{"--listen", ":8085", "--config", DefaultConfigPath}
+	}
+
+	cmdArgs := []string{"run", "-d",
 		"--name", cfg.Name,
 		"-v", fmt.Sprintf("%s:%s:ro", configPath, DefaultConfigPath),
 		"-v", fmt.Sprintf("%s:/data", cfg.DockerDataDir),
-		cfg.Image,
-		"--config", DefaultConfigPath,
+	}
+	// Mount kubeconfig if provided
+	if cfg.KubeconfigPath != "" {
+		cmdArgs = append(cmdArgs, "-v", fmt.Sprintf("%s:/home/nonroot/.kube/config:ro", cfg.KubeconfigPath))
+		cmdArgs = append(cmdArgs, "-e", "KUBECONFIG=/home/nonroot/.kube/config")
+	}
+	// Run as root for watcher to avoid permission issues
+	if cfg.AppType == "watcher" {
+		cmdArgs = append(cmdArgs, "--user", "0:0")
+	}
+	cmdArgs = append(cmdArgs, image)
+	cmdArgs = append(cmdArgs, args...)
+
+	if err := runCmd(
+		ctx,
+		"docker", cmdArgs...,
 	); err != nil {
 		return fmt.Errorf("docker run: %w", err)
 	}
@@ -312,6 +382,81 @@ func logsDocker(ctx context.Context, cfg Config) error {
 	return nil
 }
 
+func deployCompose(ctx context.Context, cfg Config) error {
+	args := composeBaseArgs(cfg)
+	args = append(args, "up", "-d")
+	if cfg.ComposeService != "" {
+		args = append(args, cfg.ComposeService)
+	}
+	if err := runComposeCmd(ctx, cfg, args...); err != nil {
+		return fmt.Errorf("compose deploy failed: %w", err)
+	}
+	fmt.Printf("deployed compose stack from %s\n", cfg.ComposeFile)
+	return nil
+}
+
+func cleanupCompose(ctx context.Context, cfg Config) error {
+	args := composeBaseArgs(cfg)
+	args = append(args, "down")
+	if err := runComposeCmd(ctx, cfg, args...); err != nil {
+		return fmt.Errorf("compose cleanup failed: %w", err)
+	}
+	fmt.Printf("cleaned up compose stack from %s\n", cfg.ComposeFile)
+	return nil
+}
+
+func statusCompose(ctx context.Context, cfg Config) error {
+	args := composeBaseArgs(cfg)
+	args = append(args, "ps")
+	if err := runComposeCmd(ctx, cfg, args...); err != nil {
+		return fmt.Errorf("compose status failed: %w", err)
+	}
+	return nil
+}
+
+func logsCompose(ctx context.Context, cfg Config) error {
+	args := composeBaseArgs(cfg)
+	args = append(args, "logs", "--tail", fmt.Sprintf("%d", cfg.TailLines))
+	if cfg.Follow {
+		args = append(args, "-f")
+	}
+	if cfg.ComposeService != "" {
+		args = append(args, cfg.ComposeService)
+	}
+	if err := runComposeCmd(ctx, cfg, args...); err != nil {
+		return fmt.Errorf("compose logs failed: %w", err)
+	}
+	return nil
+}
+
+func printManifest(ctx context.Context, cfg Config) error {
+	switch cfg.Target {
+	case "kube":
+		fmt.Println(KubeManifest(cfg))
+	case "docker":
+		configPath, err := materializeDockerConfig(cfg)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return fmt.Errorf("read docker config: %w", err)
+		}
+		fmt.Println(string(data))
+	case "compose":
+		fmt.Printf("compose file: %s\n", cfg.ComposeFile)
+		if cfg.ComposeProject != "" {
+			fmt.Printf("compose project: %s\n", cfg.ComposeProject)
+		}
+		if cfg.ComposeService != "" {
+			fmt.Printf("compose service: %s\n", cfg.ComposeService)
+		}
+	default:
+		return fmt.Errorf("unsupported target %q for print-manifest", cfg.Target)
+	}
+	return nil
+}
+
 func applyKubeManifest(ctx context.Context, cfg Config) error {
 	manifest := KubeManifest(cfg)
 	cmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
@@ -341,13 +486,48 @@ func materializeDockerConfig(cfg Config) (string, error) {
 		return "", fmt.Errorf("create config directory: %w", err)
 	}
 
-	if err := os.WriteFile(localPath, []byte(KADConfigYAML(cfg)), 0o600); err != nil {
+	var configYAML string
+	if cfg.AppType == "watcher" {
+		configYAML = WatcherConfigYAML(cfg)
+	} else {
+		configYAML = KADConfigYAML(cfg)
+	}
+
+	if err := os.WriteFile(localPath, []byte(configYAML), 0o600); err != nil {
 		return "", fmt.Errorf("write docker config %s: %w", localPath, err)
 	}
 	return localPath, nil
 }
 
 func KubeManifest(cfg Config) string {
+	var configYAML string
+	var image string
+	var component string
+	var args []string
+
+	if cfg.AppType == "watcher" {
+		configYAML = WatcherConfigYAML(cfg)
+		image = DefaultWatcherImage
+		if cfg.Image != DefaultImage {
+			image = cfg.Image
+		}
+		component = "watcher"
+		args = []string{"--listen", ":8085", "--config", "/app/config/config.yaml"}
+	} else {
+		configYAML = KADConfigYAML(cfg)
+		image = cfg.Image
+		component = "anomaly-detection"
+		args = []string{"--config", "/app/config/config.yaml"}
+	}
+
+	argsStr := ""
+	for i, arg := range args {
+		if i > 0 {
+			argsStr += ", "
+		}
+		argsStr += fmt.Sprintf("%q", arg)
+	}
+
 	return fmt.Sprintf(`apiVersion: v1
 kind: Secret
 metadata:
@@ -366,7 +546,7 @@ metadata:
   labels:
     app.kubernetes.io/name: %s
     app.kubernetes.io/part-of: kube-watcher
-    app.kubernetes.io/component: anomaly-detection
+    app.kubernetes.io/component: %s
     app.kubernetes.io/instance: %s
     kube-watcher.io/cluster: %s
 spec:
@@ -391,7 +571,7 @@ spec:
       labels:
         app.kubernetes.io/name: %s
         app.kubernetes.io/part-of: kube-watcher
-        app.kubernetes.io/component: anomaly-detection
+        app.kubernetes.io/component: %s
         app.kubernetes.io/instance: %s
         kube-watcher.io/cluster: %s
     spec:
@@ -399,7 +579,7 @@ spec:
         - name: app
           image: %s
           imagePullPolicy: IfNotPresent
-          args: ["--config", "/app/config/config.yaml"]
+          args: [%s]
           env:
             - name: CLUSTER_NAME
               value: %q
@@ -415,11 +595,14 @@ spec:
         - name: app-data
           persistentVolumeClaim:
             claimName: %s
-`, cfg.Name, cfg.Namespace, IndentYAML(KADConfigYAML(cfg), 4), cfg.PVCName, cfg.Namespace, cfg.Name, cfg.Name, cfg.ClusterName, cfg.PVCSize, cfg.Name, cfg.Namespace, cfg.Name, cfg.Name, cfg.Name, cfg.ClusterName, cfg.Image, cfg.ClusterName, cfg.Name, cfg.PVCName)
+`, cfg.Name, cfg.Namespace, IndentYAML(configYAML, 4), cfg.PVCName, cfg.Namespace, cfg.Name, component, cfg.Name, cfg.ClusterName, cfg.PVCSize, cfg.Name, cfg.Namespace, cfg.Name, cfg.Name, component, cfg.Name, cfg.ClusterName, image, argsStr, cfg.ClusterName, cfg.Name, cfg.PVCName)
 }
 
 func KADConfigYAML(cfg Config) string {
-	webhook := cfg.GoogleChatWebhook
+	webhook := cfg.AlertWebhook
+	if webhook == "" {
+		webhook = cfg.GoogleChatWebhook
+	}
 	if webhook == "" {
 		webhook = `""`
 	} else {
@@ -449,6 +632,98 @@ google_chat:
 `, cfg.PrometheusEndpoint, webhook)
 }
 
+func WatcherConfigYAML(cfg Config) string {
+	dashboardWebhook := cfg.DashboardWebhook
+	if dashboardWebhook == "" {
+		dashboardWebhook = "http://host.docker.internal:3000/api/alerts/ingest"
+	}
+	baseDashboardURL := strings.TrimSuffix(dashboardWebhook, "/api/alerts/ingest")
+	if baseDashboardURL == "" || baseDashboardURL == dashboardWebhook {
+		baseDashboardURL = "http://dashboard:3000"
+	}
+	clusterName := cfg.ClusterName
+	if clusterName == "" {
+		clusterName = "local"
+	}
+	// Basic watcher config based on watcher/internal/config/config.yaml
+	return fmt.Sprintf(`resource_tracking:
+  enabled: true
+  retention: 1h
+  path: "/data/event-engine-badger"
+  fields:
+    - cpu_request
+    - cpu_limit
+    - memory_request
+    - memory_limit
+    - ram
+    - min_pod_count
+    - max_pod_count
+    - current_replicas
+    - desired_replicas
+    - node_memory_pressure
+    - node_disk_pressure
+    - waiting_reason
+rules:
+  - name: Pod-Restarting-Frequently
+    kind: Pod
+    condition: "evt.restart_delta > 3 && evt.waiting_reason == 'CrashLoopBackOff'"
+    actions:
+      - dashboard-webhook
+  - name: Image-Pull-Failure
+    kind: Pod
+    duration: 2m
+    condition: "evt.waiting_reasons.exists(r, r.contains('ImagePull'))"
+    actions:
+      - dashboard-webhook
+  - name: HPA-Stalled-At-Ceiling
+    kind: HorizontalPodAutoscaler
+    duration: 5m
+    condition: "evt.hpa_is_stalled == true"
+    actions:
+      - dashboard-webhook
+  - name: Node-Memory-Pressure
+    kind: Node
+    condition: "evt.node_memory_pressure == true"
+    actions:
+      - dashboard-webhook
+  - name: Dangerous-Resource-Gap
+    kind: Pod
+    condition: "evt.node_memory_pressure == true && evt.mem_limit_gap > 2048"
+    actions:
+      - dashboard-webhook
+  - name: Pod-Stuck-In-Pending
+    kind: Pod
+    duration: 10m
+    condition: "evt.is_ready == false && evt.waiting_reason == 'ContainerCreating'"
+    actions:
+      - dashboard-webhook
+actions:
+  dashboard-webhook:
+    type: webhook
+    template: |
+      {
+        "kind": "Unknown",
+        "cluster": %q,
+        "namespace": "{{ .Event.Namespace }}",
+        "pod": "{{ .Event.Name }}",
+        "ruleName": "{{ .RuleName }}",
+        "severity": "critical",
+        "source": "kube-watcher"
+      }
+    config:
+      url: %q
+settings:
+  metrics:
+    enabled: true
+    listen: ":9090"
+  heartbeat:
+    enabled: true
+    dashboard_url: %q
+    cluster_name: %q
+    interval: 30s
+`, clusterName, dashboardWebhook, baseDashboardURL, clusterName)
+}
+
 func IndentYAML(content string, spaces int) string {
 	prefix := strings.Repeat(" ", spaces)
 	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
@@ -470,6 +745,44 @@ func runCmd(ctx context.Context, name string, args ...string) error {
 		return err
 	}
 	return nil
+}
+
+func runComposeCmd(ctx context.Context, cfg Config, args ...string) error {
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), composeEnv(cfg)...)
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("docker %s exited with code %d", strings.Join(args, " "), exitErr.ExitCode())
+		}
+		return err
+	}
+	return nil
+}
+
+func composeBaseArgs(cfg Config) []string {
+	args := []string{"compose", "-f", cfg.ComposeFile}
+	if cfg.ComposeProject != "" {
+		args = append(args, "-p", cfg.ComposeProject)
+	}
+	return args
+}
+
+func composeEnv(cfg Config) []string {
+	env := make([]string, 0)
+	if cfg.AlertWebhook != "" {
+		env = append(env, AlertWebhookEnv+"="+cfg.AlertWebhook)
+		env = append(env, GoogleChatWebhookEnv+"="+cfg.AlertWebhook)
+	}
+	if cfg.DashboardWebhook != "" {
+		env = append(env, "DASHBOARD_WEBHOOK_URL="+cfg.DashboardWebhook)
+	}
+	if cfg.ClusterName != "" {
+		env = append(env, "CLUSTER_NAME="+cfg.ClusterName)
+	}
+	return env
 }
 
 func createNamespaceIfNotExists(ctx context.Context, namespace string) error {

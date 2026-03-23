@@ -1,0 +1,14 @@
+metric_batch: "system_metrics"
+table_key: "metrics"
+ingest_cron_schedule: "*/5 * * * *"
+train_cron_schedule: "*/180 * * * *"
+score_cron_schedule: "*/10 * * * *"
+alert_cron_schedule: "*/15 * * * *"
+change_cron_schedule: "*/15 * * * *"
+llmalert_cron_schedule: "*/60 * * * *"
+plot_cron_schedule: "*/30 * * * *"
+alert_always: False
+alert_metric_timestamp_max_days_ago: 3
+disable_llmalert: True
+disable_ingest: True
+alert_methods: "webhook"

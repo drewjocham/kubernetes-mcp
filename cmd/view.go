@@ -27,6 +27,11 @@ func newViewCmd() *cobra.Command {
 	viewCmd.AddCommand(newViewHealthCmd())
 	viewCmd.AddCommand(newViewStatusCmd())
 	viewCmd.AddCommand(newViewInsightsCmd())
+	viewCmd.AddCommand(newViewNodeStatusCmd())
+	viewCmd.AddCommand(newViewPodResourcesCmd())
+	viewCmd.AddCommand(newViewNamespacesCmd())
+	viewCmd.AddCommand(newViewPodLogsCmd())
+	viewCmd.AddCommand(newViewClusterAnalysisCmd())
 	return viewCmd
 }
 

@@ -78,10 +78,11 @@ type Throttle struct {
 }
 
 type Settings struct {
-	CEL        CELSettings   `yaml:"cel"`
-	QueueDepth int           `yaml:"queue_depth"`
-	Metrics    MetricsConfig `yaml:"metrics"`
-	Model      ModelSettings `yaml:"model"`
+	CEL        CELSettings     `yaml:"cel"`
+	QueueDepth int             `yaml:"queue_depth"`
+	Metrics    MetricsConfig   `yaml:"metrics"`
+	Model      ModelSettings   `yaml:"model"`
+	Heartbeat  HeartbeatConfig `yaml:"heartbeat"`
 }
 
 type CELSettings struct {
@@ -100,6 +101,13 @@ type ModelSettings struct {
 	APIKeyEnv     string        `yaml:"api_key_env"`
 	SystemPrompt  string        `yaml:"system_prompt"`
 	MinConfidence float64       `yaml:"min_confidence"`
+}
+
+type HeartbeatConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	DashboardURL string        `yaml:"dashboard_url"`
+	ClusterName  string        `yaml:"cluster_name"`
+	Interval     time.Duration `yaml:"interval"`
 }
 
 func Load(path string) (*WatchConfig, error) {
@@ -265,6 +273,9 @@ func (c *WatchConfig) applyDefaults() {
 	if c.Settings.Model.SystemPrompt == "" {
 		c.Settings.Model.SystemPrompt = "You are a Kubernetes SRE anomaly detector. Return only strict JSON."
 	}
+	if c.Settings.Heartbeat.Interval <= 0 {
+		c.Settings.Heartbeat.Interval = 30 * time.Second
+	}
 	if c.Actions == nil {
 		c.Actions = make(map[string]Action)
 	}
@@ -325,6 +336,18 @@ func (c *WatchConfig) merge(other WatchConfig) {
 	}
 	if other.Settings.Model.MinConfidence > 0 {
 		c.Settings.Model.MinConfidence = other.Settings.Model.MinConfidence
+	}
+	if other.Settings.Heartbeat.Enabled {
+		c.Settings.Heartbeat.Enabled = true
+	}
+	if other.Settings.Heartbeat.DashboardURL != "" {
+		c.Settings.Heartbeat.DashboardURL = other.Settings.Heartbeat.DashboardURL
+	}
+	if other.Settings.Heartbeat.ClusterName != "" {
+		c.Settings.Heartbeat.ClusterName = other.Settings.Heartbeat.ClusterName
+	}
+	if other.Settings.Heartbeat.Interval > 0 {
+		c.Settings.Heartbeat.Interval = other.Settings.Heartbeat.Interval
 	}
 }
 

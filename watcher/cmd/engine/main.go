@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -122,6 +124,10 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 
 	metricStore := tracker.NewMetricStore(time.Hour)
 	go metricStore.CleanupLoop(ctx, 5*time.Minute)
+
+	if cfg.Settings.Heartbeat.Enabled {
+		go a.startHeartbeatLoop(ctx, cfg.Settings.Heartbeat)
+	}
 
 	pipe := a.buildPipeline(cfg, k8sClient, store, metricStore, dispatcher, celEnv)
 	defer func() {
@@ -460,6 +466,61 @@ func referencedEvtFields(expr string) []string {
 	}
 
 	return out
+}
+
+func (a *engineApp) startHeartbeatLoop(ctx context.Context, cfg config.HeartbeatConfig) {
+	if !cfg.Enabled || cfg.DashboardURL == "" || cfg.ClusterName == "" {
+		a.logger.Debug("heartbeat disabled or missing configuration")
+		return
+	}
+	endpoint := fmt.Sprintf("%s/api/clusters/%s/heartbeat", cfg.DashboardURL, cfg.ClusterName)
+	ticker := time.NewTicker(cfg.Interval)
+	defer ticker.Stop()
+
+	a.logger.Info("heartbeat loop started", "endpoint", endpoint, "interval", cfg.Interval)
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Debug("heartbeat loop stopping")
+			return
+		case <-ticker.C:
+			go a.sendHeartbeat(endpoint, cfg.ClusterName)
+		}
+	}
+}
+
+func (a *engineApp) sendHeartbeat(endpoint, clusterName string) {
+	payload := map[string]interface{}{
+		"cluster":   clusterName,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"status":    "active",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		a.logger.Error("failed to marshal heartbeat", "error", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(data))
+	if err != nil {
+		a.logger.Error("failed to create heartbeat request", "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		a.logger.Warn("heartbeat request failed", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		a.logger.Warn("heartbeat received non-2xx response", "status", resp.StatusCode)
+		return
+	}
+	a.logger.Debug("heartbeat sent successfully")
 }
 
 func snapshotWatchConfig(in *config.WatchConfig) *config.WatchConfig {

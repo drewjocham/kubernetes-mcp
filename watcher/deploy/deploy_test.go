@@ -40,6 +40,26 @@ func TestNormalizeAndValidate_Table(t *testing.T) {
 			},
 		},
 		{
+			name: "compose target requires compose file",
+			cfg: Config{
+				Action:             "deploy",
+				Target:             "compose",
+				ClusterName:        "prod",
+				PrometheusEndpoint: "http://prometheus:9090/metrics",
+			},
+			wantErrPart: "--compose-file is required for compose target",
+		},
+		{
+			name: "compose target with file is accepted",
+			cfg: Config{
+				Action:             "deploy",
+				Target:             "compose",
+				ClusterName:        "prod",
+				PrometheusEndpoint: "http://prometheus:9090/metrics",
+				ComposeFile:        "/tmp/docker-compose.yaml",
+			},
+		},
+		{
 			name: "missing cluster name",
 			cfg: Config{
 				Action:             "deploy",
@@ -124,6 +144,82 @@ func TestNormalizeAndValidate_Table(t *testing.T) {
 				if got.TailLines <= 0 {
 					t.Fatalf("expected positive tail lines, got %d", got.TailLines)
 				}
+			}
+		})
+	}
+}
+
+func TestNormalizeAndValidate_AlertWebhookEnv(t *testing.T) {
+	originalAlertWebhook := os.Getenv(AlertWebhookEnv)
+	originalGoogleWebhook := os.Getenv(GoogleChatWebhookEnv)
+	defer func() {
+		if originalAlertWebhook != "" {
+			_ = os.Setenv(AlertWebhookEnv, originalAlertWebhook)
+		} else {
+			_ = os.Unsetenv(AlertWebhookEnv)
+		}
+		if originalGoogleWebhook != "" {
+			_ = os.Setenv(GoogleChatWebhookEnv, originalGoogleWebhook)
+		} else {
+			_ = os.Unsetenv(GoogleChatWebhookEnv)
+		}
+	}()
+
+	tests := []struct {
+		name            string
+		setAlertEnv     string
+		setGoogleEnv    string
+		alertWebhookArg string
+		googleWebhook   string
+		wantWebhook     string
+	}{
+		{
+			name:         "UsesAlertWebhookEnvFirst",
+			setAlertEnv:  "https://alerts.example.com/webhook",
+			setGoogleEnv: "https://google.example.com/webhook",
+			wantWebhook:  "https://alerts.example.com/webhook",
+		},
+		{
+			name:            "UsesFlagOverEnv",
+			setAlertEnv:     "https://alerts.example.com/webhook",
+			alertWebhookArg: "https://flag.example.com/webhook",
+			wantWebhook:     "https://flag.example.com/webhook",
+		},
+		{
+			name:         "FallsBackToGoogleWebhook",
+			setGoogleEnv: "https://google.example.com/webhook",
+			wantWebhook:  "https://google.example.com/webhook",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setAlertEnv != "" {
+				_ = os.Setenv(AlertWebhookEnv, tt.setAlertEnv)
+			} else {
+				_ = os.Unsetenv(AlertWebhookEnv)
+			}
+			if tt.setGoogleEnv != "" {
+				_ = os.Setenv(GoogleChatWebhookEnv, tt.setGoogleEnv)
+			} else {
+				_ = os.Unsetenv(GoogleChatWebhookEnv)
+			}
+
+			cfg := Config{
+				Action:             "deploy",
+				Target:             "kube",
+				ClusterName:        "test-cluster",
+				PrometheusEndpoint: "http://prometheus:9090/metrics",
+				AlertWebhook:       tt.alertWebhookArg,
+				GoogleChatWebhook:  tt.googleWebhook,
+			}
+
+			result, err := NormalizeAndValidate(cfg)
+			if err != nil {
+				t.Fatalf("NormalizeAndValidate failed: %v", err)
+			}
+			if result.AlertWebhook != tt.wantWebhook {
+				t.Fatalf("expected alert webhook %q, got %q", tt.wantWebhook, result.AlertWebhook)
 			}
 		})
 	}

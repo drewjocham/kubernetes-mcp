@@ -19,6 +19,7 @@ services:
     environment:
       LOG_LEVEL: ${MCP_LOG_LEVEL:-info}
       HOME: /home/nonroot
+    command: ["--http-addr", ":8080"]
     ports:
       - "${MCP_HTTP_PORT:-8080}:8080"
     healthcheck:
@@ -78,7 +79,7 @@ services:
   grafana:
     image: grafana/grafana-oss:latest
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       - prometheus
     environment:
