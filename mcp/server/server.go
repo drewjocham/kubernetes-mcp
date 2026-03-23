@@ -133,6 +133,7 @@ func (s *MCPServer) setupResources() {
 }
 
 func (s *MCPServer) setupTools(cfg Config) {
+	clusterAnalysisTool := tools.NewClusterAnalysisTool(s.client)
 	allTools := []Tool{
 		tools.NewNodeStatusTool(s.client),
 		tools.NewPodResourcesTool(s.client),
@@ -140,7 +141,8 @@ func (s *MCPServer) setupTools(cfg Config) {
 		tools.NewNamespaceListTool(s.client, s.logger),
 		tools.NewHistoryInsightsTool(s.history),
 		tools.NewVersionTool(cfg.Version, cfg.GitCommit, cfg.BuildDate),
-		tools.NewClusterAnalysisTool(s.client),
+		clusterAnalysisTool,
+		tools.NewClusterAnalysisLegacyTool(clusterAnalysisTool),
 		tools.NewRecommendationTool(s.client, s.engine),
 		tools.NewClusterEventsTool(s.client, s.logger),
 		tools.NewHistoryInsightsToolWithClient(s.client, s.history),

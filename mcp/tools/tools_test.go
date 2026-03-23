@@ -102,6 +102,22 @@ func TestNodeStatusTool_Execute(t *testing.T) {
 	}
 }
 
+func TestClusterAnalysisTool_Name(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "CurrentName", want: "analyze_cluster"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool := NewClusterAnalysisTool(&mockK8sClient{})
+			assert.Equal(t, tt.want, tool.Name())
+		})
+	}
+}
+
 // --- PodResourcesTool ---
 
 func TestPodResourcesTool_Execute(t *testing.T) {
@@ -176,6 +192,7 @@ func TestClusterAnalysisTool_Execute(t *testing.T) {
 		name      string
 		cluster   *kube.ClusterInfo
 		nodes     []kube.NodeInfo
+		args      map[string]any
 		wantErr   bool
 		checkFunc func(t *testing.T, res map[string]any)
 	}{
@@ -186,6 +203,7 @@ func TestClusterAnalysisTool_Execute(t *testing.T) {
 				{Name: "n1", Status: "Ready"},
 				{Name: "n2", Status: "Ready"},
 			},
+			args: map[string]any{"include_events": false, "include_pods": false},
 			checkFunc: func(t *testing.T, res map[string]any) {
 				health := res["health"].(map[string]any)
 				assert.Equal(t, "healthy", health["status"])
@@ -199,9 +217,27 @@ func TestClusterAnalysisTool_Execute(t *testing.T) {
 				{Name: "n1", Status: "Ready"},
 				{Name: "n2", Status: "NotReady"},
 			},
+			args: map[string]any{"include_events": false, "include_pods": false},
 			checkFunc: func(t *testing.T, res map[string]any) {
 				health := res["health"].(map[string]any)
 				assert.Equal(t, "degraded", health["status"])
+			},
+		},
+		{
+			name:    "SkipEventsAndServices",
+			cluster: &kube.ClusterInfo{Version: "v1.28"},
+			nodes: []kube.NodeInfo{
+				{Name: "n1", Status: "Ready"},
+			},
+			args: map[string]any{
+				"include_events":   false,
+				"include_services": false,
+				"include_pods":     true,
+			},
+			checkFunc: func(t *testing.T, res map[string]any) {
+				assert.NotContains(t, res, "events")
+				assert.NotContains(t, res, "services")
+				assert.Contains(t, res, "pods")
 			},
 		},
 		{
@@ -223,7 +259,7 @@ func TestClusterAnalysisTool_Execute(t *testing.T) {
 				nodes: tt.nodes,
 			}
 			tool := NewClusterAnalysisTool(client)
-			res, err := tool.Execute(context.Background(), nil)
+			res, err := tool.Execute(context.Background(), tt.args)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return

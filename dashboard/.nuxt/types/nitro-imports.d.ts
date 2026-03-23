@@ -3,6 +3,7 @@ declare global {
   const H3Event: typeof import('../../node_modules/h3').H3Event
   const __buildAssetsURL: typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/utils/paths').buildAssetsURL
   const __publicAssetsURL: typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/utils/paths').publicAssetsURL
+  const __resetClusterStoreForTests: typeof import('../../server/utils/cluster-store').__resetClusterStoreForTests
   const __resetDashboardStoreForTests: typeof import('../../server/utils/alert-store').__resetDashboardStoreForTests
   const appendCorsHeaders: typeof import('../../node_modules/h3').appendCorsHeaders
   const appendCorsPreflightHeaders: typeof import('../../node_modules/h3').appendCorsPreflightHeaders
@@ -22,6 +23,7 @@ declare global {
   const createError: typeof import('../../node_modules/h3').createError
   const createEvent: typeof import('../../node_modules/h3').createEvent
   const createEventStream: typeof import('../../node_modules/h3').createEventStream
+  const createOrUpdateCluster: typeof import('../../server/utils/cluster-store').createOrUpdateCluster
   const createRouter: typeof import('../../node_modules/h3').createRouter
   const defaultContentType: typeof import('../../node_modules/h3').defaultContentType
   const defineAppConfig: typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/utils/config').defineAppConfig
@@ -40,6 +42,7 @@ declare global {
   const defineTask: typeof import('../../node_modules/nitropack/dist/runtime/internal/task').defineTask
   const defineWebSocket: typeof import('../../node_modules/h3').defineWebSocket
   const defineWebSocketHandler: typeof import('../../node_modules/h3').defineWebSocketHandler
+  const deleteCluster: typeof import('../../server/utils/cluster-store').deleteCluster
   const deleteCookie: typeof import('../../node_modules/h3').deleteCookie
   const dynamicEventHandler: typeof import('../../node_modules/h3').dynamicEventHandler
   const eventHandler: typeof import('../../node_modules/h3').eventHandler
@@ -48,6 +51,8 @@ declare global {
   const fromPlainHandler: typeof import('../../node_modules/h3').fromPlainHandler
   const fromWebHandler: typeof import('../../node_modules/h3').fromWebHandler
   const getAlert: typeof import('../../server/utils/alert-store').getAlert
+  const getCluster: typeof import('../../server/utils/cluster-store').getCluster
+  const getClusterByName: typeof import('../../server/utils/cluster-store').getClusterByName
   const getCookie: typeof import('../../node_modules/h3').getCookie
   const getHeader: typeof import('../../node_modules/h3').getHeader
   const getHeaders: typeof import('../../node_modules/h3').getHeaders
@@ -86,7 +91,9 @@ declare global {
   const isWebResponse: typeof import('../../node_modules/h3').isWebResponse
   const lazyEventHandler: typeof import('../../node_modules/h3').lazyEventHandler
   const listAlerts: typeof import('../../server/utils/alert-store').listAlerts
+  const listClusters: typeof import('../../server/utils/cluster-store').listClusters
   const nitroPlugin: typeof import('../../node_modules/nitropack/dist/runtime/internal/plugin').nitroPlugin
+  const onClusterUpdates: typeof import('../../server/utils/cluster-store').onClusterUpdates
   const onStoreUpdates: typeof import('../../server/utils/alert-store').onStoreUpdates
   const parseCookies: typeof import('../../node_modules/h3').parseCookies
   const promisifyNodeListener: typeof import('../../node_modules/h3').promisifyNodeListener
@@ -130,6 +137,8 @@ declare global {
   const toWebRequest: typeof import('../../node_modules/h3').toWebRequest
   const unsealSession: typeof import('../../node_modules/h3').unsealSession
   const updateAlert: typeof import('../../server/utils/alert-store').updateAlert
+  const updateClusterHeartbeat: typeof import('../../server/utils/cluster-store').updateClusterHeartbeat
+  const updateClusterStatus: typeof import('../../server/utils/cluster-store').updateClusterStatus
   const updateSession: typeof import('../../node_modules/h3').updateSession
   const useAppConfig: typeof import('../../node_modules/nitropack/dist/runtime/internal/config').useAppConfig
   const useBase: typeof import('../../node_modules/h3').useBase
@@ -145,6 +154,9 @@ declare global {
   // @ts-ignore
   export type { EventHandler, EventHandlerRequest, EventHandlerResponse, EventHandlerObject, H3EventContext } from '../../node_modules/h3'
   import('../../node_modules/h3')
+  // @ts-ignore
+  export type { ClusterRecord } from '../../server/utils/cluster-store'
+  import('../../server/utils/cluster-store')
 }
 export { H3Event, H3Error, appendCorsHeaders, appendCorsPreflightHeaders, appendHeader, appendHeaders, appendResponseHeader, appendResponseHeaders, assertMethod, callNodeListener, clearResponseHeaders, clearSession, createApp, createAppEventHandler, createError, createEvent, createEventStream, createRouter, defaultContentType, defineEventHandler, defineLazyEventHandler, defineNodeListener, defineNodeMiddleware, defineRequestMiddleware, defineResponseMiddleware, defineWebSocket, defineWebSocketHandler, deleteCookie, dynamicEventHandler, eventHandler, fetchWithEvent, fromNodeMiddleware, fromPlainHandler, fromWebHandler, getCookie, getHeader, getHeaders, getMethod, getProxyRequestHeaders, getQuery, getRequestFingerprint, getRequestHeader, getRequestHeaders, getRequestHost, getRequestIP, getRequestPath, getRequestProtocol, getRequestURL, getRequestWebStream, getResponseHeader, getResponseHeaders, getResponseStatus, getResponseStatusText, getRouterParam, getRouterParams, getSession, getValidatedQuery, getValidatedRouterParams, handleCacheHeaders, handleCors, isCorsOriginAllowed, isError, isEvent, isEventHandler, isMethod, isPreflightRequest, isStream, isWebResponse, lazyEventHandler, parseCookies, promisifyNodeListener, proxyRequest, readBody, readFormData, readMultipartFormData, readRawBody, readValidatedBody, removeResponseHeader, sanitizeStatusCode, sanitizeStatusMessage, sealSession, send, sendError, sendIterable, sendNoContent, sendProxy, sendRedirect, sendStream, sendWebResponse, serveStatic, setCookie, setHeader, setHeaders, setResponseHeader, setResponseHeaders, setResponseStatus, splitCookiesString, toEventHandler, toNodeListener, toPlainHandler, toWebHandler, toWebRequest, unsealSession, updateSession, useBase, useSession, writeEarlyHints } from 'h3';
 export { useNitroApp } from 'nitropack/runtime/internal/app';
@@ -161,4 +173,5 @@ export { defineNitroErrorHandler } from 'nitropack/runtime/internal/error/utils'
 export { buildAssetsURL as __buildAssetsURL, publicAssetsURL as __publicAssetsURL } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@nuxt/nitro-server/dist/runtime/utils/paths';
 export { defineAppConfig } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@nuxt/nitro-server/dist/runtime/utils/config';
 export { listAlerts, getAlert, createAlert, updateAlert, pushThinkingStep, setThinking, setReport, setFailed, getWorkflowConfig, setWorkflowConfig, onStoreUpdates, __resetDashboardStoreForTests } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/alert-store';
+export { listClusters, getCluster, getClusterByName, createOrUpdateCluster, updateClusterHeartbeat, updateClusterStatus, deleteCluster, onClusterUpdates, __resetClusterStoreForTests } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/cluster-store';
 export { runWorkflow } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/workflow';

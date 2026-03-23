@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"kube-watcher/mcp/api"
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
 	"kube-watcher/pkg/audit"
@@ -31,6 +33,7 @@ type config struct {
 	showVersion, showHelp, listTools, healthCheck, debug bool
 	execTool, toolArgs, logFile, dbPath                  string
 	interval                                             time.Duration
+	httpAddr                                             string
 }
 
 func main() {
@@ -50,11 +53,9 @@ func main() {
 	dbPath := expandPath(cfg.dbPath)
 	handleErr(ensureDir(dbPath), "failed to create database directory", logger)
 
-	// Create base Kubernetes client
 	baseClient, err := kube.NewClient(logger)
 	handleErr(err, "kubernetes client init failed", logger)
 
-	// Wrap with audit logging
 	auditLogger := audit.NewSlogLogger(logger)
 	k8sClient := kube.NewAuditClient(baseClient, auditLogger, logger, kube.AuditOptionsFromEnv()...)
 
@@ -95,6 +96,7 @@ func parseFlags() config {
 	flag.StringVar(&c.logFile, "log-file", "", "path to write logs (defaults to stderr)")
 	flag.StringVar(&c.dbPath, "db-path", defaultDB, "path to the history database")
 	flag.DurationVar(&c.interval, "interval", 30*time.Second, "polling interval for watchers")
+	flag.StringVar(&c.httpAddr, "http-addr", "", "HTTP address to serve API (e.g., :8080)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "kube-watcher v%s\n", version)
@@ -144,6 +146,33 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 
 	default:
 		logger.Info("starting kube-watcher server", "version", version)
+		if cfg.httpAddr != "" {
+			apiInstance, err := api.New(api.Config{
+				Server:  s,
+				Logger:  logger,
+				Version: version,
+			})
+			if err != nil {
+				logger.Error("failed to create API instance", "error", err)
+				os.Exit(1)
+			}
+			httpServer := &http.Server{
+				Addr:    cfg.httpAddr,
+				Handler: apiInstance.Routes(),
+			}
+			go func() {
+				logger.Info("starting HTTP server", "addr", cfg.httpAddr)
+				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logger.Error("HTTP server error", "error", err)
+				}
+			}()
+			defer func() {
+				logger.Info("shutting down HTTP server")
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = httpServer.Shutdown(shutdownCtx)
+			}()
+		}
 		if err := s.Start(ctx); err != nil {
 			logger.Error("server exit with error", "error", err)
 			os.Exit(1)

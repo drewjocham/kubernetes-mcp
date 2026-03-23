@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  pubsub-emulator:
+    image: google/cloud-sdk:emulators
+    command: gcloud beta emulators pubsub start --project=test-project --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+    environment:
+      - PUBSUB_PROJECT_ID=test-project
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8085"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ingest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ingest
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - GOOGLE_CLOUD_PROJECT=test-project
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    # Ingest will create topic/subscription on startup
+  
+  processor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.processor
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - GOOGLE_CLOUD_PROJECT=test-project
+      - ANOMSTACK_DUCKDB_PATH=/data/anomstack.db
+      - ANOMSTACK_METRICS_PATH=/metrics
+    volumes:
+      - ./data:/data
+      - ./anomstack-metrics:/metrics
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+      ingest:
+        condition: service_started
+  
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    environment:
+      - INGEST_API_URL=http://ingest:8080
+      - AGENT_ID=test-agent
+      - USER_ID=test-user
+      - TENANT_ID=test-tenant
+      - INTERVAL=30s
+    depends_on:
+      ingest:
+        condition: service_started
+    # Command will be default entrypoint with interval flag
+    command: ["./agent", "--interval", "30s"]
+  
+  # No anomstack services - run separately via CLI
+
+volumes:
+  # No named volumes needed

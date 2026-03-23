@@ -3,6 +3,7 @@ package chatbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -200,7 +201,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		b.logger.Info("bridge listening", "addr", b.cfg.Server.Listen)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()

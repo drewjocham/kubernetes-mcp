@@ -15,9 +15,37 @@ declare module "nitropack/types" {
     '/api/alerts/stream': {
       'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/alerts/stream.get').default>>>>
     }
+    '/api/clusters/:name/heartbeat': {
+      'post': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/clusters/[name]/heartbeat.post').default>>>>
+    }
+    '/api/clusters': {
+      'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/clusters/index.get').default>>>>
+      'post': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/clusters/index.post').default>>>>
+    }
     '/api/config': {
       'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/config.get').default>>>>
       'post': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/config.post').default>>>>
+    }
+    '/api/notifications/:id': {
+      'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/notifications/[id].get').default>>>>
+    }
+    '/api/notifications': {
+      'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/notifications/index.get').default>>>>
+    }
+    '/api/notifications/ingest': {
+      'post': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/notifications/ingest.post').default>>>>
+    }
+    '/api/notifications/stream': {
+      'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/notifications/stream.get').default>>>>
+    }
+    '/api/test': {
+      'default': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/test').default>>>>
+    }
+    '/api/tools/:tool': {
+      'post': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/tools/[tool].post').default>>>>
+    }
+    '/api/tools': {
+      'get': Simplify<Serialize<Awaited<ReturnType<typeof import('../../server/api/tools/index.get').default>>>>
     }
     '/__nuxt_error': {
       'default': Simplify<Serialize<Awaited<ReturnType<typeof import('../../node_modules/@nuxt/nitro-server/dist/runtime/handlers/renderer').default>>>>
