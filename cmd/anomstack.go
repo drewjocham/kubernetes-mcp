@@ -65,7 +65,11 @@ func newAnomstackStartCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get current directory: %w", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() {
+				if rerr := os.Chdir(originalDir); rerr != nil {
+					log.Printf("restore working directory: %v", rerr)
+				}
+			}()
 
 			if err := os.Chdir(anomstackPath); err != nil {
 				return fmt.Errorf("change to anomstack directory: %w", err)
@@ -103,7 +107,9 @@ func newAnomstackStartCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("path", "", "Path to anomstack directory")
-	rootViper.BindPFlag("anomstack.path", cmd.Flags().Lookup("path"))
+	if err := rootViper.BindPFlag("anomstack.path", cmd.Flags().Lookup("path")); err != nil {
+		panic(fmt.Errorf("bind anomstack.path flag: %w", err))
+	}
 
 	return cmd
 }
@@ -122,7 +128,11 @@ func newAnomstackStopCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get current directory: %w", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() {
+				if rerr := os.Chdir(originalDir); rerr != nil {
+					log.Printf("restore working directory: %v", rerr)
+				}
+			}()
 
 			if err := os.Chdir(anomstackPath); err != nil {
 				return fmt.Errorf("change to anomstack directory: %w", err)
@@ -160,7 +170,11 @@ func newAnomstackStatusCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get current directory: %w", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() {
+				if rerr := os.Chdir(originalDir); rerr != nil {
+					log.Printf("restore working directory: %v", rerr)
+				}
+			}()
 
 			if err := os.Chdir(anomstackPath); err != nil {
 				return fmt.Errorf("change to anomstack directory: %w", err)

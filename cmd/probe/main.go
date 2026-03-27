@@ -72,7 +72,11 @@ func main() {
 		log.Printf("Failed to create Docker client (continuing without Docker monitoring): %v", err)
 		dockerClient = nil
 	} else {
-		defer dockerClient.Close()
+		defer func() {
+			if err := dockerClient.Close(); err != nil {
+				log.Printf("docker client close: %v", err)
+			}
+		}()
 	}
 
 	ticker := time.NewTicker(cfg.ScanInterval)
@@ -300,7 +304,11 @@ func sendPayload(cfg Config, payload TelemetryPayload) error {
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Printf("close response body: %v", cerr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)

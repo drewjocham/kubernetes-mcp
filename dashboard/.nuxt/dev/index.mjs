@@ -2150,22 +2150,7 @@ _GSKno5gKrittXUFETuTeFomuZuVKfs3Q2wY6dDuap8,
 _cawls4rEViPy3HWTZJw0b8m4LdEkLVlRlJmP6XWcePU
 ];
 
-const assets = {
-  "/index.mjs": {
-    "type": "text/javascript; charset=utf-8",
-    "etag": "\"20449-0kJ4qCJPXiP+EwNpL70C+4xgYuk\"",
-    "mtime": "2026-03-22T18:26:47.977Z",
-    "size": 132169,
-    "path": "index.mjs"
-  },
-  "/index.mjs.map": {
-    "type": "application/json",
-    "etag": "\"7d6bb-+BHJT1rERuCR0k6d649sTiVpzTs\"",
-    "mtime": "2026-03-22T18:26:47.977Z",
-    "size": 513723,
-    "path": "index.mjs.map"
-  }
-};
+const assets = {};
 
 function readAsset (id) {
   const serverDir = dirname$1(fileURLToPath(globalThis._importMeta_.url));
@@ -3126,7 +3111,6 @@ const _id__get$3 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty
 }, Symbol.toStringTag, { value: 'Module' }));
 
 const index_get$6 = defineEventHandler(() => {
-  console.log("alerts index handler called");
   return {
     alerts: listAlerts()
   };
@@ -3316,14 +3300,7 @@ function computeClusterStatus(cluster) {
   const lastHeartbeat = new Date(cluster.lastHeartbeat);
   const diffMs = now.getTime() - lastHeartbeat.getTime();
   const diffMins = Math.floor(diffMs / 6e4);
-  let status = cluster.status;
-  if (diffMins < 5) {
-    status = "healthy";
-  } else if (diffMins < 30) {
-    status = "unhealthy";
-  } else {
-    status = "unknown";
-  }
+  const status = diffMins < 5 ? "healthy" : diffMins < 30 ? "unhealthy" : "unknown";
   return {
     ...cluster,
     status
@@ -3381,7 +3358,6 @@ function updateClusterHeartbeat(name) {
 
 const ingest_post$2 = defineEventHandler(async (event) => {
   const payload = await readBody(event);
-  console.log("Alert ingest payload:", JSON.stringify(payload));
   const transformed = {
     kind: payload.kind || "Unknown",
     cluster: payload.cluster || "unknown",
@@ -3544,7 +3520,6 @@ const _id__get$1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty
 }, Symbol.toStringTag, { value: 'Module' }));
 
 const index_get$2 = defineEventHandler(() => {
-  console.log("Notifications index route called");
   return {
     alerts: listAlerts()
   };
@@ -3557,7 +3532,6 @@ const index_get$3 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.definePropert
 
 const ingest_post = defineEventHandler(async (event) => {
   const payload = await readBody(event);
-  console.log("Alert ingest payload:", JSON.stringify(payload));
   const transformed = {
     kind: payload.kind || "Unknown",
     cluster: payload.cluster || "unknown",
@@ -3626,6 +3600,45 @@ const test$1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
   default: test
 }, Symbol.toStringTag, { value: 'Module' }));
 
+const defaultAllowed = /* @__PURE__ */ new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "host.docker.internal"
+]);
+function allowedHosts() {
+  const env = process.env.TOOLS_ENDPOINT_ALLOWED_HOSTS;
+  if (!(env == null ? void 0 : env.trim())) {
+    return defaultAllowed;
+  }
+  const s = /* @__PURE__ */ new Set();
+  for (const h of env.split(",")) {
+    const t = h.trim().toLowerCase();
+    if (t) s.add(t);
+  }
+  return s.size > 0 ? s : defaultAllowed;
+}
+function assertAllowedToolsBaseUrl(raw) {
+  const baseUrl = raw.trim().replace(/\/$/, "");
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    throw new Error("Tools endpoint must start with http:// or https://");
+  }
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error("Invalid tools endpoint URL");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const allow = allowedHosts();
+  if (!allow.has(host)) {
+    throw new Error(
+      `Tools endpoint host "${host}" is not allowed. Set TOOLS_ENDPOINT_ALLOWED_HOSTS to add hosts (comma-separated).`
+    );
+  }
+  return baseUrl;
+}
+
 const _tool__post = defineEventHandler(async (event) => {
   var _a, _b, _c, _d;
   const config = getWorkflowConfig();
@@ -3636,9 +3649,12 @@ const _tool__post = defineEventHandler(async (event) => {
   if (!tool) {
     throw createError({ statusCode: 400, message: "Tool name required" });
   }
-  const baseUrl = config.toolsEndpoint.trim().replace(/\/$/, "");
-  if (!/^https?:\/\//.test(baseUrl)) {
-    throw createError({ statusCode: 400, message: "Tools endpoint must start with http:// or https://" });
+  let baseUrl;
+  try {
+    baseUrl = assertAllowedToolsBaseUrl(config.toolsEndpoint);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Invalid tools endpoint";
+    throw createError({ statusCode: 400, message });
   }
   const body = await readBody(event);
   try {
@@ -3669,9 +3685,12 @@ const index_get = defineEventHandler(async () => {
   if (!config.toolsEndpoint) {
     throw createError({ statusCode: 400, message: "Tools endpoint not configured" });
   }
-  const baseUrl = config.toolsEndpoint.trim().replace(/\/$/, "");
-  if (!/^https?:\/\//.test(baseUrl)) {
-    throw createError({ statusCode: 400, message: "Tools endpoint must start with http:// or https://" });
+  let baseUrl;
+  try {
+    baseUrl = assertAllowedToolsBaseUrl(config.toolsEndpoint);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Invalid tools endpoint";
+    throw createError({ statusCode: 400, message });
   }
   try {
     return await $fetch(`${baseUrl}/tools`, { method: "GET", timeout: 1e4 });

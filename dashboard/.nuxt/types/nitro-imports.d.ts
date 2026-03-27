@@ -11,6 +11,7 @@ declare global {
   const appendHeaders: typeof import('../../node_modules/h3').appendHeaders
   const appendResponseHeader: typeof import('../../node_modules/h3').appendResponseHeader
   const appendResponseHeaders: typeof import('../../node_modules/h3').appendResponseHeaders
+  const assertAllowedToolsBaseUrl: typeof import('../../server/utils/tools-endpoint').assertAllowedToolsBaseUrl
   const assertMethod: typeof import('../../node_modules/h3').assertMethod
   const cachedEventHandler: typeof import('../../node_modules/nitropack/dist/runtime/internal/cache').cachedEventHandler
   const cachedFunction: typeof import('../../node_modules/nitropack/dist/runtime/internal/cache').cachedFunction
@@ -174,4 +175,5 @@ export { buildAssetsURL as __buildAssetsURL, publicAssetsURL as __publicAssetsUR
 export { defineAppConfig } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@nuxt/nitro-server/dist/runtime/utils/config';
 export { listAlerts, getAlert, createAlert, updateAlert, pushThinkingStep, setThinking, setReport, setFailed, getWorkflowConfig, setWorkflowConfig, onStoreUpdates, __resetDashboardStoreForTests } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/alert-store';
 export { listClusters, getCluster, getClusterByName, createOrUpdateCluster, updateClusterHeartbeat, updateClusterStatus, deleteCluster, onClusterUpdates, __resetClusterStoreForTests } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/cluster-store';
+export { assertAllowedToolsBaseUrl } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/tools-endpoint';
 export { runWorkflow } from '/Users/jocham/programming/pim/mcp/kube-watcher/dashboard/server/utils/workflow';

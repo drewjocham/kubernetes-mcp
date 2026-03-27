@@ -4,12 +4,15 @@ go 1.25.1
 
 require (
 	cloud.google.com/go/pubsub v1.50.1
+	github.com/containerd/errdefs v1.0.0
 	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/drewjocham/mongork v0.0.6-beta
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/cel-go v0.17.8
 	github.com/google/uuid v1.6.0
-	github.com/modelcontextprotocol/go-sdk v1.3.1
+	github.com/marcboeker/go-duckdb v1.8.5
+	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/panjf2000/ants/v2 v2.11.5
 	github.com/prometheus/client_golang v1.20.4
 	github.com/riandyrn/otelchi v0.5.1
@@ -19,6 +22,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.17.0
 	github.com/wcharczuk/go-chart/v2 v2.1.1
+	go.mongodb.org/mongo-driver/v2 v2.5.0
 	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/trace v1.42.0
 	golang.org/x/sync v0.19.0
@@ -36,15 +40,13 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect
 	cloud.google.com/go/pubsub/v2 v2.0.0 // indirect
-	github.com/Microsoft/go-winio v0.5.1 // indirect
+	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df // indirect
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blend/go-sdk v1.20240719.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
-	github.com/containerd/log v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
@@ -79,7 +81,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/marcboeker/go-duckdb v1.8.5 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
@@ -112,7 +113,11 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.2.0 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect

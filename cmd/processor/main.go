@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub" //nolint:staticcheck // SA1019: v1 client; migrate to pubsub/v2 when subscription admin is refactored.
 	_ "github.com/marcboeker/go-duckdb"
 
 	"kube-watcher/pkg/agenttelemetry"
@@ -108,7 +108,11 @@ VALUES (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if cerr := stmt.Close(); cerr != nil {
+			log.Printf("duckdb stmt close: %v", cerr)
+		}
+	}()
 
 	metricBatch := "system_metrics"
 	metricType := "metric"
@@ -161,7 +165,11 @@ func checkAnomaliesAndSendWebhooks() error {
 	if err != nil {
 		return fmt.Errorf("failed to query anomalies: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("duckdb rows close: %v", cerr)
+		}
+	}()
 
 	for rows.Next() {
 		var metricTimestamp time.Time
@@ -187,7 +195,7 @@ func checkAnomaliesAndSendWebhooks() error {
 			continue
 		}
 		// Generate hash to avoid duplicate alerts
-		hash := fmt.Sprintf("%s|%s|%.4f", userID, metricName, metricTimestamp.Unix())
+		hash := fmt.Sprintf("%s|%s|%d", userID, metricName, metricTimestamp.Unix())
 		var existingHash string
 		err = db.QueryRow("SELECT hash FROM sent_alerts WHERE hash = ?", hash).Scan(&existingHash)
 		if err == nil {
@@ -239,7 +247,11 @@ func main() {
 		if err := initDuckDB(); err != nil {
 			log.Printf("Failed to initialize DuckDB: %v (continuing without DuckDB)", err)
 		} else {
-			defer db.Close()
+			defer func() {
+				if cerr := db.Close(); cerr != nil {
+					log.Printf("duckdb close: %v", cerr)
+				}
+			}()
 			// Start periodic anomaly check
 			go func() {
 				ticker := time.NewTicker(1 * time.Minute)
@@ -262,7 +274,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Pub/Sub client: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if cerr := client.Close(); cerr != nil {
+			log.Printf("pubsub client close: %v", cerr)
+		}
+	}()
 
 	subscriptionID := "agent-telemetry-sub"
 	sub := client.Subscription(subscriptionID)
@@ -408,34 +424,7 @@ func sendAlert(alert Alert) {
 	log.Printf("ALERT: user=%s, severity=%s, message=%s",
 		alert.UserID, alert.Severity, alert.Message)
 
-	// Example webhook integration (commented out)
-	/*
-		webhookURL := getUserWebhook(alert.UserID)
-		if webhookURL == "" {
-			return
-		}
-
-		// Send HTTP POST to webhook
-		client := &http.Client{Timeout: 5 * time.Second}
-		data, _ := json.Marshal(alert)
-		resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(data))
-		if err != nil {
-			log.Printf("Failed to send webhook for user %s: %v", alert.UserID, err)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode >= 400 {
-			log.Printf("Webhook error for user %s: %d", alert.UserID, resp.StatusCode)
-		}
-	*/
-}
-
-// getUserWebhook would look up webhook URL from a database
-func getUserWebhook(userID string) string {
-	// TODO: Implement database lookup
-	// For MVP, could use environment variables or config file
-	return ""
+	// Example webhook integration: look up URL from DuckDB user_webhooks and POST (see checkAnomaliesAndSendWebhooks).
 }
 
 func numericFromMap(m map[string]interface{}, key string) (float64, bool) {
