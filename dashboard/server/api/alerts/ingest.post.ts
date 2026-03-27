@@ -4,7 +4,7 @@ import { runWorkflow } from '~/server/utils/workflow'
 import { createOrUpdateCluster } from '~/server/utils/cluster-store'
 
 export default defineEventHandler(async (event) => {
-  const payload = await readBody<any>(event)
+  const payload = await readBody<Partial<AlertIngestPayload>>(event)
   // Transform if needed
   const transformed: AlertIngestPayload = {
     kind: payload.kind || 'Unknown',

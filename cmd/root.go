@@ -42,6 +42,7 @@ func init() {
 	rootCmd.AddCommand(newOpsCmd())
 	rootCmd.AddCommand(newViewCmd())
 	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newAnomstackCmd())
 }
 
 func initConfig() {

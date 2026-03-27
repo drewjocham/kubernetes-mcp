@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub" //nolint:staticcheck // SA1019: v1 client; migrate to pubsub/v2 when subscription admin is refactored.
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/sync/errgroup"
@@ -50,7 +50,11 @@ func main() {
 		log.Fatalf("Initialization error: %v", err)
 	}
 	if client != nil {
-		defer client.Close()
+		defer func() {
+			if cerr := client.Close(); cerr != nil {
+				log.Printf("pubsub client close: %v", cerr)
+			}
+		}()
 	}
 
 	r := chi.NewRouter()
@@ -146,5 +150,7 @@ func handleIngest(w http.ResponseWriter, r *http.Request) {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("health encode: %v", err)
+	}
 }

@@ -30,10 +30,10 @@ var (
 )
 
 type config struct {
-	showVersion, showHelp, listTools, healthCheck, debug bool
-	execTool, toolArgs, logFile, dbPath                  string
-	interval                                             time.Duration
-	httpAddr                                             string
+	showVersion, showHelp, listTools, healthCheck, healthAllowDegraded, debug bool
+	execTool, toolArgs, logFile, dbPath                                       string
+	interval                                                                  time.Duration
+	httpAddr                                                                  string
 }
 
 func main() {
@@ -92,6 +92,7 @@ func parseFlags() config {
 	flag.StringVar(&c.execTool, "exec", "", "execute a specific tool by name")
 	flag.StringVar(&c.toolArgs, "args", "{}", "JSON arguments for the tool execution")
 	flag.BoolVar(&c.healthCheck, "health", false, "run a health check and exit")
+	flag.BoolVar(&c.healthAllowDegraded, "health-allow-degraded", false, "with --health, exit 0 when Kubernetes is unreachable (degraded) — for CI/smoke without a cluster")
 	flag.BoolVar(&c.debug, "debug", false, "enable verbose debug logging")
 	flag.StringVar(&c.logFile, "log-file", "", "path to write logs (defaults to stderr)")
 	flag.StringVar(&c.dbPath, "db-path", defaultDB, "path to the history database")
@@ -139,6 +140,10 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 		h := s.HealthCheck(ctx)
 		status, _ := h["status"].(string)
 		if status != "healthy" {
+			if cfg.healthAllowDegraded && status == "degraded" {
+				logger.Warn("system degraded (Kubernetes check failed); exiting OK per --health-allow-degraded", "details", h)
+				return
+			}
 			logger.Error("system unhealthy", "details", h)
 			os.Exit(1)
 		}

@@ -12,10 +12,12 @@ MCP_BINARY_NAME=kube-watcher
 WATCHER_BINARY_NAME=watcher-engine
 DEPLOY_BINARY_NAME=watcher-deploy
 CHAT_BRIDGE_BINARY_NAME=chatbridge
+DESKTOP_APP_BINARY_NAME=kube-watcher-app
 MCP_CMD=./mcp/cmd/server
 WATCHER_CMD=./watcher/cmd/engine
 DEPLOY_CMD=./watcher/cmd/deploy
 CHAT_BRIDGE_CMD=./integrations/cmd/chatbridge
+DESKTOP_APP_CMD=./kube-watcher-app/cmd/kube-watcher-app
 VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
@@ -24,19 +26,27 @@ KUBECONFIG_PATH="${HOME}/.kube/config"
 MCP_DB_PATH?=$(HOME)/.kube-watcher/history.make.db
 
 GOCMD=go
+GOPATH_BIN?=$(shell $(GOCMD) env GOPATH)/bin
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GORUN=$(GOCMD) run
 
-.PHONY: all build clean test deps run help lint fmt vet compose-up-mcp compose-up-watcher compose-up-all compose-down test-integration-channel start-all stop-all
+.PHONY: all build clean test deps run help lint fmt vet tidy \
+	compose-up-mcp compose-up-watcher compose-up-all compose-down \
+	test-integration-channel start-all stop-all \
+	install build-all build-linux build-darwin build-windows \
+	docker-build docker-run dev dev-tools \
+	dashboard-deps dashboard-dev dashboard-build dashboard-preview dashboard-lint dashboard-typecheck \
+	run-mcp run-watcher run-deploy run-chatbridge run-health run-list run-server \
+	mcp-up watcher-up up down build-desktop-app
 
 # Default target
 all: fmt vet test build
 
 # Build the applications
-build: build-mcp build-watcher build-deploy build-chatbridge
+build: build-mcp build-watcher build-deploy build-chatbridge build-desktop-app
 
 build-mcp:
 	@echo "Building $(MCP_BINARY_NAME)..."
@@ -53,6 +63,10 @@ build-deploy:
 build-chatbridge:
 	@echo "Building $(CHAT_BRIDGE_BINARY_NAME)..."
 	$(GOBUILD) -o $(BIN_DIR)/$(CHAT_BRIDGE_BINARY_NAME) $(CHAT_BRIDGE_CMD)
+
+build-desktop-app:
+	@echo "Building $(DESKTOP_APP_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(DESKTOP_APP_BINARY_NAME) $(DESKTOP_APP_CMD)
 
 tidy:
 	go mod tidy
@@ -77,13 +91,14 @@ run-chatbridge:
 	$(GORUN) $(CHAT_BRIDGE_CMD) $(ARGS)
 
 run-health:
-	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --health
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --health --health-allow-degraded
 
 run-list:
 	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --list-tools
 
 run-server:
-	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
+	@echo "Running MCP server on port 8080..."
+	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH) --http-addr :8080
 
 mcp-up:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build mcp
@@ -104,7 +119,7 @@ clean:
 
 test:
 	@echo "Running tests..."
-	$(GOTEST) -v ./...
+	$(GOTEST) -v `$(GOCMD) list ./... | grep -vF '/node_modules/'`
 
 test-integration-channel:
 	@echo "Running integration test: engine -> UI -> MCP channel..."
@@ -112,7 +127,7 @@ test-integration-channel:
 
 test-coverage:
 	@echo "Running tests with coverage..."
-	$(GOTEST) -v -coverprofile=coverage.out ./...
+	$(GOTEST) -v -coverprofile=coverage.out `$(GOCMD) list ./... | grep -vF '/node_modules/'`
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
 deps:
@@ -137,8 +152,9 @@ vet:
 	$(GOCMD) vet ./...
 
 install: build-mcp
-	@echo "Installing $(MCP_BINARY_NAME)..."
-	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH)/bin/
+	@echo "Installing $(MCP_BINARY_NAME) to $(GOPATH_BIN)..."
+	@mkdir -p $(GOPATH_BIN)
+	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH_BIN)/
 
 build-all: build-linux build-darwin build-windows
 
@@ -207,7 +223,7 @@ start-all:
 	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) up --build -d
 	@sleep 5
 	@echo "Starting dashboard..."
-	@( cd dashboard && CI=true npm run dev > /tmp/kube-watcher-dashboard.log 2>&1 & echo $$! > /tmp/kube-watcher-dashboard.pid )
+	@( cd dashboard && CI=true npm run dev --prefix . > /tmp/kube-watcher-dashboard.log 2>&1 & echo $$! > /tmp/kube-watcher-dashboard.pid )
 	@sleep 3
 	@echo "Dashboard started at http://localhost:3000"
 	@echo "MCP Tools API at http://localhost:8080"
@@ -232,6 +248,7 @@ stop-all:
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the application binary"
+	@echo "  build-desktop-app - Build the Kube-Watcher desktop application"
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
@@ -243,7 +260,7 @@ help:
 	@echo "  start-all     - Start all services (docker compose + dashboard)"
 	@echo "  stop-all      - Stop dashboard (PID file) and docker compose stack"
 	@echo "  down          - docker compose down"
-	@echo "  run-health    - Run health check"
+	@echo "  run-health    - Run health check (allows degraded K8s for smoke/CI)"
 	@echo "  run-list      - List available tools"
 	@echo "  run-server    - Run in server mode"
 	@echo "  clean         - Clean build artifacts"

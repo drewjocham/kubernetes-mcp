@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -514,7 +515,12 @@ func (a *engineApp) sendHeartbeat(endpoint, clusterName string) {
 		a.logger.Warn("heartbeat request failed", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if cerr := resp.Body.Close(); cerr != nil {
+			a.logger.Debug("heartbeat close response body", "error", cerr)
+		}
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		a.logger.Warn("heartbeat received non-2xx response", "status", resp.StatusCode)

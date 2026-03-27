@@ -3,7 +3,7 @@ import { createAlert } from '~/server/utils/alert-store'
 import { runWorkflow } from '~/server/utils/workflow'
 
 export default defineEventHandler(async (event) => {
-  const payload = await readBody<any>(event)
+  const payload = await readBody<Partial<AlertIngestPayload>>(event)
   // Transform if needed
   const transformed: AlertIngestPayload = {
     kind: payload.kind || 'Unknown',

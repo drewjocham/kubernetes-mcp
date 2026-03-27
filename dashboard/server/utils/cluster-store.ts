@@ -55,14 +55,8 @@ function computeClusterStatus(cluster: ClusterRecord): ClusterRecord {
   const diffMs = now.getTime() - lastHeartbeat.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   
-  let status = cluster.status
-  if (diffMins < 5) {
-    status = 'healthy'
-  } else if (diffMins < 30) {
-    status = 'unhealthy'
-  } else {
-    status = 'unknown'
-  }
+  const status: ClusterRecord['status'] =
+    diffMins < 5 ? 'healthy' : diffMins < 30 ? 'unhealthy' : 'unknown'
   
   return {
     ...cluster,
