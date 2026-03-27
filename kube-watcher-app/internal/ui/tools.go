@@ -24,7 +24,7 @@ type ToolsModel struct {
 // NewTools creates a new tools model
 func NewTools(width, height int) ToolsModel {
 	return ToolsModel{
-		tools:     []string{"node-status", "pod-resources", "namespaces", "pod-logs", "cluster-analysis"},
+		tools:     []string{"get_node_status", "get_pod_resources", "list_namespaces", "get_pod_logs", "analyze_cluster"},
 		cursor:    0,
 		width:     width,
 		height:    height,
@@ -94,6 +94,21 @@ func (m ToolsModel) View() string {
 // GetSelectedTool returns the currently selected tool
 func (m ToolsModel) GetSelectedTool() string {
 	return m.tools[m.cursor]
+}
+
+// SetTools replaces the available tool list while preserving a valid cursor.
+func (m ToolsModel) SetTools(tools []string) ToolsModel {
+	if len(tools) == 0 {
+		return m
+	}
+	m.tools = tools
+	if m.cursor >= len(m.tools) {
+		m.cursor = len(m.tools) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	return m
 }
 
 // ToolOutputMsg is a message type for updating tool output

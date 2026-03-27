@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { AlertIngestPayload, AlertRecord, AlertThinkingStep, RCAReport, WorkflowConfig } from '~/types/alerts'
 
 const STORE_KEY = '__kube_watcher_dashboard_store__'
@@ -7,6 +9,39 @@ type DashboardStore = {
   alerts: AlertRecord[]
   config: WorkflowConfig
   bus: EventEmitter
+}
+
+type PersistedDashboardStore = {
+  alerts: AlertRecord[]
+  config: WorkflowConfig
+}
+
+function storeFilePath(): string {
+  const baseDir = process.env.KW_DASHBOARD_DATA_DIR || join(process.cwd(), '.kube-watcher', 'dashboard')
+  return join(baseDir, 'alerts-store.json')
+}
+
+function loadPersistedStore(): PersistedDashboardStore | null {
+  const filePath = storeFilePath()
+  if (!existsSync(filePath)) return null
+  try {
+    const raw = readFileSync(filePath, 'utf8')
+    if (!raw.trim()) return null
+    const parsed = JSON.parse(raw) as Partial<PersistedDashboardStore>
+    return {
+      alerts: Array.isArray(parsed.alerts) ? parsed.alerts : [],
+      config: parsed.config ? { ...defaultConfig(), ...parsed.config } : defaultConfig()
+    }
+  } catch {
+    return null
+  }
+}
+
+function persistStore(snapshot: PersistedDashboardStore) {
+  const filePath = storeFilePath()
+  const dir = dirname(filePath)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(filePath, JSON.stringify(snapshot, null, 2), { mode: 0o600 })
 }
 
 function defaultConfig(): WorkflowConfig {
@@ -26,9 +61,10 @@ function defaultConfig(): WorkflowConfig {
 function getStore(): DashboardStore {
   const globalStore = globalThis as typeof globalThis & Record<string, DashboardStore | undefined>
   if (!globalStore[STORE_KEY]) {
+    const persisted = loadPersistedStore()
     globalStore[STORE_KEY] = {
-      alerts: [],
-      config: defaultConfig(),
+      alerts: persisted?.alerts ?? [],
+      config: persisted?.config ?? defaultConfig(),
       bus: new EventEmitter()
     }
   }
@@ -37,6 +73,10 @@ function getStore(): DashboardStore {
 
 function notify() {
   const store = getStore()
+  persistStore({
+    alerts: store.alerts,
+    config: store.config
+  })
   store.bus.emit('alert-updated', store.alerts)
 }
 

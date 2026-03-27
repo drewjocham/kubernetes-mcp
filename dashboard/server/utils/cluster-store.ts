@@ -3,6 +3,8 @@
  * Data is lost on process restart and is not shared across instances — use an external store in production.
  */
 import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 export interface ClusterRecord {
   id: string
@@ -27,11 +29,37 @@ type ClusterStore = {
   bus: EventEmitter
 }
 
+function storeFilePath(): string {
+  const baseDir = process.env.KW_DASHBOARD_DATA_DIR || join(process.cwd(), '.kube-watcher', 'dashboard')
+  return join(baseDir, 'clusters-store.json')
+}
+
+function loadPersistedClusters(): ClusterRecord[] {
+  const filePath = storeFilePath()
+  if (!existsSync(filePath)) return []
+  try {
+    const raw = readFileSync(filePath, 'utf8')
+    if (!raw.trim()) return []
+    const parsed = JSON.parse(raw) as Partial<{ clusters: ClusterRecord[] }> | ClusterRecord[]
+    if (Array.isArray(parsed)) return parsed
+    if (Array.isArray(parsed?.clusters)) return parsed.clusters
+    return []
+  } catch {
+    return []
+  }
+}
+
+function persistClusters(clusters: ClusterRecord[]) {
+  const filePath = storeFilePath()
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, JSON.stringify({ clusters }, null, 2), { mode: 0o600 })
+}
+
 function getStore(): ClusterStore {
   const globalStore = globalThis as typeof globalThis & Record<string, ClusterStore | undefined>
   if (!globalStore[STORE_KEY]) {
     globalStore[STORE_KEY] = {
-      clusters: [],
+      clusters: loadPersistedClusters(),
       bus: new EventEmitter()
     }
   }
@@ -40,6 +68,7 @@ function getStore(): ClusterStore {
 
 function notify() {
   const store = getStore()
+  persistClusters(store.clusters)
   store.bus.emit('cluster-updated', store.clusters)
 }
 

@@ -27,5 +27,20 @@ agents:
       - "analyze_cluster"
       - "list_repeating_issues"
     created_at: "2026-03-19"
+
+profiles:
+  active: "dev"
+  profiles:
+    dev:
+      description: "Local development profile"
+      config:
+        ops.target: "docker"
+        view.output: "table"
+      env:
+        KUBECONFIG: "~/.kube/config"
+      secrets:
+        MCP_API_TOKEN:
+          provider: "env"
+          ref: "MCP_API_TOKEN"
 `
 }
