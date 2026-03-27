@@ -97,6 +97,16 @@ kw agent list
 kw agent show sre-bot
 ```
 
+#### Manage runtime profiles (config/env/secrets)
+```bash
+kw profile create dev --description "Local development"
+kw profile set-config dev --key ops.target --value docker
+kw profile set-env dev --key KUBECONFIG --value ~/.kube/config
+kw profile set-secret-ref dev --key MCP_API_TOKEN --provider env --ref MCP_API_TOKEN
+kw profile use dev
+kw profile env dev --output yaml
+```
+
 #### MCP tools (formatted output)
 ```bash
 kw view tools --output table

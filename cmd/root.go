@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"kube-watcher/pkg/profile"
 )
 
 var (
@@ -18,6 +21,9 @@ var (
 	buildDate = "unknown"
 	cfgFile   string
 	rootViper = viper.New()
+
+	profileManager         *profile.Manager
+	activeProfileOverrides map[string]string
 )
 
 var rootCmd = &cobra.Command{
@@ -43,6 +49,7 @@ func init() {
 	rootCmd.AddCommand(newViewCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newAnomstackCmd())
+	rootCmd.AddCommand(newProfileCmd())
 }
 
 func initConfig() {
@@ -61,6 +68,12 @@ func initConfig() {
 	rootViper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	rootViper.AutomaticEnv()
 	_ = rootViper.ReadInConfig()
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		profileManager = profile.NewManager(filepath.Join(home, ".kube-watcher", "profiles.yaml"))
+		_ = refreshActiveProfileOverrides()
+	}
 }
 
 func writeRootConfig() error {
@@ -102,6 +115,11 @@ func defaultRuntimeTimeout() time.Duration {
 }
 
 func configString(key, fallback string) string {
+	if activeProfileOverrides != nil {
+		if v := activeProfileOverrides[key]; v != "" {
+			return v
+		}
+	}
 	if rootViper.IsSet(key) {
 		if v := rootViper.GetString(key); v != "" {
 			return v
@@ -111,8 +129,29 @@ func configString(key, fallback string) string {
 }
 
 func configBool(key string, fallback bool) bool {
+	if activeProfileOverrides != nil {
+		if v, ok := activeProfileOverrides[key]; ok {
+			parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+			if err == nil {
+				return parsed
+			}
+		}
+	}
 	if rootViper.IsSet(key) {
 		return rootViper.GetBool(key)
 	}
 	return fallback
+}
+
+func refreshActiveProfileOverrides() error {
+	if profileManager == nil {
+		activeProfileOverrides = map[string]string{}
+		return nil
+	}
+	overrides, err := profileManager.ActiveConfigOverrides()
+	if err != nil {
+		return err
+	}
+	activeProfileOverrides = overrides
+	return nil
 }

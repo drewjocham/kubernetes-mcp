@@ -2,76 +2,72 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
-	"os/exec"
+	"os"
+	"strings"
 	"time"
 )
 
-// Server represents the MCP server configuration and state
 type Server struct {
 	isRunning bool
-	tools     map[string]func() (string, error)
 	apiAddr   string
 	apiToken  string
 	client    *http.Client
 }
 
-// NewServer creates a new instance of MCP server
 func NewServer() *Server {
-	tools := map[string]func() (string, error){
-		"node-status": func() (string, error) {
-			return "Node Status: All nodes are healthy.\nDetails: Node1 (OK), Node2 (OK)", nil
-		},
-		"pod-resources": func() (string, error) {
-			return "Pod Resources: CPU usage at 45%, Memory at 60%.\nPod1: CPU 20%, Mem 30%\nPod2: CPU 25%, Mem 30%", nil
-		},
-		"namespaces": func() (string, error) {
-			return "Namespaces: default, kube-system, monitoring", nil
-		},
-		"pod-logs": func() (string, error) {
-			return "Pod Logs: [2026-03-26 10:00:00] Pod1 started\n[2026-03-26 10:01:00] Pod2 error encountered", nil
-		},
-		"cluster-analysis": func() (string, error) {
-			return "Cluster Analysis: Overall health good, minor issues in networking.\nRecommendation: Check network policies.", nil
-		},
+	baseURL := strings.TrimSpace(os.Getenv("KW_TOOLS_ENDPOINT"))
+	if baseURL == "" {
+		baseURL = "http://localhost:8080/v1"
 	}
 	return &Server{
 		isRunning: false,
-		tools:     tools,
-		apiAddr:   "http://localhost:8080",
-		apiToken:  "XQvaaw4Z88HrzbnYSdUbEtMdZBdQJbB5vndd9wpOa5b746cf",
+		apiAddr:   strings.TrimRight(baseURL, "/"),
+		apiToken:  strings.TrimSpace(os.Getenv("KW_TOOLS_API_TOKEN")),
 		client:    &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// Start begins the MCP server operation
 func (s *Server) Start() error {
 	if s.isRunning {
 		return fmt.Errorf("server is already running")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/status", s.apiAddr), nil)
+	if err != nil {
+		return fmt.Errorf("build status request: %w", err)
+	}
+	if s.apiToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.apiToken))
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect mcp api: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("mcp api status check failed: %s", resp.Status)
+	}
 	s.isRunning = true
-	// Placeholder for actual server start logic
 	return nil
 }
 
-// Stop halts the MCP server operation
 func (s *Server) Stop() error {
 	if !s.isRunning {
 		return fmt.Errorf("server is not running")
 	}
 	s.isRunning = false
-	// Placeholder for actual server stop logic
 	return nil
 }
 
-// IsRunning checks if the server is currently running
 func (s *Server) IsRunning() bool {
 	return s.isRunning
 }
 
-// GetStatus returns the current status of the server
 func (s *Server) GetStatus() string {
 	if s.isRunning {
 		return "Running"
@@ -79,56 +75,67 @@ func (s *Server) GetStatus() string {
 	return "Stopped"
 }
 
-// ListTools returns the list of available tools
 func (s *Server) ListTools() []string {
-	tools := make([]string, 0, len(s.tools))
-	for tool := range s.tools {
-		tools = append(tools, tool)
-	}
-	return tools
-}
-
-// RunTool executes a specific tool and returns its output
-func (s *Server) RunTool(ctx context.Context, toolName string) (string, error) {
-	if !s.isRunning {
-		return "", fmt.Errorf("server is not running")
-	}
-	// Attempt to run tool via HTTP API
-	url := fmt.Sprintf("%s/tools/%s", s.apiAddr, toolName)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tools", s.apiAddr), nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
+		return nil
 	}
-	// Add API token to request header if available
 	if s.apiToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.apiToken))
 	}
 	resp, err := s.client.Do(req)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read API response: %v", err)
-		}
-		return string(body), nil
-	}
-	// Fall back to running local command if API call fails
-	cmd := exec.CommandContext(ctx, "npx", "-y", "hostinger-api-mcp@latest", "run-tool", toolName)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("API_TOKEN=%s", s.apiToken))
-	output, err := cmd.Output()
 	if err != nil {
-		// Fall back to mock data if both API and command fail
-		tool, exists := s.tools[toolName]
-		if !exists {
-			return "", fmt.Errorf("tool %s not found, API call failed: %v, command failed: %v", toolName, resp.Status, err)
-		}
-		// Simulate tool execution delay
-		select {
-		case <-time.After(1 * time.Second):
-			return tool()
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
+		return nil
 	}
-	return string(output), nil
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var payload struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil
+	}
+
+	tools := make([]string, 0, len(payload.Tools))
+	for _, tool := range payload.Tools {
+		tools = append(tools, tool.Name)
+	}
+	return tools
+}
+
+func (s *Server) RunTool(ctx context.Context, toolName string) (string, error) {
+	if !s.isRunning {
+		return "", fmt.Errorf("server is not running")
+	}
+	url := fmt.Sprintf("%s/tools/%s", s.apiAddr, toolName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.apiToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.apiToken))
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("tool request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read tool response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("tool %s failed: %s: %s", toolName, resp.Status, strings.TrimSpace(string(body)))
+	}
+	return string(body), nil
 }
