@@ -16,6 +16,7 @@ export interface ClusterRecord {
   updatedAt: string
   config: {
     dashboardWebhook?: string
+    prometheusEndpoint?: string
     kubeconfigPath?: string
     namespace?: string
     target?: string

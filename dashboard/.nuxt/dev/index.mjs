@@ -6,6 +6,7 @@ import nodeCrypto from 'node:crypto';
 import { parentPort, threadId } from 'node:worker_threads';
 import { escapeHtml } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/@vue/shared/dist/shared.cjs.js';
 import { EventEmitter } from 'node:events';
+import { promises, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRenderer, getRequestDependencies, getPreloadLinks, getPrefetchLinks } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/vue-bundle-renderer/dist/runtime.mjs';
 import { parseURL, withoutBase, joinURL, getQuery, withQuery, withTrailingSlash, decodePath, withLeadingSlash, withoutTrailingSlash, joinRelativeURL } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/ufo/dist/index.mjs';
 import { renderToString } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/vue/server-renderer/index.mjs';
@@ -30,7 +31,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { stringify, uneval } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/devalue/index.js';
 import { captureRawStackTrace, parseRawStackTrace } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/errx/dist/index.js';
 import { isVNode, isRef, toValue } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/vue/index.mjs';
-import { promises } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname as dirname$1, resolve as resolve$1 } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/pathe/dist/index.mjs';
 import { createHead as createHead$1, propsToString, renderSSRHead } from 'file:///Users/jocham/programming/pim/mcp/kube-watcher/dashboard/node_modules/unhead/dist/server.mjs';
@@ -2983,6 +2983,31 @@ const styles$1 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
 }, Symbol.toStringTag, { value: 'Module' }));
 
 const STORE_KEY$1 = "__kube_watcher_dashboard_store__";
+function storeFilePath$1() {
+  const baseDir = process.env.KW_DASHBOARD_DATA_DIR || join(process.cwd(), ".kube-watcher", "dashboard");
+  return join(baseDir, "alerts-store.json");
+}
+function loadPersistedStore() {
+  const filePath = storeFilePath$1();
+  if (!existsSync(filePath)) return null;
+  try {
+    const raw = readFileSync(filePath, "utf8");
+    if (!raw.trim()) return null;
+    const parsed = JSON.parse(raw);
+    return {
+      alerts: Array.isArray(parsed.alerts) ? parsed.alerts : [],
+      config: parsed.config ? { ...defaultConfig(), ...parsed.config } : defaultConfig()
+    };
+  } catch {
+    return null;
+  }
+}
+function persistStore(snapshot) {
+  const filePath = storeFilePath$1();
+  const dir = dirname(filePath);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, JSON.stringify(snapshot, null, 2), { mode: 384 });
+}
 function defaultConfig() {
   return {
     mcpEndpoint: "",
@@ -2997,11 +3022,13 @@ function defaultConfig() {
   };
 }
 function getStore$1() {
+  var _a, _b;
   const globalStore = globalThis;
   if (!globalStore[STORE_KEY$1]) {
+    const persisted = loadPersistedStore();
     globalStore[STORE_KEY$1] = {
-      alerts: [],
-      config: defaultConfig(),
+      alerts: (_a = persisted == null ? void 0 : persisted.alerts) != null ? _a : [],
+      config: (_b = persisted == null ? void 0 : persisted.config) != null ? _b : defaultConfig(),
       bus: new EventEmitter()
     };
   }
@@ -3009,6 +3036,10 @@ function getStore$1() {
 }
 function notify$1() {
   const store = getStore$1();
+  persistStore({
+    alerts: store.alerts,
+    config: store.config
+  });
   store.bus.emit("alert-updated", store.alerts);
 }
 function normalizePayload(payload) {
@@ -3277,11 +3308,34 @@ async function runWorkflow(alertID) {
 }
 
 const STORE_KEY = "__kube_watcher_cluster_store__";
+function storeFilePath() {
+  const baseDir = process.env.KW_DASHBOARD_DATA_DIR || join(process.cwd(), ".kube-watcher", "dashboard");
+  return join(baseDir, "clusters-store.json");
+}
+function loadPersistedClusters() {
+  const filePath = storeFilePath();
+  if (!existsSync(filePath)) return [];
+  try {
+    const raw = readFileSync(filePath, "utf8");
+    if (!raw.trim()) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed == null ? void 0 : parsed.clusters)) return parsed.clusters;
+    return [];
+  } catch {
+    return [];
+  }
+}
+function persistClusters(clusters) {
+  const filePath = storeFilePath();
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify({ clusters }, null, 2), { mode: 384 });
+}
 function getStore() {
   const globalStore = globalThis;
   if (!globalStore[STORE_KEY]) {
     globalStore[STORE_KEY] = {
-      clusters: [],
+      clusters: loadPersistedClusters(),
       bus: new EventEmitter()
     };
   }
@@ -3289,6 +3343,7 @@ function getStore() {
 }
 function notify() {
   const store = getStore();
+  persistClusters(store.clusters);
   store.bus.emit("cluster-updated", store.clusters);
 }
 function listClusters() {

@@ -1,0 +1,14 @@
+{
+  "clusters": [
+    {
+      "id": "2fde073a-056f-41f5-8ebc-90ff2ee2f26c",
+      "name": "local",
+      "type": "kubernetes",
+      "status": "healthy",
+      "lastHeartbeat": "2026-03-28T17:46:09.585Z",
+      "createdAt": "2026-03-27T13:19:34.454Z",
+      "updatedAt": "2026-03-28T17:46:09.585Z",
+      "config": {}
+    }
+  ]
+}

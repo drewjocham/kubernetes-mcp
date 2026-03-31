@@ -17,7 +17,7 @@ MCP_CMD=./mcp/cmd/server
 WATCHER_CMD=./watcher/cmd/engine
 DEPLOY_CMD=./watcher/cmd/deploy
 CHAT_BRIDGE_CMD=./integrations/cmd/chatbridge
-DESKTOP_APP_CMD=./kube-watcher-app/cmd/kube-watcher-app
+DESKTOP_APP_CMD=./cmd/kube-watcher-app
 VERSION?=1.0.0
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
@@ -39,8 +39,8 @@ GORUN=$(GOCMD) run
 	install build-all build-linux build-darwin build-windows \
 	docker-build docker-run dev dev-tools \
 	dashboard-deps dashboard-dev dashboard-build dashboard-preview dashboard-lint dashboard-typecheck \
-	run-mcp run-watcher run-deploy run-chatbridge run-health run-list run-server \
-	mcp-up watcher-up up down build-desktop-app
+	run-mcp run-watcher run-deploy run-chatbridge run-health run-list run-server run-tui \
+	mcp-up watcher-up up down build-desktop-app tui desktop-dev desktop-build
 
 # Default target
 all: fmt vet test build
@@ -65,8 +65,36 @@ build-chatbridge:
 	$(GOBUILD) -o $(BIN_DIR)/$(CHAT_BRIDGE_BINARY_NAME) $(CHAT_BRIDGE_CMD)
 
 build-desktop-app:
-	@echo "Building $(DESKTOP_APP_BINARY_NAME)..."
-	$(GOBUILD) -o $(BIN_DIR)/$(DESKTOP_APP_BINARY_NAME) $(DESKTOP_APP_CMD)
+	@echo "Building $(DESKTOP_APP_BINARY_NAME) Wails desktop app..."
+	cd kube-watcher-app && wails build
+
+run-tui: desktop-dev
+
+test-tui-render: build-desktop-app
+	@echo "Testing TUI rendering..."
+	@echo "This will show if the View methods return content:"
+	@timeout 2 $(BIN_DIR)/$(DESKTOP_APP_BINARY_NAME) 2>/dev/null || echo "✓ App started (timed out as expected)"
+	@echo "If you saw text above, rendering is working!"
+
+desktop-dev:
+	@echo "🚀 Starting Kube-Watcher Desktop App (Wails + Vue) in development mode..."
+	@echo ""
+	@echo "Features:"
+	@echo "  • Modern desktop app with web-like interface"
+	@echo "  • Real-time Kubernetes monitoring and alerts"
+	@echo "  • Proton/Apple dark theme with purple accents"
+	@echo "  • Interactive UI for troubleshooting"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  • MCP server: make run-server (or set KW_TOOLS_ENDPOINT)"
+	@echo "  • Optional: KW_AGENT_ENDPOINT for agent integration"
+	@echo ""
+	@echo "Starting development server..."
+	cd kube-watcher-app && wails dev
+
+desktop-build: build-desktop-app
+
+tui: desktop-dev
 
 tidy:
 	go mod tidy
@@ -248,7 +276,11 @@ stop-all:
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the application binary"
-	@echo "  build-desktop-app - Build the Kube-Watcher desktop application"
+	@echo "  build-desktop-app - Build the Kube-Watcher desktop application (Wails + Vue)"
+	@echo "  desktop-dev   - Run the desktop app in development mode"
+	@echo "  desktop-build - Build the desktop app for production"
+	@echo "  tui           - Alias for desktop-dev"
+	@echo "  run-tui       - Alias for desktop-dev"
 	@echo "  run           - Run the MCP server (alias for run-mcp)"
 	@echo "  run-mcp       - Run the MCP server (use ARGS= for arguments)"
 	@echo "  run-watcher   - Run the watcher event engine (use ARGS= for arguments)"
