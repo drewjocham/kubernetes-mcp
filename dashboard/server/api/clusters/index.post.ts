@@ -5,6 +5,7 @@ interface ClusterRegistrationPayload {
   type: 'kubernetes' | 'docker'
   config?: {
     dashboardWebhook?: string
+    prometheusEndpoint?: string
     kubeconfigPath?: string
     namespace?: string
     target?: string

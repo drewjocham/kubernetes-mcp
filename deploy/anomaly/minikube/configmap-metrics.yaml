@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-system-metrics
+  namespace: kw-anomaly
+data:
+  system_metrics.yaml: |
+    metric_batch: "system_metrics"
+    table_key: "metrics"
+    ingest_cron_schedule: "*/5 * * * *"
+    train_cron_schedule: "*/180 * * * *"
+    score_cron_schedule: "*/10 * * * *"
+    alert_cron_schedule: "*/15 * * * *"
+    change_cron_schedule: "*/15 * * * *"
+    llmalert_cron_schedule: "*/60 * * * *"
+    alert_always: False
+    alert_metric_timestamp_max_days_ago: 3
+    disable_llmalert: True
+    disable_ingest: False
+    alert_methods: "webhook"

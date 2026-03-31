@@ -321,6 +321,24 @@ func (s *MCPServer) IncidentHistory(ctx context.Context, window time.Duration) (
 	return all, nil
 }
 
+// Recommendations returns a deduplicated slice of recommendations derived
+// from the current alert snapshot, sorted by severity.
+func (s *MCPServer) Recommendations() []recommendation.Recommendation {
+	s.alertsMu.RLock()
+	defer s.alertsMu.RUnlock()
+	seen := make(map[string]bool, len(s.alerts))
+	var out []recommendation.Recommendation
+	for _, ar := range s.alerts {
+		key := ar.Recommendation.Title
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ar.Recommendation)
+	}
+	return out
+}
+
 func (s *MCPServer) ToolSummaries() []ToolSummary {
 	summaries := make([]ToolSummary, 0, len(s.tools))
 	for _, t := range s.tools {
