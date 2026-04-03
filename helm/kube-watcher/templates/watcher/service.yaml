@@ -1,0 +1,29 @@
+{{- if .Values.watcher.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: watcher
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: watcher
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: watcher
+  ports:
+    - name: http
+      port: {{ .Values.watcher.ports.http }}
+      targetPort: {{ .Values.watcher.ports.http }}
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.watcher.ports.metrics }}
+      targetPort: {{ .Values.watcher.ports.metrics }}
+      protocol: TCP
+    {{- if .Values.badgerExplorer.enabled }}
+    - name: explorer
+      port: {{ .Values.badgerExplorer.port }}
+      targetPort: {{ .Values.badgerExplorer.port }}
+      protocol: TCP
+    {{- end }}
+  type: ClusterIP
+{{- end }}

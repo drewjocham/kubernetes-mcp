@@ -1,0 +1,8 @@
+{{- if .Values.anomstack.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.anomstack }}
+  labels:
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+{{- end }}

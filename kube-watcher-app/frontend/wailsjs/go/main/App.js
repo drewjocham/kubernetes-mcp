@@ -18,6 +18,14 @@ export function GetAlerts() {
   return window['go']['main']['App']['GetAlerts']();
 }
 
+export function GetAnomstackAnomalies() {
+  return window['go']['main']['App']['GetAnomstackAnomalies']();
+}
+
+export function GetCurrentContext() {
+  return window['go']['main']['App']['GetCurrentContext']();
+}
+
 export function GetEndpoint() {
   return window['go']['main']['App']['GetEndpoint']();
 }

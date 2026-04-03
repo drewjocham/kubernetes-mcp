@@ -1,0 +1,19 @@
+{{- if .Values.anomstack.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: anomstack-data
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.anomstack.persistence.size }}
+  {{- if .Values.anomstack.persistence.storageClass }}
+  storageClassName: {{ .Values.anomstack.persistence.storageClass }}
+  {{- end }}
+{{- end }}

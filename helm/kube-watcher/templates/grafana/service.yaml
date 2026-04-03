@@ -1,0 +1,19 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: grafana
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: {{ .Values.grafana.port }}
+      targetPort: {{ .Values.grafana.port }}
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

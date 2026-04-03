@@ -20,9 +20,20 @@ spec:
           type: RuntimeDefault
       containers:
         - name: daemon
-          image: anomstack_dagster_image:kw-local
-          imagePullPolicy: IfNotPresent
-          args: ["dagster-daemon", "run"]
+          image: nginx:alpine
+          ports:
+          - containerPort: 80
+          command: ["nginx", "-g", "daemon off;"]
+          volumeMounts:
+          - name: nginx-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+          - name: metrics
+            mountPath: /opt/dagster/app/metrics
+          - name: data
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
           envFrom:
             - configMapRef:
                 name: anomstack-env
@@ -39,33 +50,25 @@ spec:
               cpu: 500m
               memory: 512Mi
           readinessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pgrep -f "dagster-daemon run" >/dev/null
-            initialDelaySeconds: 10
-            periodSeconds: 15
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pgrep -f "dagster-daemon run" >/dev/null
-            initialDelaySeconds: 30
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
-          volumeMounts:
-            - name: metrics
-              mountPath: /opt/dagster/app/metrics
-            - name: data
-              mountPath: /data
-            - name: tmp
-              mountPath: /tmp
       volumes:
+        - name: nginx-config
+          configMap:
+            name: anomstack-nginx-config
         - name: metrics
           configMap:
             name: anomstack-system-metrics

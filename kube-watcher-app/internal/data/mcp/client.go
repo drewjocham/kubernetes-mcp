@@ -239,3 +239,62 @@ func (c *Client) FetchServiceLogs(ctx context.Context, name, tail string) ([]str
 	}
 	return lines, scanner.Err()
 }
+
+// GetAnomstackAnomalies fetches anomalies from the anomstack service
+func (c *Client) GetAnomstackAnomalies(ctx context.Context) ([]data.AlertRecord, error) {
+	// Connect to anomstack service via kubectl proxy
+	// kubectl proxy provides access to cluster services from outside
+	anomstackURL := "http://localhost:8001/api/v1/namespaces/kw-anomaly/services/anomstack:8080/proxy/anomalies"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, anomstackURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request to anomstack: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		// If kubectl proxy is not running, provide helpful error message
+		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+			return nil, fmt.Errorf("cannot connect to anomstack service. Please ensure kubectl proxy is running: kubectl proxy --port=8001")
+		}
+		return nil, fmt.Errorf("failed to connect to anomstack service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("anomstack service returned HTTP %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var payload struct {
+		Anomalies []struct {
+			ID        string  `json:"id"`
+			Title     string  `json:"title"`
+			Severity  string  `json:"severity"`
+			Message   string  `json:"message"`
+			Timestamp float64 `json:"timestamp"`
+		} `json:"anomalies"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("failed to decode anomstack response: %w", err)
+	}
+
+	var alerts []data.AlertRecord
+	for _, anomaly := range payload.Anomalies {
+		alerts = append(alerts, data.AlertRecord{
+			ID:         anomaly.ID,
+			Kind:       "Anomaly",
+			Namespace:  "kw-anomaly",
+			Name:       anomaly.Title,
+			Cluster:    "minikube",
+			Severity:   anomaly.Severity,
+			Reason:     "AnomalyDetected",
+			Message:    anomaly.Message,
+			Status:     "detected",
+			ReceivedAt: time.Unix(int64(anomaly.Timestamp/1000), 0),
+		})
+	}
+
+	return alerts, nil
+}

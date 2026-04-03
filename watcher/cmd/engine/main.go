@@ -92,13 +92,11 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 
 	cfg := snapshotWatchConfig(a.cfg)
 
-	// Create base Kubernetes client
 	baseClient, err := kube.NewClient(a.logger)
 	if err != nil {
 		return fmt.Errorf("k8s client: %w", err)
 	}
 
-	// Wrap with audit logging
 	auditLogger := audit.NewSlogLogger(a.logger)
 	k8sClient := kube.NewAuditClient(baseClient, auditLogger, a.logger, kube.AuditOptionsFromEnv()...)
 

@@ -1,6 +1,6 @@
-ARG BUILD_IMAGE=golang:1.25.7-alpine3.23
-ARG RUNTIME_IMAGE=alpine:3.23
-ARG DEBUG_RUNTIME_IMAGE=alpine:3.23
+ARG BUILD_IMAGE=golang:1.25.1-alpine3.21
+ARG RUNTIME_IMAGE=alpine:3.21
+ARG DEBUG_RUNTIME_IMAGE=alpine:3.21
 
 ARG SERVICE_ROOT
 ARG SERVICE_CMD=./cmd/server
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -o /out/app-debug ${SERVICE_CMD}
 
 # Debug image
-FROM --platform=$TARGETPLATFORM ${DEBUG_RUNTIME_IMAGE} AS runner-debug
+FROM ${DEBUG_RUNTIME_IMAGE} AS runner-debug
 COPY --from=builder /out/app-debug /app/main
 USER root
 RUN mkdir -p /home/nonroot /app && chown -R 65532:65532 /home/nonroot /app
@@ -49,7 +49,7 @@ USER 65532:65532
 ENTRYPOINT ["/app/main"]
 
 # Final slim image
-FROM --platform=$TARGETPLATFORM ${RUNTIME_IMAGE} AS final
+FROM ${RUNTIME_IMAGE} AS final
 COPY --from=builder /out/app /app/main
 USER root
 RUN mkdir -p /home/nonroot /app && chown -R 65532:65532 /home/nonroot /app

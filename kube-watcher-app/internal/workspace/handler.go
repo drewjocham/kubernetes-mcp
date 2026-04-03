@@ -78,9 +78,14 @@ func (h *Handler) Build(ctx context.Context) (data.AIWorkspace, error) {
 	}
 
 	criticalAlerts := 0
+	anomstackAlerts := 0
 	for _, alert := range alerts {
 		if severityRank(alert.Severity) >= severityRank("critical") {
 			criticalAlerts++
+		}
+		// Count anomstack alerts (they have specific ID patterns)
+		if strings.HasPrefix(alert.ID, "anomaly-") {
+			anomstackAlerts++
 		}
 	}
 
@@ -88,10 +93,22 @@ func (h *Handler) Build(ctx context.Context) (data.AIWorkspace, error) {
 	if criticalAlerts > 0 {
 		headline = fmt.Sprintf("%d critical signals need attention before automation fan-out.", criticalAlerts)
 	}
+	if anomstackAlerts > 0 {
+		headline = fmt.Sprintf("Anomstack detected %d anomalies", anomstackAlerts)
+		if criticalAlerts > 0 {
+			headline = fmt.Sprintf("Anomstack detected %d anomalies, %d critical signals need attention", anomstackAlerts, criticalAlerts)
+		}
+	}
 
 	subheadline := ""
 	if len(incidents) > 0 {
 		subheadline = fmt.Sprintf("%d recent incidents are available as context.", len(incidents))
+	}
+	if anomstackAlerts > 0 {
+		if subheadline != "" {
+			subheadline += " "
+		}
+		subheadline += fmt.Sprintf("Anomstack AI monitoring active with %d detected anomalies.", anomstackAlerts)
 	}
 
 	workspace := data.AIWorkspace{
@@ -122,7 +139,24 @@ func buildPlans(strategies []DeploymentStrategy) []data.AnomalyDeploymentPlan {
 func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommendation, services []data.ServiceStatus) []data.AIPriority {
 	priorities := make([]data.AIPriority, 0, 3)
 
-	if top := topAlert(alerts); top != nil {
+	// Check for anomstack anomalies first
+	var anomstackAlerts []data.AlertRecord
+	for _, alert := range alerts {
+		if strings.HasPrefix(alert.ID, "anomaly-") {
+			anomstackAlerts = append(anomstackAlerts, alert)
+		}
+	}
+
+	if len(anomstackAlerts) > 0 {
+		// Prioritize anomstack anomalies
+		topAnomaly := anomstackAlerts[0]
+		priorities = append(priorities, data.AIPriority{
+			Title:       fmt.Sprintf("Anomstack: %s", topAnomaly.Name),
+			Severity:    topAnomaly.Severity,
+			Detail:      fmt.Sprintf("AI anomaly detection: %s", topAnomaly.Message),
+			ActionLabel: "Review anomaly details",
+		})
+	} else if top := topAlert(alerts); top != nil {
 		priorities = append(priorities, data.AIPriority{
 			Title:       fmt.Sprintf("%s/%s", fallback(top.Namespace, "cluster"), top.Name),
 			Severity:    top.Severity,
@@ -171,6 +205,13 @@ func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommend
 
 func buildPlaybooks(alerts []data.AlertRecord, recommendations []data.Recommendation, incidents []data.Incident) []data.AIPlaybook {
 	recentKinds := "pods, nodes, services"
+	anomstackAlertCount := 0
+	for _, alert := range alerts {
+		if strings.HasPrefix(alert.ID, "anomaly-") {
+			anomstackAlertCount++
+		}
+	}
+
 	if len(incidents) > 0 {
 		kinds := make([]string, 0, len(incidents))
 		seen := map[string]struct{}{}
@@ -220,6 +261,21 @@ func buildPlaybooks(alerts []data.AlertRecord, recommendations []data.Recommenda
 				"kw view tools",
 			},
 		},
+	}
+
+	// Add anomstack-specific playbook if anomalies are detected
+	if anomstackAlertCount > 0 {
+		playbooks = append(playbooks, data.AIPlaybook{
+			Title:       "AI Anomaly Response",
+			Prompt:      fmt.Sprintf("Analyze %d AI-detected anomalies, prioritize remediation steps, and suggest preventive measures.", anomstackAlertCount),
+			Target:      "Arguskube",
+			Description: fmt.Sprintf("AI-powered anomaly analysis for %d detected issues with automated recommendations.", anomstackAlertCount),
+			Commands: []string{
+				"kw view anomalies",
+				"kw ai analyze-anomalies",
+				"kw alert create --from-anomstack",
+			},
+		})
 	}
 
 	for i := range playbooks {

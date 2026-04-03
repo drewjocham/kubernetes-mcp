@@ -1,0 +1,19 @@
+{{- if and .Values.watcher.enabled .Values.watcher.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: watcher-data
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: watcher
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.watcher.persistence.size }}
+  {{- if .Values.watcher.persistence.storageClass }}
+  storageClassName: {{ .Values.watcher.persistence.storageClass }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,66 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: prometheus
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}
+          imagePullPolicy: {{ .Values.prometheus.image.pullPolicy }}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.enable-lifecycle"
+          ports:
+            - name: http
+              containerPort: {{ .Values.prometheus.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: {{ .Values.prometheus.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: {{ .Values.prometheus.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+{{- end }}
