@@ -20,9 +20,18 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dashboard
-          image: anomstack_dashboard_image:kw-local
-          imagePullPolicy: IfNotPresent
-          command: ["uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", "8080"]
+          image: nginx:alpine
+          ports:
+          - containerPort: 80
+          command: ["nginx", "-g", "daemon off;"]
+          volumeMounts:
+          - name: nginx-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+          - name: data
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
           envFrom:
             - configMapRef:
                 name: anomstack-env
@@ -34,40 +43,25 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 10
+              port: 80
+            initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 30
+              port: 80
+            initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: tmp
-              mountPath: /tmp
       volumes:
+        - name: nginx-config
+          configMap:
+            name: anomstack-nginx-config
         - name: data
           persistentVolumeClaim:
             claimName: anomstack-data
         - name: tmp
           emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: anomstack-dashboard
-  namespace: kw-anomaly
-spec:
-  selector:
-    app: anomstack-dashboard
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080

@@ -14,6 +14,8 @@ import {
   RunSynapseSweep,
   StartService,
   StopService,
+  GetCurrentContext,
+  GetAnomstackAnomalies,
 } from '../wailsjs/go/main/App'
 import { data } from '../wailsjs/go/models'
 
@@ -35,10 +37,10 @@ type ScanCell = {
 }
 
 const tabs: { id: TabId; label: string; eyebrow: string }[] = [
-  { id: 'arguskube', label: 'Arguskube Sentinels', eyebrow: 'First class' },
+  { id: 'arguskube', label: 'Arguskube', eyebrow: 'First class' },
   { id: 'anomalies', label: 'Anomalies', eyebrow: 'Live context' },
   { id: 'deploy', label: 'Deploy', eyebrow: 'Local to cluster' },
-  { id: 'runtime', label: 'Runtime', eyebrow: 'Services + scans' },
+  { id: 'runtime', label: 'Workspace', eyebrow: 'Services + scans' },
 ]
 
 const activeTab = ref<TabId>('arguskube')
@@ -52,6 +54,8 @@ const synapseSweepOutput = ref('')
 const mcpStatus = ref<data.StatusResponse | null>(null)
 const mcpEndpoint = ref('')
 const clusterLabels = ref<Record<string, string>>({})
+const currentContext = ref('unknown')
+const anomstackConnected = ref(false)
 const isLoading = ref(true)
 const isThinking = ref(false)
 const isArguskubeExpanded = ref(false)
@@ -68,6 +72,24 @@ const countdownText = ref('')
 let sweepTimer: any = null
 let countdownTimer: any = null
 
+// Settings state
+const showSettings = ref(false)
+const settings = ref({
+  context: '',
+  prometheusRoutes: [] as string[],
+  webhookUrls: [] as string[],
+})
+
+// Scan modal state
+const showScanModal = ref(false)
+const selectedScanCell = ref<ScanCell | null>(null)
+
+// Anomalies connection state
+const isConnectingAnomstack = ref(false)
+const showAnomstackErrorModal = ref(false)
+const anomstackError = ref('')
+const anomstackRecommendations = ref<string[]>([])
+
 const updateCountdown = () => {
   if (!nextSweepTime.value) {
     countdownText.value = ''
@@ -78,7 +100,7 @@ const updateCountdown = () => {
   const diff = nextSweepTime.value - now
 
   if (diff <= 0) {
-    countdownText.value = 'Arguskube Sentinels are online now'
+    countdownText.value = 'Cluster scan is ready'
     return
   }
 
@@ -98,7 +120,7 @@ const updateCountdown = () => {
     timeStr = `${seconds}s`
   }
 
-  countdownText.value = `Arguskube Sentinels are online in ${timeStr}`
+  countdownText.value = `Next scan in ${timeStr}`
 }
 
 watch(sweepInterval, (newVal: string) => {
@@ -186,8 +208,7 @@ const connectivityStatus = computed(() => {
 })
 
 const activeClusterDisplay = computed(() => {
-  const cluster = mcpStatus.value?.cluster || 'unknown'
-  return clusterLabels.value[cluster] || cluster
+  return clusterLabels.value[currentContext.value] || currentContext.value
 })
 
 const topPriority = computed(() => workspace.value?.priorities?.[0] ?? null)
@@ -216,13 +237,24 @@ onMounted(async () => {
       console.error('Failed to parse cluster labels', e)
     }
   }
+  loadSettings()
+  await loadCurrentContext()
   await loadWorkspace()
 })
+
+async function loadCurrentContext() {
+  try {
+    currentContext.value = await GetCurrentContext()
+  } catch (error) {
+    console.error('Failed to get current context:', error)
+    currentContext.value = 'unknown'
+  }
+}
 
 async function loadWorkspace() {
   isLoading.value = true
   try {
-    const [ws, alertData, historyData, recommendationData, serviceData, logData, statusData, endpointData] = await Promise.all([
+    const [ws, alertData, historyData, recommendationData, serviceData, logData, statusData, endpointData, anomstackAlerts] = await Promise.all([
       GetAIWorkspace(),
       GetAlerts(),
       GetHistory(),
@@ -231,9 +263,24 @@ async function loadWorkspace() {
       GetLogs(),
       GetStatus(),
       GetEndpoint(),
+      GetAnomstackAnomalies().then((anomalies) => {
+        anomstackConnected.value = true
+        return anomalies
+      }).catch((error) => {
+        anomstackConnected.value = false
+
+        // Show error modal during initial load if connection fails
+        const errorMessage = error?.message || error?.toString() || 'Unknown error'
+        anomstackError.value = errorMessage
+        anomstackRecommendations.value = generateAnomstackRecommendations(errorMessage)
+        showAnomstackErrorModal.value = true
+
+        return [] // Return empty array on failure
+      }),
     ])
+
     workspace.value = ws
-    alerts.value = alertData
+    alerts.value = [...alertData, ...anomstackAlerts] // Combine MCP alerts with anomstack anomalies
     history.value = historyData
     recommendations.value = recommendationData
     services.value = serviceData
@@ -256,6 +303,7 @@ async function loadWorkspace() {
       tone: 'warn',
       content: `Workspace load failed: ${formatError(error)}`,
     })
+    anomstackConnected.value = false
   } finally {
     isLoading.value = false
   }
@@ -382,18 +430,13 @@ function buildScanGrid(raw: string) {
   }
 
   const source = readRecord(parsed)
-  const report =
-    Object.keys(readRecord(source.synapse_sweep)).length > 0
-      ? readRecord(source.synapse_sweep)
-      : Object.keys(readRecord(source.popeye)).length > 0
-        ? readRecord(source.popeye)
-        : source
-  const sanitizers = Array.isArray(report.sanitizers) ? report.sanitizers : []
-  if (sanitizers.length === 0) {
+  const report = readRecord(source.popeye) || source
+  const sections = Array.isArray(report.sections) ? report.sections : []
+  if (sections.length === 0) {
     return { cells: [] as ScanCell[], headline: '', fallback: raw }
   }
 
-  const cells = sanitizers
+  const cells = sections
     .map((entry, index) => buildScanCell(entry, index))
     .filter((entry): entry is ScanCell => entry !== null)
     .sort((left, right) => healthRank(left.health) - healthRank(right.health))
@@ -403,7 +446,7 @@ function buildScanGrid(raw: string) {
   }
 
   const score = readRecord(report.score)
-  const grade = readString(score.grade) || readString(score.letter)
+  const grade = readString(score.grade)
   const totalIssues = cells.filter((cell) => cell.health !== 'good').length
   const headline = grade
     ? `Grade ${grade} · ${totalIssues} areas need attention`
@@ -430,10 +473,10 @@ function tryParseSynapseSweep(raw: string) {
 function buildScanCell(entry: unknown, index: number): ScanCell | null {
   const record = readRecord(entry)
   const tally = readRecord(record.tally)
-  const name = readString(record.sanitizer) || readString(record.name) || `Check ${index + 1}`
-  const errors = readNumber(tally.error) + readNumber(tally.errors)
-  const warnings = readNumber(tally.warning) + readNumber(tally.warnings) + readNumber(tally.warn)
-  const passing = readNumber(tally.ok) + readNumber(tally.pass) + readNumber(tally.passed)
+  const name = readString(record.linter) || readString(record.gvr) || `Check ${index + 1}`
+  const errors = readNumber(tally.error)
+  const warnings = readNumber(tally.warning)
+  const passing = readNumber(tally.ok)
   const infos = readNumber(tally.info)
   const detail = buildScanDetail(name, tally, record.issues)
 
@@ -448,7 +491,7 @@ function buildScanCell(entry: unknown, index: number): ScanCell | null {
         ? `${errors} errors`
         : warnings > 0
           ? `${warnings} warnings`
-          : `${Math.max(passing, infos, 1)} healthy checks`,
+          : `${passing} healthy`,
     health: errors > 0 ? 'unhealthy' : warnings > 0 ? 'warning' : 'good',
     detail: detail || `${name}\nNo detailed findings were reported.`,
   }
@@ -457,22 +500,17 @@ function buildScanCell(entry: unknown, index: number): ScanCell | null {
 function buildScanDetail(name: string, tally: Record<string, unknown>, issues: unknown) {
   const parts = [name]
   const counters = [
-    readNumber(tally.error) + readNumber(tally.errors) > 0
-      ? `${readNumber(tally.error) + readNumber(tally.errors)} errors`
-      : '',
-    readNumber(tally.warning) + readNumber(tally.warnings) + readNumber(tally.warn) > 0
-      ? `${readNumber(tally.warning) + readNumber(tally.warnings) + readNumber(tally.warn)} warnings`
-      : '',
-    readNumber(tally.ok) + readNumber(tally.pass) + readNumber(tally.passed) > 0
-      ? `${readNumber(tally.ok) + readNumber(tally.pass) + readNumber(tally.passed)} passing`
-      : '',
+    readNumber(tally.error) > 0 ? `${readNumber(tally.error)} errors` : '',
+    readNumber(tally.warning) > 0 ? `${readNumber(tally.warning)} warnings` : '',
+    readNumber(tally.ok) > 0 ? `${readNumber(tally.ok)} passing` : '',
+    readNumber(tally.info) > 0 ? `${readNumber(tally.info)} info` : '',
   ].filter(Boolean)
 
   if (counters.length > 0) {
     parts.push(counters.join(' · '))
   }
 
-  const findings = flattenIssues(issues).slice(0, 3)
+  const findings = flattenPopeyeIssues(issues).slice(0, 3)
   if (findings.length > 0) {
     parts.push(findings.join('\n'))
   }
@@ -480,20 +518,25 @@ function buildScanDetail(name: string, tally: Record<string, unknown>, issues: u
   return parts.join('\n')
 }
 
-function flattenIssues(value: unknown): string[] {
+function flattenPopeyeIssues(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value.flatMap((entry) => flattenIssues(entry))
+    return value.flatMap((entry) => flattenPopeyeIssues(entry))
   }
 
   const record = readRecord(value)
-  const message = [readString(record.message), readString(record.msg), readString(record.title)]
-    .filter(Boolean)
-    .join(' — ')
+  const message = readString(record.message)
   if (message) {
-    return [message]
+    const group = readString(record.group)
+    const prefix = group && group !== '__root__' ? `${group}: ` : ''
+    return [`${prefix}${message}`]
   }
 
-  return Object.values(record).flatMap((entry) => flattenIssues(entry))
+  // Handle nested issues in popeye format
+  if (record.issues && Array.isArray(record.issues)) {
+    return record.issues.flatMap((issue: unknown) => flattenPopeyeIssues(issue))
+  }
+
+  return []
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -522,6 +565,165 @@ function healthRank(value: ScanHealth) {
 function shortenLabel(value: string) {
   return value.length > 28 ? `${value.slice(0, 25)}...` : value
 }
+
+function loadSettings() {
+  const savedSettings = localStorage.getItem('kube-watcher-settings')
+  if (savedSettings) {
+    try {
+      settings.value = { ...settings.value, ...JSON.parse(savedSettings) }
+    } catch (e) {
+      console.error('Failed to parse settings', e)
+    }
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem('kube-watcher-settings', JSON.stringify(settings.value))
+  showSettings.value = false
+  // Could add a success message here
+}
+
+function openScanModal(cell: ScanCell) {
+  selectedScanCell.value = cell
+  showScanModal.value = true
+}
+
+function closeScanModal() {
+  showScanModal.value = false
+  selectedScanCell.value = null
+}
+
+function getErrors(detail: string) {
+  return parseIssues(detail, 3) // level 3 = error
+}
+
+function getWarnings(detail: string) {
+  return parseIssues(detail, 2) // level 2 = warning
+}
+
+function getInfos(detail: string) {
+  return parseIssues(detail, 1) // level 1 = info
+}
+
+function hasIssues(detail: string) {
+  return getErrors(detail).length > 0 || getWarnings(detail).length > 0 || getInfos(detail).length > 0
+}
+
+function parseIssues(detail: string, level: number) {
+  const issues = []
+  const lines = detail.split('\n')
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    // Look for popeye issue pattern: [POP-XXXX] message
+    const popMatch = line.match(/\[POP-(\d+)\]\s*(.+)/)
+    if (popMatch) {
+      const issueId = popMatch[1]
+      const message = popMatch[2]
+
+      // Try to get context from the next line if it exists
+      let context = ''
+      if (i + 1 < lines.length) {
+        const nextLine = lines[i + 1].trim()
+        // Context lines often start with specific patterns
+        if (nextLine && !nextLine.match(/\[POP-\d+\]/) && nextLine.length < 100) {
+          context = nextLine
+          i++ // Skip the context line in the next iteration
+        }
+      }
+
+      // Determine level from the issue ID or message content
+      // For now, we'll use heuristics based on common popeye patterns
+      let issueLevel = level
+      if (message.toLowerCase().includes('error') || message.toLowerCase().includes('critical') || message.toLowerCase().includes('failed')) {
+        issueLevel = 3
+      } else if (message.toLowerCase().includes('warning') || message.toLowerCase().includes('deprecated')) {
+        issueLevel = 2
+      } else if (message.toLowerCase().includes('info') || message.toLowerCase().includes('used?')) {
+        issueLevel = 1
+      }
+
+      if (issueLevel === level) {
+        issues.push({
+          id: issueId,
+          message: message,
+          context: context,
+          level: issueLevel
+        })
+      }
+    }
+  }
+
+  return issues
+}
+
+async function connectAnomstack() {
+  console.log('Manual connect to anomstack...')
+  isConnectingAnomstack.value = true
+  anomstackError.value = ''
+  anomstackRecommendations.value = []
+
+  try {
+    const anomalies = await GetAnomstackAnomalies()
+    console.log('Manual connect successful, anomalies:', anomalies)
+    anomstackConnected.value = true
+
+    // Reload workspace to get fresh data
+    await loadWorkspace()
+
+  } catch (error: any) {
+    console.error('Manual connect failed:', error)
+    anomstackConnected.value = false
+
+    // Determine the error type and provide specific recommendations
+    const errorMessage = error?.message || error?.toString() || 'Unknown error'
+    anomstackError.value = errorMessage
+
+    // Generate recommendations based on common error patterns
+    anomstackRecommendations.value = generateAnomstackRecommendations(errorMessage)
+
+    // Show error modal
+    showAnomstackErrorModal.value = true
+  } finally {
+    isConnectingAnomstack.value = false
+  }
+}
+
+function generateAnomstackRecommendations(errorMessage: string): string[] {
+  const recommendations: string[] = []
+
+  if (errorMessage.includes('kubectl proxy is running')) {
+    recommendations.push('Start kubectl proxy to access cluster services: kubectl proxy --port=8001')
+    recommendations.push('Keep kubectl proxy running in a separate terminal')
+    recommendations.push('Ensure you have kubectl configured and connected to the cluster')
+  } else if (errorMessage.includes('connection refused') || errorMessage.includes('ECONNREFUSED')) {
+    recommendations.push('Start kubectl proxy: kubectl proxy --port=8001')
+    recommendations.push('Ensure kubectl proxy is running on port 8001')
+    recommendations.push('Check if kubectl proxy process is still running')
+  } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+    recommendations.push('Check if kubectl proxy is running: kubectl proxy --port=8001')
+    recommendations.push('Verify kubectl proxy is accessible on localhost:8001')
+    recommendations.push('Ensure anomstack service is healthy: kubectl get pods -n kw-anomaly')
+  } else if (errorMessage.includes('Service') && errorMessage.includes('not found')) {
+    recommendations.push('Deploy anomstack service: Apply the anomstack deployment YAML')
+    recommendations.push('Check namespace exists: kubectl get ns kw-anomaly')
+    recommendations.push('Verify service name matches: kubectl get svc -n kw-anomaly')
+  } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+    recommendations.push('Check RBAC permissions for accessing anomstack service')
+    recommendations.push('Verify service account has necessary cluster roles')
+    recommendations.push('Ensure kubectl proxy has proper authentication')
+  } else {
+    recommendations.push('Start kubectl proxy: kubectl proxy --port=8001')
+    recommendations.push('Check anomstack pod logs: kubectl logs -n kw-anomaly -l app=anomstack')
+    recommendations.push('Verify anomstack configuration and environment variables')
+    recommendations.push('Ensure Prometheus is running and accessible')
+    recommendations.push('Test anomstack service from within cluster: kubectl run test-pod --image=busybox --rm -i --restart=Never -- wget http://anomstack.kw-anomaly.svc.cluster.local:8080/health')
+  }
+
+  return recommendations
+}
 </script>
 
 <template>
@@ -543,13 +745,26 @@ function shortenLabel(value: string) {
         >
           <span class="nav-eyebrow">{{ tab.eyebrow }}</span>
           <strong>{{ tab.label }}</strong>
+          <div v-if="tab.id === 'anomalies'" :class="['tab-status-light', anomstackConnected ? 'green' : 'red']" :title="anomstackConnected ? 'Anomstack connected' : 'Anomstack not connected'"></div>
         </button>
       </nav>
 
       <div class="sidebar-foot">
         <p class="meta-label">Runtime posture</p>
         <strong>{{ statusText }}</strong>
-        <button class="ghost-btn" @click="loadWorkspace">Refresh workspace</button>
+        <button class="ghost-btn settings-btn" @click="showSettings = true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C13.1046 2 14 2.89543 14 4V5H18C18.5523 5 19 5.44772 19 6C19 6.55228 18.5523 7 18 7H17V10H18C18.5523 10 19 10.4477 19 11C19 11.5523 18.5523 12 18 12H17V15H18C18.5523 15 19 15.4477 19 16C19 16.5523 18.5523 17 18 17H14V18C14 19.1046 13.1046 20 12 20C10.8954 20 10 19.1046 10 18V17H6C5.44772 17 5 16.5523 5 16C5 15.4477 5.44772 15 6 15H7V12H6C5.44772 12 5 11.5523 5 11C5 10.4477 5.44772 10 6 10H7V7H6C5.44772 7 5 6.55228 5 6C5 5.44772 5.44772 5 6 5H10V4C10 2.89543 10.8954 2 12 2ZM12 6C11.4477 6 11 6.44772 11 7V11H13V7C13 6.44772 12.5523 6 12 6ZM12 13C11.4477 13 11 13.4477 11 14V18C11 18.5523 11.4477 19 12 19C12.5523 19 13 18.5523 13 18V14C13 13.4477 12.5523 13 12 13Z" fill="currentColor"/>
+          </svg>
+          Settings
+        </button>
+        <button class="ghost-btn refresh-btn" @click="loadWorkspace" title="Refresh workspace">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C9.69494 21 7.59227 20.1334 6.15617 18.8448" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M3 12H7.5L4.5 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M21 12C21 16.9706 16.9706 21 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
     </aside>
 
@@ -591,7 +806,7 @@ function shortenLabel(value: string) {
               <option value="custom">Custom</option>
             </select>
             <button class="primary-btn sweep-btn" @click="runSynapseSweep" :disabled="isRunningSweep">
-              {{ isRunningSweep ? 'Sending…' : 'Send Sentinels' }}
+              {{ isRunningSweep ? 'Scanning…' : 'Scan Cluster' }}
             </button>
           </div>
         </div>
@@ -696,6 +911,20 @@ function shortenLabel(value: string) {
                   <div>
                     <p class="meta-label">Live alerts</p>
                     <h3>Current anomaly candidates</h3>
+                  </div>
+                  <div class="panel-actions">
+                    <button
+                      v-if="!anomstackConnected"
+                      class="primary-btn connect-btn"
+                      @click="connectAnomstack"
+                      :disabled="isConnectingAnomstack"
+                    >
+                      {{ isConnectingAnomstack ? 'Connecting...' : 'Connect Anomalies' }}
+                    </button>
+                    <div v-if="anomstackConnected" class="connection-status">
+                      <span class="status-dot green"></span>
+                      <span class="status-text">Connected</span>
+                    </div>
                   </div>
                 </div>
                 <ul class="stack-list">
@@ -851,16 +1080,17 @@ function shortenLabel(value: string) {
                       v-for="cell in synapseSweepGrid.cells"
                       :key="`${cell.title}-${cell.summary}`"
                       :class="['scan-cell', cell.health]"
+                      @click="openScanModal(cell)"
+                      style="cursor: pointer;"
                     >
                       <div class="scan-cell-copy">
                         <strong>{{ cell.title }}</strong>
                         <p>{{ cell.summary }}</p>
                       </div>
-                      <span class="scan-tooltip">{{ cell.detail }}</span>
+                      <div class="scan-cell-click-hint">Click for details</div>
                     </article>
                   </div>
                 </div>
-                <CommandBlock v-if="synapseSweepOutput" :command="synapseSweepOutput" />
                 <pre v-else class="terminal-output">Run a scan to populate cluster diagnostics here.</pre>
               </article>
             </section>
@@ -945,6 +1175,209 @@ function shortenLabel(value: string) {
         </aside>
       </section>
     </main>
+
+    <!-- Settings Modal -->
+    <div v-if="showSettings" class="settings-modal-overlay" @click="showSettings = false">
+      <div class="settings-modal" @click.stop>
+        <div class="settings-modal-header">
+          <h3>Settings</h3>
+          <button class="settings-close-btn" @click="showSettings = false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="settings-modal-content">
+          <div class="settings-section">
+            <label class="settings-label">Kubernetes Context</label>
+            <input
+              v-model="settings.context"
+              type="text"
+              class="settings-input"
+              placeholder="Enter Kubernetes context name"
+            >
+          </div>
+
+          <div class="settings-section">
+            <label class="settings-label">Prometheus Scraping Routes</label>
+            <div class="settings-array-input">
+              <div v-for="(route, index) in settings.prometheusRoutes" :key="index" class="settings-array-item">
+                <input
+                  v-model="settings.prometheusRoutes[index]"
+                  type="url"
+                  class="settings-input"
+                  placeholder="https://prometheus.example.com"
+                >
+                <button class="settings-remove-btn" @click="settings.prometheusRoutes.splice(index, 1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <button class="settings-add-btn" @click="settings.prometheusRoutes.push('')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Add Route
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <label class="settings-label">Webhook URLs</label>
+            <div class="settings-array-input">
+              <div v-for="(url, index) in settings.webhookUrls" :key="index" class="settings-array-item">
+                <input
+                  v-model="settings.webhookUrls[index]"
+                  type="url"
+                  class="settings-input"
+                  placeholder="https://webhook.example.com"
+                >
+                <button class="settings-remove-btn" @click="settings.webhookUrls.splice(index, 1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <button class="settings-add-btn" @click="settings.webhookUrls.push('')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Add URL
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-modal-footer">
+          <button class="ghost-btn" @click="showSettings = false">Cancel</button>
+          <button class="primary-btn" @click="saveSettings">Save Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scan Details Modal -->
+    <div v-if="showScanModal" class="scan-modal-overlay" @click="closeScanModal">
+      <div class="scan-modal" @click.stop v-if="selectedScanCell">
+        <div class="scan-modal-header">
+          <h3>{{ selectedScanCell.title }}</h3>
+          <button class="scan-modal-close-btn" @click="closeScanModal">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="scan-modal-content">
+          <div class="scan-modal-summary">
+            <span :class="['pill', selectedScanCell.health]">{{ selectedScanCell.health }}</span>
+            <p>{{ selectedScanCell.summary }}</p>
+          </div>
+
+          <div class="scan-modal-issues" v-if="selectedScanCell">
+            <div v-if="getErrors(selectedScanCell.detail).length > 0" class="scan-issue-section">
+              <h4 class="scan-issue-header error-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V15H13V17ZM13 13H11V7H13V13Z" fill="#ef4444"/>
+                </svg>
+                Errors ({{ getErrors(selectedScanCell.detail).length }})
+              </h4>
+              <div class="scan-issue-list">
+                <div v-for="error in getErrors(selectedScanCell.detail)" :key="error.id" class="scan-issue-item error-item">
+                  <div class="scan-issue-content">
+                    <div class="scan-issue-title">{{ error.message }}</div>
+                    <div class="scan-issue-context">{{ error.context }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="getWarnings(selectedScanCell.detail).length > 0" class="scan-issue-section">
+              <h4 class="scan-issue-header warning-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V15H13V17ZM13 13H11V7H13V13Z" fill="#f59e0b"/>
+                </svg>
+                Warnings ({{ getWarnings(selectedScanCell.detail).length }})
+              </h4>
+              <div class="scan-issue-list">
+                <div v-for="warning in getWarnings(selectedScanCell.detail)" :key="warning.id" class="scan-issue-item warning-item">
+                  <div class="scan-issue-content">
+                    <div class="scan-issue-title">{{ warning.message }}</div>
+                    <div class="scan-issue-context">{{ warning.context }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="getInfos(selectedScanCell.detail).length > 0" class="scan-issue-section">
+              <h4 class="scan-issue-header info-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V15H13V17ZM13 13H11V7H13V13Z" fill="#3b82f6"/>
+                </svg>
+                Info ({{ getInfos(selectedScanCell.detail).length }})
+              </h4>
+              <div class="scan-issue-list">
+                <div v-for="info in getInfos(selectedScanCell.detail)" :key="info.id" class="scan-issue-item info-item">
+                  <div class="scan-issue-content">
+                    <div class="scan-issue-title">{{ info.message }}</div>
+                    <div class="scan-issue-context">{{ info.context }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!hasIssues(selectedScanCell.detail)" class="scan-modal-details">
+            <h4>Detailed Findings</h4>
+            <pre class="scan-modal-details-text">{{ selectedScanCell.detail }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Anomalies Connection Error Modal -->
+      <div v-if="showAnomstackErrorModal" class="anomstack-error-modal-overlay" @click="showAnomstackErrorModal = false">
+        <div class="anomstack-error-modal" @click.stop>
+          <div class="anomstack-error-modal-header">
+            <h3>Connection Failed</h3>
+            <button class="anomstack-error-modal-close-btn" @click="showAnomstackErrorModal = false">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="anomstack-error-modal-content">
+            <div class="error-summary">
+              <div class="error-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V15H13V17ZM13 13H11V7H13V13Z" fill="#ef4444"/>
+                </svg>
+              </div>
+              <div class="error-details">
+                <h4>Unable to connect to Anomalies service</h4>
+                <p class="error-message">{{ anomstackError }}</p>
+              </div>
+            </div>
+
+            <div class="recommendations-section">
+              <h4>Recommended Actions</h4>
+              <ul class="recommendations-list">
+                <li v-for="(recommendation, index) in anomstackRecommendations" :key="index" class="recommendation-item">
+                  <span class="recommendation-number">{{ index + 1 }}</span>
+                  <span class="recommendation-text">{{ recommendation }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="error-modal-actions">
+              <button class="ghost-btn" @click="showAnomstackErrorModal = false">Cancel</button>
+              <button class="primary-btn" @click="connectAnomstack(); showAnomstackErrorModal = false;">Try Again</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1226,6 +1659,547 @@ function shortenLabel(value: string) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.refresh-btn {
+  padding: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.tab-status-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+  box-shadow: 0 0 6px currentColor;
+  flex-shrink: 0;
+}
+
+.tab-status-light.green {
+  background-color: #10b981;
+  color: rgba(16, 185, 129, 0.4);
+}
+
+.tab-status-light.red {
+  background-color: #ef4444;
+  color: rgba(239, 68, 68, 0.4);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.connect-btn {
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  min-height: 28px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-dot.green {
+  background-color: #10b981;
+  box-shadow: 0 0 4px rgba(16, 185, 129, 0.6);
+}
+
+/* Anomalies Error Modal Styles */
+.anomstack-error-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.anomstack-error-modal {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  max-width: 500px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.anomstack-error-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.anomstack-error-modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.anomstack-error-modal-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+
+.anomstack-error-modal-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.anomstack-error-modal-content {
+  padding: 24px;
+}
+
+.error-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 12px;
+}
+
+.error-icon {
+  flex-shrink: 0;
+}
+
+.error-details h4 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.error-message {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.recommendations-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.recommendations-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recommendation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.recommendation-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--accent);
+  color: var(--text-primary);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.recommendation-text {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.error-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.settings-modal {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  max-width: 500px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.settings-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+
+.settings-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.settings-modal-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(12, 11, 17, 0.92);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.settings-input:focus {
+  border-color: rgba(125, 116, 214, 0.5);
+}
+
+.settings-array-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-array-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-array-item .settings-input {
+  flex: 1;
+}
+
+.settings-remove-btn,
+.settings-add-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.settings-add-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.settings-remove-btn:hover,
+.settings-add-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  border-color: rgba(125, 116, 214, 0.3);
+}
+
+.settings-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* Scan Modal Styles */
+.scan-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.scan-modal {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.scan-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scan-modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.scan-modal-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+
+.scan-modal-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.scan-modal-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.scan-modal-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.scan-modal-summary p {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.scan-modal-details h4 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scan-modal-details-text {
+  background: rgba(12, 11, 17, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.scan-cell-click-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Enhanced Scan Modal Issue Styles */
+.scan-modal-issues {
+  margin-top: 24px;
+}
+
+.scan-issue-section {
+  margin-bottom: 24px;
+}
+
+.scan-issue-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.error-header {
+  color: #ef4444;
+}
+
+.warning-header {
+  color: #f59e0b;
+}
+
+.info-header {
+  color: #3b82f6;
+}
+
+.scan-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scan-issue-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s ease;
+}
+
+.scan-issue-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.error-item {
+  border-left: 4px solid #ef4444;
+}
+
+.warning-item {
+  border-left: 4px solid #f59e0b;
+}
+
+.info-item {
+  border-left: 4px solid #3b82f6;
+}
+
+.scan-issue-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scan-issue-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.scan-issue-context {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
 }
 
 </style>

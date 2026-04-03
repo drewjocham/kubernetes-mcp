@@ -10,6 +10,10 @@ export function GetAIWorkspace():Promise<data.AIWorkspace>;
 
 export function GetAlerts():Promise<Array<data.AlertRecord>>;
 
+export function GetAnomstackAnomalies():Promise<Array<data.AlertRecord>>;
+
+export function GetCurrentContext():Promise<string>;
+
 export function GetEndpoint():Promise<string>;
 
 export function GetHistory():Promise<Array<data.Incident>>;

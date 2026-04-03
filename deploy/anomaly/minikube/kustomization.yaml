@@ -6,6 +6,9 @@ resources:
   - configmap-env.yaml
   - configmap-metrics.yaml
   - pvc.yaml
+  - signoz-log-consumer.yaml
+  - anomstack-services.yaml
+  - anomstack-nginx-config.yaml
   - deploy-webserver.yaml
   - deploy-daemon.yaml
   - deploy-dashboard.yaml

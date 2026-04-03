@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"kube-watcher-app/internal/data"
@@ -15,7 +16,6 @@ import (
 	"kube-watcher-app/internal/workspace"
 )
 
-// App struct
 type App struct {
 	ctx       context.Context
 	mcp       *mcp.Client
@@ -24,13 +24,10 @@ type App struct {
 	workspace *workspace.Handler
 }
 
-// NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}
 }
 
-// startup is called when the app starts. The context is saved
-// so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.mcp = mcp.New()
@@ -66,47 +63,38 @@ func (a *App) GetHistory() ([]data.Incident, error) {
 	return a.mcp.History(a.ctx)
 }
 
-// GetRecommendations returns remediation suggestions
 func (a *App) GetRecommendations() ([]data.Recommendation, error) {
 	return a.mcp.Recommendations(a.ctx)
 }
 
-// GetStatus returns the current MCP server status, endpoint and cluster
 func (a *App) GetStatus() (data.StatusResponse, error) {
 	return a.mcp.Status(a.ctx)
 }
 
-// GetEndpoint returns the MCP endpoint URL
 func (a *App) GetEndpoint() string {
 	return a.mcp.Endpoint()
 }
 
-// AskAI calls the OpenCode AI API with context
 func (a *App) AskAI(prompt string, contextStr string) (string, error) {
 	return a.opencode.Ask(a.ctx, prompt, contextStr)
 }
 
-// ExecuteTool calls an MCP tool
 func (a *App) ExecuteTool(name string, args map[string]any) (data.ToolResult, error) {
 	return a.mcp.ExecuteTool(a.ctx, name, args)
 }
 
-// GetServiceStatus returns Docker service statuses
 func (a *App) GetServiceStatus() ([]data.ServiceStatus, error) {
 	return a.mcp.Services(a.ctx)
 }
 
-// StartService starts a Docker service
 func (a *App) StartService(name string) error {
 	return a.mcp.StartService(a.ctx, name)
 }
 
-// StopService stops a Docker service
 func (a *App) StopService(name string) error {
 	return a.mcp.StopService(a.ctx, name)
 }
 
-// GetLogs returns actual logs from the platform components
 func (a *App) GetLogs() ([]data.LogLine, error) {
 	services, err := a.mcp.Services(a.ctx)
 	if err != nil {
@@ -144,12 +132,25 @@ func (a *App) GetLogs() ([]data.LogLine, error) {
 	return allLogs, nil
 }
 
+// GetAnomstackAnomalies returns anomalies from the anomstack service
+func (a *App) GetAnomstackAnomalies() ([]data.AlertRecord, error) {
+	return a.mcp.GetAnomstackAnomalies(a.ctx)
+}
+
 // RunSynapseSweep executes popeye CLI for node status
 func (a *App) RunSynapseSweep() (string, error) {
 	// Check if popeye is available
 	bin, err := exec.LookPath("popeye")
 	if err != nil {
-		return "", fmt.Errorf("popeye binary not found in PATH; install it first (go install github.com/derailed/popeye@v0.21.4 or add it to PATH)")
+		// Debug: check PATH and try direct path
+		pathEnv := os.Getenv("PATH")
+		directPath := "/opt/homebrew/bin/popeye"
+		if _, directErr := os.Stat(directPath); directErr == nil {
+			// Try using direct path
+			bin = directPath
+		} else {
+			return "", fmt.Errorf("popeye binary not found in PATH (%s); install it first (go install github.com/derailed/popeye@v0.21.4 or add it to PATH). Direct path check failed: %v", pathEnv, directErr)
+		}
 	}
 
 	// Run popeye with -A -o json
@@ -168,7 +169,28 @@ func (a *App) RunSynapseSweep() (string, error) {
 	return string(out), nil
 }
 
-// RunCommand executes a shell command and returns its combined output
+func (a *App) GetCurrentContext() (string, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "config", "current-context")
+	cmd.Env = os.Environ()
+	if kPath := resolveKubeconfigPath(); kPath != "" {
+		cmd.Env = append(cmd.Env, "KUBECONFIG="+kPath)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current context: %w (output: %s)", err, string(out))
+	}
+
+	context := strings.TrimSpace(string(out))
+	if context == "" {
+		return "unknown", nil
+	}
+	return context, nil
+}
+
 func (a *App) RunCommand(command string) (string, error) {
 	// For security in this specific context, we'll use a shell but wrap it.
 	// In a production app, you might want to whitelist or use more robust parsing.

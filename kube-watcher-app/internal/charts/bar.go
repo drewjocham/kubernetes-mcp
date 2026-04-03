@@ -7,14 +7,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Bar is a single entry in a BarChart.
 type Bar struct {
 	Label string
 	Value float64
 	Color lipgloss.Color
 }
 
-// BarChart renders a horizontal bar chart.
 type BarChart struct {
 	Bars       []Bar
 	MaxWidth   int
@@ -23,7 +21,6 @@ type BarChart struct {
 	ValueColor lipgloss.Color
 }
 
-// Render produces the chart as a string.
 func (bc BarChart) Render() string {
 	if len(bc.Bars) == 0 {
 		return ""

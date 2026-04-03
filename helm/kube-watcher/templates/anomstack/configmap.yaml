@@ -1,0 +1,41 @@
+{{- if .Values.anomstack.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-env
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+data:
+  ANOMSTACK_DUCKDB_PATH: {{ .Values.anomstack.env.duckdbPath | quote }}
+  ANOMSTACK_HOME: {{ .Values.anomstack.env.home | quote }}
+  ANOMSTACK_TABLE_KEY: {{ .Values.anomstack.env.tableKey | quote }}
+  ANOMSTACK_DASHBOARD_PORT: {{ .Values.anomstack.env.dashboardPort | quote }}
+  ANOMSTACK_LLM_PLATFORM: {{ .Values.anomstack.env.llmPlatform | quote }}
+  ANOMSTACK_LLMALERT_MODELS: {{ .Values.anomstack.env.llmalertModels | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-system-metrics
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+data:
+  system_metrics.yaml: |
+    metric_batch: "system_metrics"
+    table_key: "metrics"
+    ingest_cron_schedule: "*/5 * * * *"
+    train_cron_schedule: "*/180 * * * *"
+    score_cron_schedule: "*/10 * * * *"
+    alert_cron_schedule: "*/15 * * * *"
+    change_cron_schedule: "*/15 * * * *"
+    llmalert_cron_schedule: "*/60 * * * *"
+    alert_always: False
+    alert_metric_timestamp_max_days_ago: 3
+    disable_llmalert: True
+    disable_ingest: False
+    alert_methods: "webhook"
+{{- end }}
