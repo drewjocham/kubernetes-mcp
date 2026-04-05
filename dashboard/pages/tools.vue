@@ -101,7 +101,10 @@
                     style="width: 200px"
                   />
                 </NSpace>
-                <NSpace align="center" style="margin-left: auto;">
+                <NSpace
+                  align="center"
+                  style="margin-left: auto;"
+                >
                   <span class="switch-label">Switch model, API key, or provider config</span>
                   <NSwitch
                     v-model:value="switchConfig"
@@ -215,7 +218,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, computed, onMounted } from 'vue'
+import { h, ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   NAlert,
   NButton,
@@ -304,7 +307,7 @@ const result = ref<unknown>(null)
 const search = ref('')
 const watchDogRounds = ref('')
 const switchConfig = ref(false)
-let watchDogInterval: any = null
+let watchDogInterval: ReturnType<typeof setInterval> | null = null
 
 watch(watchDogRounds, (newVal) => {
   if (watchDogInterval) {

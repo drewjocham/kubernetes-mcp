@@ -231,6 +231,14 @@ KW_AGENT_ENDPOINT     # Agent chat endpoint (default: http://localhost:3000/api/
 KW_PROMETHEUS_URL     # Prometheus (default: http://localhost:9090)
 ```
 
+### K8sGPT Integration
+```
+K8SGPT_BASE_URL       # K8sGPT MCP server URL (default: http://localhost:8089)
+K8SGPT_API_KEY        # API key for AI provider (OpenAI, etc.)
+K8SGPT_MODEL          # AI model to use (default: gpt-4o)
+K8SGPT_BACKEND        # AI backend (openai, azureopenai, ollama, etc.)
+```
+
 ## Commit Guidelines
 
 - Use conventional commit messages

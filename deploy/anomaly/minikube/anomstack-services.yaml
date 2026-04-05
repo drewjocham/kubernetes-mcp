@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: anomstack-dashboard
+  namespace: kw-anomaly
+spec:
+  selector:
+    app: anomstack-dashboard
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anomstack-webserver
+  namespace: kw-anomaly
+spec:
+  selector:
+    app: anomstack-webserver
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 80

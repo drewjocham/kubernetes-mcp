@@ -1,5 +1,10 @@
 <template>
-  <div class="command-block" @click="runCommand" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
+  <div
+    class="command-block"
+    @click="runCommand"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
+  >
     <div class="command-content">
       <n-code
         :code="command"
@@ -7,15 +12,69 @@
         class="command-code"
         :class="{ 'isRunning': isRunning }"
       />
+      <div
+        v-if="isRunning"
+        class="running-spinner"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="rgba(59, 130, 246, 0.3)"
+            stroke-width="4"
+            fill="none"
+          />
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="#3b82f6"
+            stroke-width="4"
+            fill="none"
+            stroke-linecap="round"
+            stroke-dasharray="60"
+            stroke-dashoffset="40"
+          >
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 12 12"
+              to="360 12 12"
+              dur="1s"
+              repeatCount="indefinite"
+            />
+          </circle>
+        </svg>
+      </div>
     </div>
-    <div class="copy-icon" @click.stop="copyCommand">
-      <n-icon size="16" :component="CopyIcon" />
+    <div
+      class="copy-icon"
+      @click.stop="copyCommand"
+    >
+      <n-icon
+        size="16"
+        :component="CopyIcon"
+      />
       <transition name="fade">
-        <span v-if="showCopied" class="copied-text">copied</span>
+        <span
+          v-if="showCopied"
+          class="copied-text"
+        >copied</span>
       </transition>
     </div>
     <transition name="hover">
-      <div v-if="isHovered || isRunning" class="hover-text">Run Command</div>
+      <div
+        v-if="isHovered && !isRunning"
+        class="hover-text"
+      >
+        Run Command
+      </div>
     </transition>
   </div>
 </template>
@@ -51,10 +110,19 @@ const runCommand = () => {
   isRunning.value = true
   // Simulate running command
   console.log('Running command:', props.command)
+  
+  const startTime = Date.now()
+  const MIN_RUN_TIME = 500 // ms
+  
   // Here you could call an API to execute the command
+  // For now, simulate execution with minimum runtime
   setTimeout(() => {
-    isRunning.value = false
-  }, 3000) // Simulate execution time
+    const elapsed = Date.now() - startTime
+    const remaining = Math.max(0, MIN_RUN_TIME - elapsed)
+    setTimeout(() => {
+      isRunning.value = false
+    }, remaining)
+  }, 100) // Simulate actual execution time (shorter, but with minimum visual feedback)
 }
 
 const handleMouseEnter = () => {
@@ -70,7 +138,7 @@ const handleMouseLeave = () => {
 .command-block {
   position: relative;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .command-content {
@@ -78,14 +146,16 @@ const handleMouseLeave = () => {
 }
 
 .command-code.isRunning {
-  background: transparent !important;
-  border-color: rgba(75, 85, 99, 0.6) !important;
-  color: transparent !important;
+  background: rgba(31, 41, 55, 0.8) !important;
+  border-color: rgba(59, 130, 246, 0.6) !important;
+  color: #9ca3af !important;
+  position: relative;
 }
 
 .command-code.isRunning :deep(*) {
-  color: transparent !important;
+  color: #9ca3af !important;
   background: transparent !important;
+  opacity: 0.8;
 }
 
 .command-code {
@@ -171,5 +241,13 @@ const handleMouseLeave = () => {
 .hover-enter-from,
 .hover-leave-to {
   opacity: 0;
+}
+
+.running-spinner {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 </style>

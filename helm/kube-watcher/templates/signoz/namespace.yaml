@@ -1,0 +1,8 @@
+{{- if .Values.signoz.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+{{- end }}

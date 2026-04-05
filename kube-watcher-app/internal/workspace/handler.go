@@ -148,12 +148,25 @@ func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommend
 	}
 
 	if len(anomstackAlerts) > 0 {
-		// Prioritize anomstack anomalies
+		// Prioritize anomstack anomalies with enhanced AI analysis
 		topAnomaly := anomstackAlerts[0]
+		detail := fmt.Sprintf("AI anomaly detection: %s", topAnomaly.Message)
+
+		// Add specific recommendations based on anomaly type
+		if strings.Contains(strings.ToLower(topAnomaly.Name), "memory") {
+			detail += " - Consider resource limits and autoscaling"
+		} else if strings.Contains(strings.ToLower(topAnomaly.Name), "latency") {
+			detail += " - Check network policies and service mesh configuration"
+		} else if strings.Contains(strings.ToLower(topAnomaly.Name), "restart") {
+			detail += " - Investigate pod stability and liveness probes"
+		} else if strings.Contains(strings.ToLower(topAnomaly.Name), "log") {
+			detail += " - Review application logging and SigNoz log aggregation"
+		}
+
 		priorities = append(priorities, data.AIPriority{
 			Title:       fmt.Sprintf("Anomstack: %s", topAnomaly.Name),
 			Severity:    topAnomaly.Severity,
-			Detail:      fmt.Sprintf("AI anomaly detection: %s", topAnomaly.Message),
+			Detail:      detail,
 			ActionLabel: "Review anomaly details",
 		})
 	} else if top := topAlert(alerts); top != nil {
@@ -267,13 +280,15 @@ func buildPlaybooks(alerts []data.AlertRecord, recommendations []data.Recommenda
 	if anomstackAlertCount > 0 {
 		playbooks = append(playbooks, data.AIPlaybook{
 			Title:       "AI Anomaly Response",
-			Prompt:      fmt.Sprintf("Analyze %d AI-detected anomalies, prioritize remediation steps, and suggest preventive measures.", anomstackAlertCount),
+			Prompt:      fmt.Sprintf("Analyze %d AI-detected anomalies from SigNoz monitoring, prioritize remediation steps, suggest preventive measures, and recommend SigNoz dashboard views for deeper investigation.", anomstackAlertCount),
 			Target:      "Arguskube",
-			Description: fmt.Sprintf("AI-powered anomaly analysis for %d detected issues with automated recommendations.", anomstackAlertCount),
+			Description: fmt.Sprintf("AI-powered anomaly analysis for %d detected issues with automated recommendations and SigNoz integration.", anomstackAlertCount),
 			Commands: []string{
 				"kw view anomalies",
 				"kw ai analyze-anomalies",
 				"kw alert create --from-anomstack",
+				"kw signoz dashboard --anomalies",
+				"kw signoz logs --filter=anomaly",
 			},
 		})
 	}
@@ -285,6 +300,37 @@ func buildPlaybooks(alerts []data.AlertRecord, recommendations []data.Recommenda
 	}
 
 	return playbooks
+}
+
+// generateSigNozRecommendations creates SigNoz-specific recommendations for anomalies
+func generateSigNozRecommendations(anomstackAlerts []data.AlertRecord) []string {
+	recommendations := []string{}
+
+	for _, alert := range anomstackAlerts {
+		if strings.Contains(strings.ToLower(alert.Name), "memory") {
+			recommendations = append(recommendations,
+				"View SigNoz memory metrics dashboard for detailed resource usage patterns",
+				"Check container memory limits and consider horizontal pod autoscaling",
+			)
+		} else if strings.Contains(strings.ToLower(alert.Name), "latency") {
+			recommendations = append(recommendations,
+				"Analyze network latency in SigNoz distributed tracing dashboard",
+				"Review service mesh configurations and network policies",
+			)
+		} else if strings.Contains(strings.ToLower(alert.Name), "restart") {
+			recommendations = append(recommendations,
+				"Examine pod restart patterns in SigNoz logs dashboard",
+				"Check liveness and readiness probe configurations",
+			)
+		} else if strings.Contains(strings.ToLower(alert.Name), "log") {
+			recommendations = append(recommendations,
+				"Review application logs in SigNoz log explorer with anomaly filters",
+				"Set up log-based alerting rules in SigNoz for proactive monitoring",
+			)
+		}
+	}
+
+	return recommendations
 }
 
 func topAlert(alerts []data.AlertRecord) *data.AlertRecord {

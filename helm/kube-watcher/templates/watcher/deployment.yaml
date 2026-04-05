@@ -51,10 +51,10 @@ spec:
             httpGet:
               path: /readyz
               port: {{ .Values.watcher.ports.http }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 15
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 5
           livenessProbe:
             httpGet:
               path: /healthz
@@ -94,9 +94,9 @@ spec:
               path: /
               port: {{ .Values.badgerExplorer.port }}
             initialDelaySeconds: 15
-            periodSeconds: 10
+            periodSeconds: 15
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 5
           volumeMounts:
             - name: watcher-data
               mountPath: /event-engine-badger

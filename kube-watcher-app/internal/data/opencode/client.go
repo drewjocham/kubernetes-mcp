@@ -104,6 +104,7 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 	reqBody := ChatRequest{
 		Model: "big-pickle", // Default model as seen in issue description
 		Messages: []ChatMessage{
+			{Role: "system", Content: "You are a helpful AI assistant. Always respond with well-formatted markdown. Use code blocks for JSON, commands, and configuration. Use bullet points for lists. Do not use HTML tags like <br>, use markdown formatting instead."},
 			{Role: "user", Content: prompt},
 		},
 	}
@@ -125,7 +126,7 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("chat completion error (%d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("chat completion error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
 	}
 
 	var chatResp ChatResponse
@@ -137,7 +138,91 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 		return "", fmt.Errorf("no choices in chat completion response")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	content := chatResp.Choices[0].Message.Content
+	// Clean up markdown formatting issues
+	return cleanupMarkdown(content), nil
+}
+
+func decodeHtmlEntities(input string) string {
+	result := input
+	result = strings.ReplaceAll(result, "&lt;", "<")
+	result = strings.ReplaceAll(result, "&gt;", ">")
+	result = strings.ReplaceAll(result, "&amp;", "&")
+	result = strings.ReplaceAll(result, "&quot;", "\"")
+	result = strings.ReplaceAll(result, "&#39;", "'")
+	result = strings.ReplaceAll(result, "&nbsp;", " ")
+	return result
+}
+
+func cleanupMarkdown(input string) string {
+	if input == "" {
+		return input
+	}
+
+	// Decode HTML entities first
+	result := decodeHtmlEntities(input)
+
+	// Replace HTML line breaks with newlines
+	result = strings.ReplaceAll(result, "<br>", "\n")
+	result = strings.ReplaceAll(result, "<br/>", "\n")
+	result = strings.ReplaceAll(result, "<br />", "\n")
+
+	// Fix common malformed patterns
+	// Remove duplicate consecutive code block markers
+	// This is a simplified approach - for production, use proper regex
+	lines := strings.Split(result, "\n")
+	var cleanedLines []string
+	inCodeBlock := false
+	prevLine := ""
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Check if this line starts a code block
+		if strings.HasPrefix(trimmed, "```") {
+			if inCodeBlock {
+				// Already in code block, might be duplicate opener
+				// Skip if previous line was also a code block opener
+				if strings.HasPrefix(strings.TrimSpace(prevLine), "```") {
+					continue // Skip duplicate opener
+				}
+			}
+			inCodeBlock = !inCodeBlock
+		}
+
+		cleanedLines = append(cleanedLines, line)
+		prevLine = line
+	}
+
+	result = strings.Join(cleanedLines, "\n")
+
+	// Remove any remaining HTML tags (simple approach)
+	result = strings.ReplaceAll(result, "<strong>", "**")
+	result = strings.ReplaceAll(result, "</strong>", "**")
+	result = strings.ReplaceAll(result, "<b>", "**")
+	result = strings.ReplaceAll(result, "</b>", "**")
+	result = strings.ReplaceAll(result, "<em>", "*")
+	result = strings.ReplaceAll(result, "</em>", "*")
+	result = strings.ReplaceAll(result, "<i>", "*")
+	result = strings.ReplaceAll(result, "</i>", "*")
+
+	// Remove any other HTML tags (crude but works for common cases)
+	for strings.Contains(result, "<") && strings.Contains(result, ">") {
+		start := strings.Index(result, "<")
+		end := strings.Index(result, ">")
+		if start >= 0 && end > start {
+			result = result[:start] + result[end+1:]
+		} else {
+			break
+		}
+	}
+
+	// Normalize newlines (3+ newlines -> 2 newlines)
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(result)
 }
 
 func (c *Client) startRun(ctx context.Context, prompt string) (string, error) {
@@ -167,7 +252,7 @@ func (c *Client) startRun(ctx context.Context, prompt string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("opencode start error (%d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("opencode start error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
 	}
 
 	var startResp StartResponse
@@ -205,7 +290,7 @@ func (c *Client) pollRun(ctx context.Context, runID string) (string, error) {
 			case "SUCCEEDED":
 				return status.Output, nil
 			case "FAILED", "ERROR", "CANCELLED":
-				return "", fmt.Errorf("opencode run %s: %s", status.State, status.Error)
+				return "", fmt.Errorf("opencode run %s: %s", status.State, cleanupMarkdown(status.Error))
 			default:
 				// Still running
 			}

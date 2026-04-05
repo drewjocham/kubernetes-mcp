@@ -2,6 +2,14 @@
   <div class="command-block" @click="handleCommandClick" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
     <div class="command-content" :class="{ 'isRunning': isRunning, 'hasLogs': hasLogs }">
       <code>{{ command }}</code>
+      <div v-if="isRunning" class="running-spinner">
+        <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" stroke="rgba(59, 130, 246, 0.3)" stroke-width="4" fill="none"/>
+          <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="60" stroke-dashoffset="40">
+            <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+          </circle>
+        </svg>
+      </div>
     </div>
     <div class="copy-icon" @click.stop="copyCommand">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -13,7 +21,7 @@
       </transition>
     </div>
     <transition name="hover">
-      <div v-if="(isHovered || isRunning) && !showLogs" class="hover-text">Run Command</div>
+      <div v-if="isHovered && !isRunning && !showLogs" class="hover-text">Run Command</div>
     </transition>
 
     <!-- Log Layover Screen -->
@@ -85,23 +93,42 @@ const copyCommand = async () => {
 
 const runCommand = async () => {
   if (isRunning.value) return
+  console.log('[CommandBlock] runCommand:', props.command)
   isRunning.value = true
-  showLogs.value = true
+  
+  // Show logs overlay after a tiny delay to allow UI to settle
+  setTimeout(() => {
+    showLogs.value = true
+  }, 10)
   
   // Clear previous logs on re-run (per requirement: prior logs are overridden)
   setLogs(props.command, '')
   
+  const startTime = Date.now()
+  const MIN_RUN_TIME = 500 // ms
+  
   try {
+    console.log('[CommandBlock] calling RunCommand...')
     const result = await RunCommand(props.command)
+    console.log('[CommandBlock] RunCommand succeeded, result length:', result?.length || 0)
     setLogs(props.command, result || 'Command executed successfully with no output.')
   } catch (err) {
-    setLogs(props.command, `Error: ${err}`)
+    console.error('[CommandBlock] RunCommand error:', err)
+    const errMsg = err instanceof Error ? err.message : String(err)
+    setLogs(props.command, `Command failed: ${errMsg}\n\nNote: Some commands require Docker, kubectl, or other tools to be installed and configured.`)
   } finally {
-    isRunning.value = false
+    const elapsed = Date.now() - startTime
+    const remaining = Math.max(0, MIN_RUN_TIME - elapsed)
+    console.log('[CommandBlock] command finished, elapsed:', elapsed, 'remaining timeout:', remaining)
+    setTimeout(() => {
+      isRunning.value = false
+      console.log('[CommandBlock] isRunning set to false')
+    }, remaining)
   }
 }
 
 const handleCommandClick = () => {
+  console.log('[CommandBlock] handleCommandClick, hasLogs:', hasLogs.value, 'isRunning:', isRunning.value, 'showLogs:', showLogs.value)
   if (hasLogs.value) {
     showLogs.value = true
   } else {
@@ -127,13 +154,37 @@ watch(() => logs.value, () => {
     })
   }
 })
+
+// Debug showLogs changes
+watch(showLogs, (newVal, oldVal) => {
+  console.log('[CommandBlock] showLogs changed:', oldVal, '->', newVal)
+  if (newVal) {
+    nextTick(() => {
+      const modal = document.querySelector('.log-layover')
+      if (modal) {
+        const rect = modal.getBoundingClientRect()
+        const viewport = { width: window.innerWidth, height: window.innerHeight }
+        console.log('[CommandBlock] modal position:', {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+          viewport,
+          fits: rect.top >= 0 && rect.left >= 0 && 
+                 rect.bottom <= viewport.height && 
+                 rect.right <= viewport.width
+        })
+      }
+    })
+  }
+})
 </script>
 
 <style scoped>
 .command-block {
   position: relative;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
   margin-bottom: 8px;
   display: block;
 }
@@ -143,7 +194,7 @@ watch(() => logs.value, () => {
   border: 1px solid rgba(75, 85, 99, 0.3);
   border-radius: 8px;
   padding: 12px 16px;
-  transition: all 0.3s ease;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
 }
 
 .command-content code {
@@ -158,8 +209,9 @@ watch(() => logs.value, () => {
 }
 
 .command-content.isRunning {
-  background: transparent !important;
-  border-color: rgba(75, 85, 99, 0.6) !important;
+  background: rgba(31, 41, 55, 0.8) !important;
+  border-color: rgba(59, 130, 246, 0.6) !important;
+  position: relative;
 }
 
 .command-content.hasLogs {
@@ -167,7 +219,16 @@ watch(() => logs.value, () => {
 }
 
 .command-content.isRunning code {
-  color: transparent !important;
+  color: #9ca3af !important;
+  opacity: 0.8;
+}
+
+.running-spinner {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
+  z-index: 1;
 }
 
 .copy-icon {
@@ -224,12 +285,9 @@ watch(() => logs.value, () => {
 /* Log Layover Styles */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  /* backdrop-filter: blur(4px); */
   z-index: 100;
   cursor: default;
 }
@@ -240,8 +298,10 @@ watch(() => logs.value, () => {
   left: 50%;
   transform: translate(-50%, -50%);
   width: 80vw;
-  max-width: 900px;
-  height: 70vh;
+  max-width: min(900px, calc(100vw - 40px));
+  max-height: min(70vh, calc(100vh - 40px));
+  height: auto;
+  min-height: 200px;
   background: #111827;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
@@ -251,6 +311,7 @@ watch(() => logs.value, () => {
   z-index: 101;
   overflow: hidden;
   cursor: default;
+  box-sizing: border-box;
 }
 
 .log-header {
