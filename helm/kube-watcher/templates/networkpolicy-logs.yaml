@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-otel-logs-config
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+data:
+  logs_config.yaml: |
+    receivers:
+      filelog/kube-watcher:
+        include: [ /var/log/pods/*kube-watcher*/*.log ]
+        operators:
+          - type: json_parser
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+    service:
+      pipelines:
+        logs:
+          receivers: [filelog/kube-watcher]
+          exporters: [clickhouse]
+---
+{{- if .Values.signoz.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signoz-allow-monitoring
+  namespace: {{ .Values.namespaces.anomstack }}
+spec:
+  podSelector:
+    matchLabels:
+      app: signoz
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-watcher
+    ports:
+    - protocol: TCP
+      port: 4317
+    - protocol: TCP
+      port: 4318
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-allow-egress
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: {{ .Values.namespaces.anomstack }}
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 3000
+{{- end }}

@@ -1,0 +1,29 @@
+{{- if and .Values.signoz.enabled .Values.signoz.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: signoz-ingress
+  namespace: {{ .Values.namespaces.anomstack }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    {{- toYaml .Values.signoz.ingress.annotations | nindent 4 }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.signoz.ingress.tls }}
+  tls:
+    {{- toYaml .Values.signoz.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+  - host: {{ .Values.signoz.ingress.host }}
+    http:
+      paths:
+      - path: {{ .Values.signoz.ingress.path }}
+        pathType: Prefix
+        backend:
+          service:
+            name: signoz
+            port:
+              number: 3301
+{{- end }}

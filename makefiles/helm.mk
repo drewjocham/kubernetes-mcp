@@ -3,8 +3,8 @@
 	helm-install helm-upgrade helm-uninstall \
 	helm-status helm-diff helm-rollback
 
-HELM_CHART_DIR="../helm/kube-watcher"
-HELM_VALUES="../helm/kube-watcher/values.yaml"
+HELM_CHART_DIR="helm/kube-watcher"
+HELM_VALUES="helm/kube-watcher/values.yaml"
 HELM_RELEASE="local"
 
 
@@ -35,7 +35,7 @@ helm-upgrade:
 	@echo "Upgrading release: $(HELM_RELEASE) (atomic — rolls back on failure)..."
 	helm upgrade $(HELM_RELEASE) $(HELM_CHART_DIR) \
 		-f $(HELM_VALUES) \
-		--wait --timeout 5m \
+		--wait --timeout 5	m \
 		--atomic
 
 helm-uninstall:

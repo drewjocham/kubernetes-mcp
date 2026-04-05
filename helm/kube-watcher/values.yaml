@@ -27,7 +27,7 @@ mcp:
 
 # ─── Watcher Event Engine (+ Badger Explorer sidecar) ───────────────────────
 watcher:
-  enabled: true
+  enabled: false
   image:
     repository: watcher
     tag: latest
@@ -98,9 +98,9 @@ grafana:
     size: 1Gi
     storageClass: ""
 
-# ─── Anomstack (Dagster-based anomaly detection) ─────────────────────────────
+# ─── Anomstack (Dagster-based anomaly detection)
 anomstack:
-  enabled: true
+  enabled: false
   dagster:
     image:
       repository: anomstack_dagster_image
@@ -143,3 +143,76 @@ anomstack:
       limits:
         cpu: 200m
         memory: 256Mi
+
+# ─── K8sGPT (AI-Powered Kubernetes Analysis) ────────────────────────────────
+k8sgpt:
+  enabled: false
+  image:
+    repository: k8sgpt/k8sgpt
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8089
+  mcpPort: 8089
+  # K8sGPT backend configuration
+  backend: openai
+  model: gpt-4o
+  # API key for AI provider (set via environment variable or secret)
+  apiKey: ""
+  # Enable MCP server for AI assistant integration
+  enableMCP: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ─── Signoz (Observability Platform) ────────────────────────────────────────
+signoz:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: signoz/signoz
+    tag: v0.117.1
+    pullPolicy: IfNotPresent
+  clickhouse:
+    image:
+      repository: clickhouse/clickhouse-server
+      tag: 23.8-alpine
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  otelCollector:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: otel/opentelemetry-collector
+      tag: 0.102.1
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  ingress:
+    enabled: true
+    host: signoz.local
+    path: /
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    tls: []

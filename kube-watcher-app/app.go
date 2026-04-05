@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"kube-watcher-app/internal/data"
+	"kube-watcher-app/internal/data/k8sgpt"
 	"kube-watcher-app/internal/data/mcp"
 	"kube-watcher-app/internal/data/opencode"
 	"kube-watcher-app/internal/data/prometheus"
@@ -21,6 +22,7 @@ type App struct {
 	mcp       *mcp.Client
 	prom      *prometheus.Client
 	opencode  *opencode.Client
+	k8sgpt    *k8sgpt.Client
 	workspace *workspace.Handler
 }
 
@@ -33,6 +35,7 @@ func (a *App) startup(ctx context.Context) {
 	a.mcp = mcp.New()
 	a.prom = prometheus.New()
 	a.opencode = opencode.New()
+	a.k8sgpt = k8sgpt.New()
 	adapter := workspace.NewMCPAdapter(a.mcp)
 	a.workspace = workspace.NewHandler(
 		adapter,
@@ -76,6 +79,19 @@ func (a *App) GetEndpoint() string {
 }
 
 func (a *App) AskAI(prompt string, contextStr string) (string, error) {
+	// Try K8sGPT for Kubernetes-related questions
+	if a.k8sgpt != nil {
+		response, err := a.k8sgpt.Ask(a.ctx, prompt, contextStr)
+		if err == nil {
+			return response, nil
+		}
+		// If error is about non-Kubernetes question, fall back to opencode
+		if !strings.Contains(err.Error(), "not Kubernetes-related") {
+			// For other errors, we could still fall back to opencode
+			// but for now, let's log and try opencode
+		}
+	}
+	// Fall back to opencode for non-Kubernetes questions or if K8sGPT fails
 	return a.opencode.Ask(a.ctx, prompt, contextStr)
 }
 
@@ -142,11 +158,9 @@ func (a *App) RunSynapseSweep() (string, error) {
 	// Check if popeye is available
 	bin, err := exec.LookPath("popeye")
 	if err != nil {
-		// Debug: check PATH and try direct path
 		pathEnv := os.Getenv("PATH")
 		directPath := "/opt/homebrew/bin/popeye"
 		if _, directErr := os.Stat(directPath); directErr == nil {
-			// Try using direct path
 			bin = directPath
 		} else {
 			return "", fmt.Errorf("popeye binary not found in PATH (%s); install it first (go install github.com/derailed/popeye@v0.21.4 or add it to PATH). Direct path check failed: %v", pathEnv, directErr)
@@ -166,7 +180,12 @@ func (a *App) RunSynapseSweep() (string, error) {
 	if runErr != nil {
 		return "", fmt.Errorf("Synapse Sweep (popeye) error: %v, output: %s", runErr, string(out))
 	}
-	return string(out), nil
+	result := string(out)
+	fmt.Printf("[RunSynapseSweep] raw output length: %d\n", len(result))
+	if len(result) > 200 {
+		fmt.Printf("[RunSynapseSweep] first 200 chars: %s\n", result[:200])
+	}
+	return result, nil
 }
 
 func (a *App) GetCurrentContext() (string, error) {
