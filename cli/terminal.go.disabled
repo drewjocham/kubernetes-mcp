@@ -1,0 +1,22 @@
+package cli
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	terminalapp "kube-watcher/terminal/app"
+)
+
+func newTerminalCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "terminal",
+		Short: "Launch the terminal emulator (PTY + Bubble Tea)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := terminalapp.Run(); err != nil {
+				return fmt.Errorf("run terminal command: %w", err)
+			}
+			return nil
+		},
+	}
+}

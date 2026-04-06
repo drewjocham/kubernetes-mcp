@@ -1,0 +1,178 @@
+{{- if .Values.signoz.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signoz
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.signoz.replicaCount }}
+  selector:
+    matchLabels:
+      app: signoz
+  template:
+    metadata:
+      labels:
+        app: signoz
+        {{- include "kube-watcher.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- with .Values.signoz.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.signoz.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.signoz.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      - name: copy-clickhouse-users
+        image: busybox:latest
+        command: ["sh", "-c", "cp /config-users/* /users-d/"]
+        volumeMounts:
+        - name: clickhouse-users
+          mountPath: /config-users
+          readOnly: true
+        - name: clickhouse-users-empty
+          mountPath: /users-d
+      - name: init-signoz-dirs
+        image: busybox:latest
+        command: ["sh", "-c", "mkdir -p /var/lib/signoz/active_queries && chown -R 1000:1000 /var/lib/signoz"]
+        volumeMounts:
+        - name: signoz-data
+          mountPath: /var/lib/signoz
+
+      containers:
+      - name: signoz
+        image: {{ .Values.signoz.image.repository }}:{{ .Values.signoz.image.tag }}
+        imagePullPolicy: {{ .Values.signoz.image.pullPolicy }}
+        ports:
+        - containerPort: 3301
+          name: frontend
+        - containerPort: 4317
+          name: otel-grpc
+        - containerPort: 4318
+          name: otel-http
+        - containerPort: 8080
+          name: query-service
+        env:
+        - name: ClickHouseUrl
+          value: "tcp://default:default@127.0.0.1:9000?compatibility=21.8"
+        - name: STORAGE
+          value: "clickhouse"
+        - name: DEPLOY_ENV
+          value: "kubernetes"
+        - name: SIGNOZ_LOGS_ENABLED
+          value: "true"
+        - name: SIGNOZ_TOKENIZER_JWT_SECRET
+          value: "dev-secret-change-in-production"
+        startupProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        {{- if .Values.signoz.resources }}
+        resources:
+          {{- toYaml .Values.signoz.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: signoz-data
+          mountPath: /var/lib/signoz
+        - name: clickhouse-data
+          mountPath: /var/lib/clickhouse
+        - name: signoz-otel-config
+          mountPath: /etc/otel
+          readOnly: true
+      - name: clickhouse
+        image: {{ .Values.signoz.clickhouse.image.repository }}:{{ .Values.signoz.clickhouse.image.tag }}
+        imagePullPolicy: {{ .Values.signoz.clickhouse.image.pullPolicy }}
+        ports:
+        - containerPort: 9000
+          name: ch-tcp
+        - containerPort: 8123
+          name: ch-http
+        env:
+        - name: CLICKHOUSE_USER
+          value: "default"
+        - name: CLICKHOUSE_PASSWORD
+          value: "default"
+        - name: ALLOW_EMPTY_PASSWORD
+          value: "yes"
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        {{- if .Values.signoz.clickhouse.resources }}
+        resources:
+          {{- toYaml .Values.signoz.clickhouse.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: clickhouse-data
+          mountPath: /var/lib/clickhouse
+        - name: clickhouse-config
+          mountPath: /etc/clickhouse-server/config.d/
+        - name: clickhouse-users-empty
+          mountPath: /etc/clickhouse-server/users.d/
+      volumes:
+      - name: signoz-data
+        {{- if .Values.signoz.persistence.signoz.enabled }}
+        persistentVolumeClaim:
+          claimName: signoz-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: clickhouse-data
+        {{- if .Values.signoz.persistence.clickhouse.enabled }}
+        persistentVolumeClaim:
+          claimName: signoz-clickhouse-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: signoz-otel-config
+        configMap:
+          name: signoz-otel-config
+      - name: clickhouse-config
+        configMap:
+          name: signoz-clickhouse-config
+      - name: clickhouse-users
+        configMap:
+          name: signoz-clickhouse-users
+      - name: clickhouse-users-empty
+        emptyDir: {}
+{{- end }}

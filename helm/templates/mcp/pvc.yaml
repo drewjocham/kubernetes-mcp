@@ -1,0 +1,19 @@
+{{- if and .Values.mcp.enabled .Values.mcp.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-data
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: mcp
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mcp.persistence.size }}
+  {{- if .Values.mcp.persistence.storageClass }}
+  storageClassName: {{ .Values.mcp.persistence.storageClass }}
+  {{- end }}
+{{- end }}

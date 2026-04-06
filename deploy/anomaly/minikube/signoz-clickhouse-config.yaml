@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-clickhouse-config
+  namespace: kw-anomaly
+data:
+  config.xml: |
+    <?xml version="1.0"?>
+    <clickhouse>
+        <logger>
+            <level>information</level>
+            <console>true</console>
+        </logger>
+        <http_port>8123</http_port>
+        <tcp_port>9000</tcp_port>
+        <mysql_port>9004</mysql_port>
+        <postgresql_port>9005</postgresql_port>
+        <grpc>
+            <enable_ssl>false</enable_ssl>
+            <ssl_cert_file></ssl_cert_file>
+            <ssl_key_file></ssl_key_file>
+            <ssl_require_client_auth>false</ssl_require_client_auth>
+            <ssl_ca_cert_file></ssl_ca_cert_file>
+        </grpc>
+        <interserver_http_port>9009</interserver_http_port>
+        <listen_host>0.0.0.0</listen_host>
+        <max_connections>4096</max_connections>
+        <keep_alive_timeout>3</keep_alive_timeout>
+        <max_concurrent_queries>100</max_concurrent_queries>
+        <max_server_memory_usage>0</max_server_memory_usage>
+        <max_thread_pool_size>10000</max_thread_pool_size>
+        <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+        <total_memory_profiler_step>4194304</total_memory_profiler_step>
+        <total_memory_tracker_sample_probability>0</total_memory_tracker_sample_probability>
+        <uncompressed_cache_size>8589934592</uncompressed_cache_size>
+        <mark_cache_size>5368709120</mark_cache_size>
+        <path>/var/lib/clickhouse/</path>
+        <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+        <user_directories>
+            <users_xml>
+                <path>users.xml</path>
+            </users_xml>
+            <users_d>
+                <path>users.d</path>
+            </users_d>
+        </user_directories>
+        <default_profile>default</default_profile>
+        <default_database>default</default_database>
+        <timezone>UTC</timezone>
+        <mlock_executable>true</mlock_executable>
+        <remotes>
+        </remotes>
+        <zookeeper>
+        </zookeeper>
+        <distributed_ddl>
+            <path>/clickhouse/task_queue/ddl</path>
+        </distributed_ddl>
+        <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+    </clickhouse>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-clickhouse-users
+  namespace: kw-anomaly
+data:
+  01-clickhouse-users.xml: |
+    <?xml version="1.0"?>
+    <clickhouse>
+        <users>
+            <default>
+                <password></password>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+                <show_named_collections>1</show_named_collections>
+                <show_named_collections_secrets>1</show_named_collections_secrets>
+                <networks>
+                    <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+            </default>
+        </users>
+    </clickhouse>

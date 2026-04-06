@@ -1,0 +1,19 @@
+{{- if and .Values.signoz.enabled .Values.signoz.persistence.signoz.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signoz-data
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.signoz.persistence.signoz.size }}
+  {{- if .Values.signoz.persistence.signoz.storageClass }}
+  storageClassName: {{ .Values.signoz.persistence.signoz.storageClass }}
+  {{- end }}
+{{- end }}

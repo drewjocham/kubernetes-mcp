@@ -1,0 +1,96 @@
+{{- if .Values.k8sgpt.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8sgpt
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: k8sgpt
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8sgpt
+  template:
+    metadata:
+      labels:
+        app: k8sgpt
+    spec:
+      serviceAccountName: {{ include "kube-watcher.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sgpt.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sgpt.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sgpt.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: k8sgpt
+          image: {{ .Values.k8sgpt.image.repository }}:{{ .Values.k8sgpt.image.tag }}
+          imagePullPolicy: {{ .Values.k8sgpt.image.pullPolicy }}
+          command: ["k8sgpt"]
+          args:
+            - "serve"
+            - "--mcp"
+            - "--mcp-http"
+            - "--mcp-port"
+            - "{{ .Values.k8sgpt.mcpPort }}"
+          env:
+            - name: K8SGPT_BACKEND
+              value: {{ .Values.k8sgpt.backend }}
+            - name: K8SGPT_MODEL
+              value: {{ .Values.k8sgpt.model }}
+            {{- if .Values.k8sgpt.apiKey }}
+            - name: K8SGPT_API_KEY
+              value: {{ .Values.k8sgpt.apiKey }}
+            {{- end }}
+            - name: HOME
+              value: /home/nonroot
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.k8sgpt.mcpPort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.k8sgpt.mcpPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.k8sgpt.mcpPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.k8sgpt.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

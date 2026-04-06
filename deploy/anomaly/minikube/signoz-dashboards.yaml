@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-dashboards
+  namespace: kw-anomaly
+data:
+  anomaly-dashboard.json: |
+    {
+      "name": "Anomaly Detection Dashboard",
+      "description": "Monitor AI-detected anomalies and cluster health",
+      "widgets": [
+        {
+          "title": "Anomaly Count by Severity",
+          "type": "bar",
+          "query": "count by (severity) (anomstack_anomalies_total)",
+          "panel": "anomalies"
+        },
+        {
+          "title": "Recent Anomalies",
+          "type": "table",
+          "query": "anomstack_anomalies{severity!=\"info\"}",
+          "panel": "live_anomalies"
+        },
+        {
+          "title": "Memory Usage Trends",
+          "type": "line",
+          "query": "container_memory_usage_bytes",
+          "panel": "memory_trends"
+        }
+      ]
+    }
+  cluster-health-dashboard.json: |
+    {
+      "name": "Cluster Health Overview",
+      "description": "Comprehensive cluster health monitoring with SigNoz",
+      "widgets": [
+        {
+          "title": "Pod Status",
+          "type": "pie",
+          "query": "kube_pod_status_phase",
+          "panel": "pod_status"
+        },
+        {
+          "title": "Node Resource Usage",
+          "type": "gauge",
+          "query": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100",
+          "panel": "node_resources"
+        },
+        {
+          "title": "Service Health",
+          "type": "table",
+          "query": "kube_service_info",
+          "panel": "service_health"
+        }
+      ]
+    }

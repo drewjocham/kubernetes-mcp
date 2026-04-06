@@ -1,0 +1,19 @@
+{{- if and .Values.signoz.enabled .Values.signoz.persistence.clickhouse.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signoz-clickhouse-data
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.signoz.persistence.clickhouse.size }}
+  {{- if .Values.signoz.persistence.clickhouse.storageClass }}
+  storageClassName: {{ .Values.signoz.persistence.clickhouse.storageClass }}
+  {{- end }}
+{{- end }}

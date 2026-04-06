@@ -1,0 +1,146 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"kube-watcher/mcp/monitoring/alerts"
+	"kube-watcher/mcp/monitoring/history"
+	"kube-watcher/mcp/server"
+	"kube-watcher/pkg/audit"
+	"kube-watcher/pkg/kube"
+	kwatch "kube-watcher/pkg/kube/watch"
+	"kube-watcher/pkg/logging"
+)
+
+type mcpRuntimeConfig struct {
+	debug    bool
+	logFile  string
+	dbPath   string
+	interval time.Duration
+}
+
+type mcpRuntime struct {
+	server      *server.MCPServer
+	history     *history.Store
+	alertsStore alerts.StoreInterface
+}
+
+func newMCPRuntime(cfg mcpRuntimeConfig) (*mcpRuntime, error) {
+	logger, err := logging.New(cfg.debug, cfg.logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
+	dbPath := expandPath(cfg.dbPath)
+	if err := ensureDir(dbPath); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	// Create base Kubernetes client
+	baseClient, err := kube.NewClient(logger)
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes client init failed: %w", err)
+	}
+
+	// Wrap with audit logging
+	auditLogger := audit.NewSlogLogger(logger)
+	k8sClient := kube.NewAuditClient(baseClient, auditLogger, logger, kube.AuditOptionsFromEnv()...)
+
+	historyStore, err := history.NewStore(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("storage init failed: %w", err)
+	}
+
+	alertsStore, err := alerts.NewStore(strings.TrimSuffix(dbPath, ".db") + "-alerts.db")
+	if err != nil {
+		_ = historyStore.Close()
+		return nil, fmt.Errorf("alerts storage init failed: %w", err)
+	}
+
+	watchManager := kwatch.NewManager(k8sClient, logger, cfg.interval)
+	podTracker := kwatch.NewPodTracker(k8sClient.GetRawInterface(), logger)
+
+	mcpServer, err := server.NewMCPServer(logger, server.Config{
+		Version:      version,
+		GitCommit:    gitCommit,
+		BuildDate:    buildDate,
+		K8sClient:    k8sClient,
+		HistoryStore: historyStore,
+		AlertsStore:  alertsStore,
+		PodTracker:   podTracker,
+		Watcher:      watchManager,
+	})
+	if err != nil {
+		_ = alertsStore.Close()
+		_ = historyStore.Close()
+		return nil, fmt.Errorf("mcp server init failed: %w", err)
+	}
+
+	return &mcpRuntime{server: mcpServer, history: historyStore, alertsStore: alertsStore}, nil
+}
+
+func (r *mcpRuntime) close() {
+	logging.Shutdown()
+	if r != nil {
+		if r.history != nil {
+			_ = r.history.Close()
+		}
+		if r.alertsStore != nil {
+			_ = r.alertsStore.Close()
+		}
+	}
+}
+
+func runMCPTool(ctx context.Context, srv *server.MCPServer, toolName, rawArgs, output string) error {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return fmt.Errorf("invalid JSON in --args: %w", err)
+	}
+
+	result, err := srv.ExecuteTool(ctx, toolName, args)
+	if err != nil {
+		return err
+	}
+	return renderOutput(result, output)
+}
+
+func renderOutput(data any, output string) error {
+	switch output {
+	case "json":
+		out, err := json.MarshalIndent(data, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		return nil
+	case "yaml", "pretty":
+		out, err := yaml.Marshal(data)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format %q (expected json|yaml)", output)
+	}
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+func ensureDir(path string) error {
+	return os.MkdirAll(filepath.Dir(path), 0o755)
+}
