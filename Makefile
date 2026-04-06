@@ -1,22 +1,6 @@
-# kube-watcher — root Makefile
-# Can be invoked from any subdirectory; will forward to the repo root.
-#
-#   makefiles/mcp.mk        MCP server: build, run, docker, k8s ops
-#   makefiles/watcher.mk    Watcher engine: build, run, compose stack
-#   makefiles/monitoring.mk Prometheus, Grafana, Anomstack, dashboard, k8s observability
-#   makefiles/helm.mk       Helm chart lifecycle
-#   makefiles/testing.mk    Tests, coverage, lint, fmt, vet
-
-# ROOT_DIR must be captured before any include changes MAKEFILE_LIST.
 ROOT_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
 ifeq ($(realpath $(CURDIR)),$(ROOT_DIR))
-# ─────────────────────────────────────────────────────────────────────────────
-# Running from the repo root — all real content below.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ─── Shared Variables ─────────────────────────────────────────────────────────
-
 BIN_DIR              ?= $(ROOT_DIR)/bin
 COMPOSE_FILE         ?= $(ROOT_DIR)/docker/compose.yaml
 KUBECONFIG_PATH      ?= $(HOME)/.kube/config
@@ -28,6 +12,7 @@ WATCHER_BINARY_NAME   = watcher-engine
 DEPLOY_BINARY_NAME    = watcher-deploy
 CHAT_BRIDGE_BINARY_NAME = chatbridge
 DESKTOP_APP_BINARY_NAME = kube-watcher-app
+CLI_BINARY_NAME       = kw-cli
 
 # Source entry points (relative to ROOT_DIR, used with go run/build)
 MCP_CMD               = ./mcp/cmd/server
@@ -35,6 +20,7 @@ WATCHER_CMD           = ./watcher/cmd/engine
 DEPLOY_CMD            = ./watcher/cmd/deploy
 CHAT_BRIDGE_CMD       = ./integrations/cmd/chatbridge
 DESKTOP_APP_CMD       = ./cmd/kube-watcher-app
+CLI_CMD               = .
 
 # Build metadata
 VERSION              ?= 1.0.0
@@ -53,7 +39,7 @@ GOMOD                 = cd "$(ROOT_DIR)" && $(GOCMD) mod
 GORUN                 = cd "$(ROOT_DIR)" && $(GOCMD) run
 
 # Helm / Kubernetes
-HELM_CHART_DIR       ?= $(ROOT_DIR)/Helm/kube-watcher
+HELM_CHART_DIR       ?= $(ROOT_DIR)/helm/kube-watcher
 HELM_RELEASE         ?= kube-watcher
 HELM_VALUES          ?= $(HELM_CHART_DIR)/values.yaml
 KW_NAMESPACE         ?= kube-watcher
@@ -77,7 +63,7 @@ include $(ROOT_DIR)/makefiles/testing.mk
 
 all: fmt vet test build
 
-build: build-mcp build-watcher build-deploy build-chatbridge build-desktop-app
+build: build-mcp build-cli build-watcher build-deploy build-chatbridge build-desktop-app
 
 clean:
 	@echo "Cleaning build artifacts..."
@@ -135,13 +121,10 @@ help:
 	@echo "  k8s-events        warning events (both namespaces)"
 	@echo "  k8s-top           node + pod resource usage"
 	@echo "  k8s-logs-prometheus tail Prometheus logs"
-	@echo "  k8s-logs-grafana  tail Grafana logs"
 	@echo "  k8s-logs-anomstack tail Anomstack webserver logs"
-	@echo "  k8s-pf-grafana    port-forward Grafana → localhost:3000"
 	@echo "  k8s-pf-prometheus port-forward Prometheus → localhost:9090"
 	@echo "  k8s-pf-anomstack  port-forward Anomstack UI → localhost:3001"
 	@echo "  k8s-pf-all        all port-forwards in background"
-	@echo "  k8s-restart-grafana rolling restart Grafana"
 	@echo "  k8s-restart-anomstack rolling restart all Anomstack deployments"
 	@echo ""
 	@echo "Helm  (makefiles/helm.mk):"

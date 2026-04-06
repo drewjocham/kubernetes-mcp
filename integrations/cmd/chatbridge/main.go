@@ -29,6 +29,7 @@ func main() {
 		slog.Error("logger init failed", "error", err)
 		os.Exit(1)
 	}
+	defer logging.Shutdown()
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		logger.Error("configuration file not found", "path", *configPath)

@@ -71,6 +71,7 @@ func runApplication(configPath string, debug bool, logFile string, httpAddr stri
 	if err != nil {
 		return fmt.Errorf("initialize logger: %w", err)
 	}
+	defer logging.Shutdown()
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -180,7 +181,8 @@ func (a *engineApp) initCEL(cfg *config.WatchConfig) (*cel.Env, error) {
 	)
 }
 
-func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInterface, st tracker.Store, ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
+func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInterface, st tracker.Store,
+	ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
 	engine := rules.NewEngine(a.logger, cfg, st, env)
 	src := source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second)
 	podEnricher := pipeline.NewPodEnricher(getEnrichmentFields(cfg.ResourceTracking.Fields, cfg.Rules))

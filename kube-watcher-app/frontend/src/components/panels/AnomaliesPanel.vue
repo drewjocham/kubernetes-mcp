@@ -34,9 +34,29 @@
             </button>
           </div>
         </div>
+        <div class="filter-bar">
+          <button
+            v-for="severity in ['all', 'critical', 'error', 'warning', 'info', 'low']"
+            :key="severity"
+            :class="['filter-pill', { active: selectedSeverity === severity }]"
+            @click="selectedSeverity = severity"
+          >
+            {{ severity }}
+          </button>
+        </div>
+        <div class="filter-bar">
+          <button
+            v-for="opt in stateOptions"
+            :key="opt.value"
+            :class="['filter-pill', { active: selectedState === opt.value }]"
+            @click="selectedState = opt.value"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <ul class="stack-list">
           <AlertCard
-            v-for="alert in alerts.slice(0, 6)"
+            v-for="alert in filteredAlerts.slice(0, 6)"
             :key="alert.id"
             :alert="alert"
             :format-when="formatWhen"
@@ -84,6 +104,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
 import AlertCard from '../cards/AlertCard.vue'
 import RecommendationCard from '../cards/RecommendationCard.vue'
 import IncidentTimelineItem from '../cards/IncidentTimelineItem.vue'
@@ -101,8 +122,34 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const selectedSeverity = ref<string>('all')
+const selectedState = ref<string>('all')
+
+const stateOptions = [
+  { value: 'all', label: 'All States' },
+  { value: 'new', label: 'New' },
+  { value: 'acknowledged', label: 'Acknowledged' },
+  { value: 'silenced', label: 'Silenced' },
+  { value: 'being_investigated', label: 'Being Investigated' },
+  { value: 'false_positive', label: 'False Positive' },
+  { value: 'deleted', label: 'Deleted' }
+]
+
+const filteredAlerts = computed(() => {
+  let filtered = props.alerts
+  
+  if (selectedSeverity.value !== 'all') {
+    filtered = filtered.filter(alert => alert.severity === selectedSeverity.value)
+  }
+  
+  if (selectedState.value !== 'all') {
+    filtered = filtered.filter(alert => alert.state === selectedState.value)
+  }
+  
+  return filtered
+})
+
 console.log('AnomaliesPanel props:', props)
-import { onMounted } from 'vue'
 onMounted(() => console.log('AnomaliesPanel mounted'))
 const emit = defineEmits<{
   'connect-anomstack': []
@@ -178,13 +225,44 @@ function handleAlertClick(alert: data.AlertRecord) {
   white-space: nowrap;
 }
 
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: capitalize;
+}
+
+.filter-pill:hover {
+  border-color: var(--border-active);
+  background: var(--hover);
+}
+
+.filter-pill.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: white;
+}
+
 .stack-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
 
 .timeline {

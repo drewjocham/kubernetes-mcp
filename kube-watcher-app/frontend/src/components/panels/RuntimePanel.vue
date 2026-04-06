@@ -1,48 +1,12 @@
 <template>
   <section class="runtime-panel">
     <div class="panel-grid">
-      <!-- Services Panel -->
-      <article class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="meta-label">Services</p>
-            <h3>Platform runtime</h3>
-          </div>
-        </div>
-        <div class="service-grid">
-          <ServiceCard
-            v-for="service in services"
-            :key="service.name"
-            :service="service"
-            :disabled="isRefreshingServices"
-            @toggle="emit('toggle-service', service)"
-          />
-        </div>
-      </article>
-
-      <!-- Logs Panel -->
-      <article class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="meta-label">Logs</p>
-            <h3>Recent runtime events</h3>
-          </div>
-        </div>
-        <ul class="stack-list">
-          <LogCard
-            v-for="entry in logs"
-            :key="`${entry.timestamp}-${entry.message}`"
-            :log="entry"
-          />
-        </ul>
-      </article>
-
       <!-- Synapse Sweep Panel -->
-      <article class="panel span-wide">
+      <article class="panel">
         <div class="panel-head">
           <div>
             <p class="meta-label">Synapse Sweep output</p>
-            <h3>Cluster scan payload</h3>
+            <h3>Cluster diagnostics</h3>
           </div>
         </div>
         <div v-if="scanGrid.cells.length" class="scan-grid-wrap">
@@ -63,21 +27,17 @@
 </template>
 
 <script setup lang="ts">
-import ServiceCard from '../cards/ServiceCard.vue'
-import LogCard from '../cards/LogCard.vue'
+
 import ScanCell from '../cards/ScanCell.vue'
 import { data } from '../../../wailsjs/go/models'
 import type { ScanCell as ScanCellType } from './types'
 
 interface Props {
-  services: data.ServiceStatus[]
-  logs: data.LogLine[]
   scanGrid: {
     cells: ScanCellType[]
     headline: string
     fallback: string
   }
-  isRefreshingServices: boolean
 }
 
 const props = defineProps<Props>()
@@ -85,7 +45,6 @@ console.log('RuntimePanel props:', props)
 import { onMounted } from 'vue'
 onMounted(() => console.log('RuntimePanel mounted'))
 const emit = defineEmits<{
-  'toggle-service': [service: data.ServiceStatus]
   'open-scan-modal': [cell: ScanCellType]
 }>()
 </script>
@@ -97,7 +56,7 @@ const emit = defineEmits<{
 
 .panel-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 20px;
 }
 
@@ -108,9 +67,7 @@ const emit = defineEmits<{
   background: var(--panel-bg);
 }
 
-.panel.span-wide {
-  grid-column: 1 / -1;
-}
+
 
 .panel-head {
   margin-bottom: 20px;
@@ -167,6 +124,9 @@ const emit = defineEmits<{
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   margin: 0 0 4px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 h3 {
@@ -174,6 +134,52 @@ h3 {
   font-weight: 600;
   margin: 0;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-head-actions {
+  margin-left: auto;
+}
+
+.streaming-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.streaming-toggle:hover {
+  background: var(--surface-strong);
+}
+
+.streaming-toggle.streaming-on {
+  border-color: var(--good);
+  background: rgba(63, 191, 127, 0.1);
+}
+
+.streaming-toggle-label {
+  font-weight: 500;
+}
+
+.streaming-toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.2s;
+}
+
+.streaming-toggle.streaming-on .streaming-toggle-dot {
+  background: var(--good);
 }
 
 @media (max-width: 1024px) {

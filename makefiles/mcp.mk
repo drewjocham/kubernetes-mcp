@@ -1,10 +1,10 @@
 # ─── MCP Server ───────────────────────────────────────────────────────────────
 # Covers: build, local run, Docker, cross-compilation, desktop app, compose
 
-.PHONY: build-mcp build-deploy build-chatbridge build-desktop-app \
+.PHONY: build-mcp build-cli build-deploy build-chatbridge build-desktop-app \
 	build-all build-linux build-darwin build-windows \
 	run run-mcp run-deploy run-chatbridge run-health run-list run-server \
-	mcp-up install docker-build docker-run \
+	mcp-up install install-system install-local docker-build docker-run \
 	dev desktop-dev desktop-build tui run-tui
 
 # ── Build ──────────────────────────────────────────────────────────────────────
@@ -12,6 +12,12 @@
 build-mcp:
 	@echo "Building $(MCP_BINARY_NAME)..."
 	$(GOBUILD) $(MCP_LDFLAGS) -o $(BIN_DIR)/$(MCP_BINARY_NAME) $(MCP_CMD)
+
+build-cli:
+	@echo "Building $(CLI_BINARY_NAME)..."
+	$(GOBUILD) -o $(BIN_DIR)/$(CLI_BINARY_NAME) $(CLI_CMD)
+	@echo "Creating kw symlink to $(CLI_BINARY_NAME)..."
+	@ln -sf $(CLI_BINARY_NAME) $(BIN_DIR)/kw
 
 build-deploy:
 	@echo "Building $(DEPLOY_BINARY_NAME)..."
@@ -70,10 +76,7 @@ run-server:
 dev: fmt vet
 	$(GORUN) $(MCP_CMD) --db-path $(MCP_DB_PATH)
 
-install: build-mcp
-	@echo "Installing $(MCP_BINARY_NAME) to $(GOPATH_BIN)..."
-	@mkdir -p $(GOPATH_BIN)
-	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH_BIN)/
+
 
 # ── Docker ─────────────────────────────────────────────────────────────────────
 
@@ -94,7 +97,7 @@ desktop-dev:
 	@echo "Starting Kube-Watcher Desktop App (Wails + Vue) in development mode..."
 	@echo "Prerequisites:"
 	@echo "  MCP server: make run-server (or set KW_TOOLS_ENDPOINT)"
-	cd kube-watcher-app && wails dev
+	cd kube-watcher-app && KW_CLI_BINARY_PATH="$(ROOT_DIR)/bin/kw-cli" KW_BINARY_PATH="$(ROOT_DIR)/bin/kw" wails dev
 
 desktop-build: build-desktop-app
 
@@ -113,3 +116,32 @@ k8s-pf-mcp:
 k8s-restart-mcp:
 	kubectl rollout restart deployment/mcp -n $(KW_NAMESPACE)
 	kubectl rollout status deployment/mcp -n $(KW_NAMESPACE)
+
+# ── Installation ──────────────────────────────────────────────────────────────
+
+install: build-mcp build-cli
+	@echo "Installing $(MCP_BINARY_NAME) and $(CLI_BINARY_NAME) to $(GOPATH_BIN)..."
+	@mkdir -p $(GOPATH_BIN)
+	cp $(BIN_DIR)/$(MCP_BINARY_NAME) $(GOPATH_BIN)/
+	cp $(BIN_DIR)/$(CLI_BINARY_NAME) $(GOPATH_BIN)/
+	@echo "Creating kw symlink in $(GOPATH_BIN) to $(CLI_BINARY_NAME)..."
+	@ln -sf $(CLI_BINARY_NAME) $(GOPATH_BIN)/kw
+	@echo "$(MCP_BINARY_NAME) and $(CLI_BINARY_NAME) installed to $(GOPATH_BIN)"
+	@echo "kw symlink created. Ensure $(GOPATH_BIN) is in your PATH"
+
+install-system: build-cli
+	@echo "Installing $(CLI_BINARY_NAME) to /usr/local/bin..."
+	@cp -f $(BIN_DIR)/$(CLI_BINARY_NAME) /usr/local/bin/$(CLI_BINARY_NAME) 2>/dev/null || \
+		echo "Failed to install to /usr/local/bin. Try: sudo make install"
+	@echo "Creating kw symlink to $(CLI_BINARY_NAME)..."
+	@ln -sf $(CLI_BINARY_NAME) /usr/local/bin/kw 2>/dev/null || \
+		echo "Failed to create symlink. Try: sudo make install"
+	@echo "$(CLI_BINARY_NAME) installed successfully"
+
+install-local: build-cli
+	@echo "Installing $(CLI_BINARY_NAME) to ~/.local/bin..."
+	@mkdir -p ~/.local/bin
+	@cp -f $(BIN_DIR)/$(CLI_BINARY_NAME) ~/.local/bin/$(CLI_BINARY_NAME)
+	@echo "Creating kw symlink to $(CLI_BINARY_NAME)..."
+	@ln -sf $(CLI_BINARY_NAME) ~/.local/bin/kw
+	@echo "$(CLI_BINARY_NAME) installed to ~/.local/bin. Ensure ~/.local/bin is in your PATH"

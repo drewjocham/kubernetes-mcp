@@ -29,7 +29,7 @@ func New() *Client {
 	apiKey := os.Getenv("K8SGPT_API_KEY")
 	model := os.Getenv("K8SGPT_MODEL")
 	if model == "" {
-		model = "gpt-4o" // Default model
+		model = "gpt-3.5-turbo"
 	}
 	return &Client{
 		baseURL:    baseURL,
@@ -90,7 +90,6 @@ type ToolCallRequest struct {
 }
 
 func (c *Client) Ask(ctx context.Context, prompt string, contextStr string) (string, error) {
-	// Check if this is a Kubernetes-related question
 	if !IsKubernetesQuestion(prompt) {
 		return "", fmt.Errorf("question is not Kubernetes-related, use opencode client instead")
 	}
@@ -120,10 +119,9 @@ func (c *Client) queryMCP(ctx context.Context, prompt string) (string, error) {
 		},
 	}
 
-	// Add context to the prompt for better analysis
+	// Adding context to the prompt
 	enhancedPrompt := fmt.Sprintf("%s\n\nBased on the cluster analysis above, please answer: %s", prompt, prompt)
 
-	// Create MCP request for tools
 	mcpReq := MCPRequest{
 		Method: "tools/call",
 		Params: map[string]interface{}{
@@ -357,4 +355,16 @@ func IsKubernetesQuestion(prompt string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Client) SetConfig(baseURL, apiKey, model string) {
+	if baseURL != "" {
+		c.baseURL = baseURL
+	}
+	if apiKey != "" {
+		c.apiKey = apiKey
+	}
+	if model != "" {
+		c.model = model
+	}
 }

@@ -85,7 +85,6 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return cfg, errors.New("--cluster-name is required")
 	}
 
-	// For KAD deployments, prometheus endpoint is required
 	if cfg.Action == "deploy" && cfg.AppType != "watcher" && strings.TrimSpace(cfg.PrometheusEndpoint) == "" {
 		return cfg, errors.New("--prometheus-endpoint is required for deploy (kad app type)")
 	}
@@ -95,27 +94,25 @@ func NormalizeAndValidate(cfg Config) (Config, error) {
 		return cfg, errors.New("--cluster-name must include at least one alphanumeric character")
 	}
 
-	// Set default namespace if empty
 	if strings.TrimSpace(cfg.Namespace) == "" {
 		cfg.Namespace = DefaultNamespace
 	}
 
-	// Validate namespace name
 	if !IsValidDNSLabel(cfg.Namespace) {
-		return cfg, fmt.Errorf("invalid namespace %q: must be a valid DNS label (lowercase alphanumeric characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Namespace)
+		return cfg, fmt.Errorf("invalid namespace %q: must be a valid DNS label (lowercase alphanumeric "+
+			"characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Namespace)
 	}
 
 	if strings.TrimSpace(cfg.Name) == "" {
-		// Default app name based on app type
 		if cfg.AppType == "watcher" {
 			cfg.Name = fmt.Sprintf("watcher-%s", sanitizedCluster)
 		} else {
 			cfg.Name = fmt.Sprintf("%s-%s", DefaultAppName, sanitizedCluster)
 		}
 	} else {
-		// Validate user-provided name
 		if !IsValidDNSLabel(cfg.Name) {
-			return cfg, fmt.Errorf("invalid name %q: must be a valid Kubernetes resource name (lowercase alphanumeric characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Name)
+			return cfg, fmt.Errorf("invalid name %q: must be a valid Kubernetes resource name "+
+				"(lowercase alphanumeric characters or '-', start and end with alphanumeric, max 63 characters)", cfg.Name)
 		}
 	}
 
@@ -595,7 +592,9 @@ spec:
         - name: app-data
           persistentVolumeClaim:
             claimName: %s
-`, cfg.Name, cfg.Namespace, IndentYAML(configYAML, 4), cfg.PVCName, cfg.Namespace, cfg.Name, component, cfg.Name, cfg.ClusterName, cfg.PVCSize, cfg.Name, cfg.Namespace, cfg.Name, cfg.Name, component, cfg.Name, cfg.ClusterName, image, argsStr, cfg.ClusterName, cfg.Name, cfg.PVCName)
+`, cfg.Name, cfg.Namespace, IndentYAML(configYAML, 4), cfg.PVCName, cfg.Namespace, cfg.Name, component, cfg.Name,
+		cfg.ClusterName, cfg.PVCSize, cfg.Name, cfg.Namespace, cfg.Name, cfg.Name, component, cfg.Name,
+		cfg.ClusterName, image, argsStr, cfg.ClusterName, cfg.Name, cfg.PVCName)
 }
 
 func KADConfigYAML(cfg Config) string {

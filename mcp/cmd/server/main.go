@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"kube-watcher/mcp/api"
+	"kube-watcher/mcp/monitoring/alerts"
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
 	"kube-watcher/pkg/audit"
@@ -49,6 +50,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
+	defer logging.Shutdown()
 
 	dbPath := expandPath(cfg.dbPath)
 	handleErr(ensureDir(dbPath), "failed to create database directory", logger)
@@ -65,12 +67,20 @@ func main() {
 
 	watchManager := watch.NewManager(k8sClient, logger, cfg.interval)
 
+	alertsStore, err := alerts.NewStore(strings.TrimSuffix(dbPath, ".db") + "-alerts.db")
+	handleErr(err, "alerts storage init failed", logger)
+	defer func() { _ = alertsStore.Close() }()
+
+	podTracker := watch.NewPodTracker(k8sClient.GetRawInterface(), logger)
+
 	mcpServer, err := server.NewMCPServer(logger, server.Config{
 		Version:      version,
 		GitCommit:    gitCommit,
 		BuildDate:    buildDate,
 		K8sClient:    k8sClient,
 		HistoryStore: historyStore,
+		AlertsStore:  alertsStore,
+		PodTracker:   podTracker,
 		Watcher:      watchManager,
 	})
 	handleErr(err, "mcp server init failed", logger)

@@ -66,40 +66,78 @@ const localCustomUnit = computed({
 }
 
 .sweep-select {
-  background: #111;
-  color: #888;
-  border: 1px solid #333;
-  padding: 4px 8px;
-  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 8px;
   font-size: 13px;
   outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+.sweep-select:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.sweep-select:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .custom-interval-input {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .interval-number {
-  width: 50px;
-  background: #111;
-  color: #fff;
-  border: 1px solid #333;
-  padding: 4px 8px;
-  border-radius: 4px;
+  width: 60px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 8px;
   font-size: 13px;
   outline: none;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.interval-number:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.interval-number:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .interval-unit {
-  background: #111;
-  color: #888;
-  border: 1px solid #333;
-  padding: 4px 4px;
-  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 8px;
   font-size: 13px;
   outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.interval-unit:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.interval-unit:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .primary-btn {
@@ -124,10 +162,11 @@ const localCustomUnit = computed({
 }
 
 .sweep-btn {
-  font-size: 10px !important;
+  font-size: 13px !important;
   letter-spacing: 0.02em;
-  padding: 4px 10px !important;
-  min-height: 26px;
+  padding: 8px 16px !important;
+  min-height: 36px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+  border-radius: 8px;
 }
 </style>

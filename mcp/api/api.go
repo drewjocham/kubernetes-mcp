@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -80,6 +81,14 @@ func New(cfg Config) (*API, error) {
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(a.recoveryMiddleware)
@@ -95,14 +104,11 @@ func (a *API) Routes() http.Handler {
 		r.Get("/tools", a.handleListTools)
 		r.Post("/tools/{tool}", a.handleExecuteTool)
 		r.Get("/alerts", a.handleAlerts)
+		r.Put("/alerts/{id}/state", a.handleUpdateAlertState)
+		r.Post("/alerts/{id}/comments", a.handleAddAlertComment)
 		r.Get("/history", a.handleHistory)
 		r.Get("/recommendations", a.handleRecommendations)
-		// Docker service management
-		r.Get("/services", a.handleListServices)
-		r.Post("/services/{name}/start", a.handleStartService)
-		r.Post("/services/{name}/stop", a.handleStopService)
-		r.Post("/services/{name}/restart", a.handleRestartService)
-		r.Get("/services/{name}/logs", a.handleServiceLogs)
+
 	})
 
 	return r
@@ -173,8 +179,55 @@ func (a *API) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleAlerts(w http.ResponseWriter, r *http.Request) {
-	alerts := a.server.AlertsSnapshot()
+	alerts := a.server.AlertsSnapshot(r.Context())
 	a.respond(w, r, http.StatusOK, map[string]any{"alerts": alerts})
+}
+
+func (a *API) handleUpdateAlertState(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	req, err := decodeJSON[struct {
+		State string `json:"state"`
+	}](r)
+	if err != nil {
+		a.respondError(w, r, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if req.State == "" {
+		a.respondError(w, r, http.StatusBadRequest, "state is required", nil)
+		return
+	}
+
+	if err := a.server.UpdateAlertState(ctx, id, req.State); err != nil {
+		a.respondError(w, r, http.StatusInternalServerError, "failed to update alert state", err)
+		return
+	}
+	a.respond(w, r, http.StatusOK, map[string]any{"updated": true})
+}
+
+func (a *API) handleAddAlertComment(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	req, err := decodeJSON[struct {
+		Author  string `json:"author"`
+		Content string `json:"content"`
+	}](r)
+	if err != nil {
+		a.respondError(w, r, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if req.Author == "" || req.Content == "" {
+		a.respondError(w, r, http.StatusBadRequest, "author and content are required", nil)
+		return
+	}
+
+	if err := a.server.AddAlertComment(ctx, id, req.Author, req.Content); err != nil {
+		a.respondError(w, r, http.StatusInternalServerError, "failed to add comment", err)
+		return
+	}
+	a.respond(w, r, http.StatusOK, map[string]any{"added": true})
 }
 
 func (a *API) handleHistory(w http.ResponseWriter, r *http.Request) {

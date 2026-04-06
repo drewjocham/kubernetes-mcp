@@ -48,7 +48,7 @@ kube-watcher/
 │
 ├── docker/
 │   ├── Dockerfile.template       # Multi-stage build (builder + debug + final)
-│   └── compose.yaml              # MCP + watcher + Prometheus + Grafana + Explorer
+│       └── compose.yaml              # MCP + watcher + Prometheus + Explorer
 │
 └── Makefile                      # build, test, lint, run, Docker targets
 ```

@@ -24,6 +24,70 @@ type App struct {
 	opencode  *opencode.Client
 	k8sgpt    *k8sgpt.Client
 	workspace *workspace.Handler
+	aiConfig  AIConfig
+}
+
+type AIConfig struct {
+	Provider string
+	APIKey   string
+	BaseURL  string
+	Model    string
+	Backend  string
+}
+
+// kwBinaryPath returns the path to the kw binary (prefer kw-cli for CLI commands).
+// It looks for the binary in the following order:
+// 1. KW_CLI_BINARY_PATH environment variable (for kw-cli)
+// 2. KW_BINARY_PATH environment variable (for kw)
+// 3. ../bin/kw-cli relative to the executable
+// 4. ../bin/kw relative to the executable
+// 5. kw-cli in PATH
+// 6. kw in PATH
+func (a *App) kwBinaryPath() (string, error) {
+	// 1. KW_CLI_BINARY_PATH environment variable
+	if envPath := os.Getenv("KW_CLI_BINARY_PATH"); envPath != "" {
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath, nil
+		}
+	}
+
+	// 2. KW_BINARY_PATH environment variable
+	if envPath := os.Getenv("KW_BINARY_PATH"); envPath != "" {
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath, nil
+		}
+	}
+
+	// 3. Relative to executable (for development)
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		// Try multiple relative paths
+		relPaths := []string{
+			"../bin/kw-cli",
+			"../bin/kw",
+			"../../bin/kw-cli",
+			"../../bin/kw",
+		}
+		for _, rel := range relPaths {
+			devPath := filepath.Join(exeDir, rel)
+			if absPath, err := filepath.Abs(devPath); err == nil {
+				if _, err := os.Stat(absPath); err == nil {
+					return absPath, nil
+				}
+			}
+		}
+	}
+
+	// 4. Look in PATH for kw-cli
+	if path, err := exec.LookPath("kw-cli"); err == nil {
+		return path, nil
+	}
+	// 5. Look in PATH for kw
+	if path, err := exec.LookPath("kw"); err == nil {
+		return path, nil
+	}
+
+	return "", fmt.Errorf("kw binary not found. Please install kw using 'make install-local' or set KW_CLI_BINARY_PATH/KW_BINARY_PATH")
 }
 
 func NewApp() *App {
@@ -61,6 +125,16 @@ func (a *App) GetAlerts() ([]data.AlertRecord, error) {
 	return a.mcp.Alerts(a.ctx)
 }
 
+// UpdateAlertState updates the state of an alert
+func (a *App) UpdateAlertState(id string, state string) error {
+	return a.mcp.UpdateAlertState(a.ctx, id, state)
+}
+
+// AddAlertComment adds a comment to an alert
+func (a *App) AddAlertComment(id string, author string, content string) error {
+	return a.mcp.AddAlertComment(a.ctx, id, author, content)
+}
+
 // GetHistory returns incident history
 func (a *App) GetHistory() ([]data.Incident, error) {
 	return a.mcp.History(a.ctx)
@@ -95,62 +169,238 @@ func (a *App) AskAI(prompt string, contextStr string) (string, error) {
 	return a.opencode.Ask(a.ctx, prompt, contextStr)
 }
 
+func (a *App) UpdateAIConfig(provider, apiKey, baseURL, model, backend string) error {
+	fmt.Printf("UpdateAIConfig called: provider=%q, apiKey=%q (len=%d), baseURL=%q, model=%q, backend=%q\n",
+		provider, maskAPIKey(apiKey), len(apiKey), baseURL, model, backend)
+	a.aiConfig = AIConfig{
+		Provider: provider,
+		APIKey:   apiKey,
+		BaseURL:  baseURL,
+		Model:    model,
+		Backend:  backend,
+	}
+	// Update opencode client (general AI agent)
+	if a.opencode != nil {
+		a.opencode.SetConfig(baseURL, apiKey, provider, model, backend)
+	}
+	// Note: K8sGPT client uses separate environment variables (K8SGPT_*)
+	// and is configured independently
+	return nil
+}
+
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "***" + key[len(key)-4:]
+}
+
 func (a *App) ExecuteTool(name string, args map[string]any) (data.ToolResult, error) {
 	return a.mcp.ExecuteTool(a.ctx, name, args)
-}
-
-func (a *App) GetServiceStatus() ([]data.ServiceStatus, error) {
-	return a.mcp.Services(a.ctx)
-}
-
-func (a *App) StartService(name string) error {
-	return a.mcp.StartService(a.ctx, name)
-}
-
-func (a *App) StopService(name string) error {
-	return a.mcp.StopService(a.ctx, name)
-}
-
-func (a *App) GetLogs() ([]data.LogLine, error) {
-	services, err := a.mcp.Services(a.ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetch services for logs: %w", err)
-	}
-
-	var allLogs []data.LogLine
-	for _, s := range services {
-		if s.Status != "running" {
-			continue
-		}
-		lines, err := a.mcp.FetchServiceLogs(a.ctx, s.Name, "10")
-		if err != nil {
-			continue
-		}
-		for _, line := range lines {
-			allLogs = append(allLogs, data.LogLine{
-				Timestamp: time.Now(), // FetchServiceLogs currently returns strings, we'll use now for simplicity
-				Level:     "INFO",
-				Source:    s.Name,
-				Message:   line,
-			})
-		}
-	}
-
-	if len(allLogs) == 0 {
-		allLogs = append(allLogs, data.LogLine{
-			Timestamp: time.Now(),
-			Level:     "INFO",
-			Source:    "System",
-			Message:   "No active logs found for running services.",
-		})
-	}
-
-	return allLogs, nil
 }
 
 // GetAnomstackAnomalies returns anomalies from the anomstack service
 func (a *App) GetAnomstackAnomalies() ([]data.AlertRecord, error) {
 	return a.mcp.GetAnomstackAnomalies(a.ctx)
+}
+
+// GetNamespaces returns a list of all namespaces in the cluster
+func (a *App) GetNamespaces() ([]string, error) {
+	result, err := a.mcp.ExecuteTool(a.ctx, "list_namespaces", map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute namespace list tool: %w", err)
+	}
+	if result.Err != "" {
+		return nil, fmt.Errorf("tool error: %s", result.Err)
+	}
+	namespacesRaw, ok := result.Output["namespaces"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing namespaces array")
+	}
+	namespaces := make([]string, 0, len(namespacesRaw))
+	for _, ns := range namespacesRaw {
+		nsMap, ok := ns.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, ok := nsMap["name"].(string)
+		if !ok {
+			continue
+		}
+		namespaces = append(namespaces, name)
+	}
+	return namespaces, nil
+}
+
+// GetPods returns pods in the specified namespace (empty for all namespaces)
+func (a *App) GetPods(namespace string) ([]data.PodInfo, error) {
+	args := map[string]any{}
+	if namespace != "" {
+		args["namespace"] = namespace
+	}
+	result, err := a.mcp.ExecuteTool(a.ctx, "get_pod_resources", args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute pod resources tool: %w", err)
+	}
+	if result.Err != "" {
+		return nil, fmt.Errorf("tool error: %s", result.Err)
+	}
+	podsRaw, ok := result.Output["pods"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing pods array")
+	}
+	pods := make([]data.PodInfo, 0, len(podsRaw))
+	for _, p := range podsRaw {
+		podMap, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		podInfo, err := mapToPodInfo(podMap)
+		if err != nil {
+			// skip invalid pod entry
+			continue
+		}
+		pods = append(pods, podInfo)
+	}
+	return pods, nil
+}
+
+func mapToPodInfo(podMap map[string]any) (data.PodInfo, error) {
+	var pod data.PodInfo
+	var err error
+
+	// Basic fields
+	if name, ok := podMap["name"].(string); ok {
+		pod.Name = name
+	}
+	if namespace, ok := podMap["namespace"].(string); ok {
+		pod.Namespace = namespace
+	}
+	if status, ok := podMap["status"].(string); ok {
+		pod.Status = status
+	}
+	if node, ok := podMap["node"].(string); ok {
+		pod.NodeName = node
+	}
+	if phaseRaw, ok := podMap["phase"]; ok {
+		if phase, ok := phaseRaw.(string); ok {
+			pod.Phase = phase
+		}
+	}
+	if ageStr, ok := podMap["age"].(string); ok {
+		duration, err := time.ParseDuration(ageStr)
+		if err == nil {
+			pod.Age = duration
+		}
+	}
+	if restartsRaw, ok := podMap["restarts"]; ok {
+		if restarts, ok := restartsRaw.(float64); ok {
+			pod.RestartCount = int(restarts)
+		}
+	}
+	// Labels and annotations not provided by tool, leave empty
+	pod.Labels = make(map[string]string)
+	pod.Annotations = make(map[string]string)
+
+	// Containers
+	if containersRaw, ok := podMap["containers"].([]any); ok {
+		containers := make([]data.ContainerInfo, 0, len(containersRaw))
+		for _, cRaw := range containersRaw {
+			if cMap, ok := cRaw.(map[string]any); ok {
+				var container data.ContainerInfo
+				if name, ok := cMap["name"].(string); ok {
+					container.Name = name
+				}
+				if image, ok := cMap["image"].(string); ok {
+					container.Image = image
+				}
+				if readyRaw, ok := cMap["ready"]; ok {
+					if ready, ok := readyRaw.(bool); ok {
+						container.Ready = ready
+					}
+				}
+				if restartsRaw, ok := cMap["restarts"]; ok {
+					if restarts, ok := restartsRaw.(float64); ok {
+						container.RestartCount = int32(restarts)
+					}
+				}
+				if health, ok := cMap["health"].(string); ok {
+					container.State = health
+				}
+				containers = append(containers, container)
+			}
+		}
+		pod.Containers = containers
+	}
+	return pod, err
+}
+
+// GetPodLogs returns logs for a specific pod and container
+func (a *App) GetPodLogs(namespace, podName, container string) (string, error) {
+	args := map[string]any{
+		"namespace": namespace,
+		"pod_name":  podName,
+	}
+	if container != "" {
+		args["container"] = container
+	}
+	result, err := a.mcp.ExecuteTool(a.ctx, "get_pod_logs", args)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute pod logs tool: %w", err)
+	}
+	if result.Err != "" {
+		return "", fmt.Errorf("tool error: %s", result.Err)
+	}
+	logsRaw, ok := result.Output["logs"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response format: missing logs string")
+	}
+	return logsRaw, nil
+}
+
+// DeployAnomstack deploys anomstack using the specified profile (local, minikube, cluster)
+func (a *App) DeployAnomstack(profile string) (string, error) {
+	binaryPath, err := a.kwBinaryPath()
+	if err != nil {
+		return "", fmt.Errorf("failed to find kw binary: %w", err)
+	}
+	cmd := fmt.Sprintf("%s anomstack start --profile %s", binaryPath, profile)
+	return a.RunCommand(cmd)
+}
+
+// GetPodYAML returns the YAML manifest of a pod
+func (a *App) GetPodYAML(namespace, podName string) (string, error) {
+	cmd := fmt.Sprintf("kubectl get pod -n %s %s -o yaml", namespace, podName)
+	return a.RunCommand(cmd)
+}
+
+// DescribePod returns the kubectl describe output for a pod
+func (a *App) DescribePod(namespace, podName string) (string, error) {
+	cmd := fmt.Sprintf("kubectl describe pod -n %s %s", namespace, podName)
+	return a.RunCommand(cmd)
+}
+
+// GetPodAIHelp returns AI-generated help for a pod using k8sgpt or opencode
+func (a *App) GetPodAIHelp(namespace, podName string) (string, error) {
+	// Use opencode to analyze pod issues
+	query := fmt.Sprintf("Analyze pod %s in namespace %s. Provide troubleshooting steps.", podName, namespace)
+	response, err := a.opencode.Ask(a.ctx, query, "")
+	if err != nil {
+		return "", fmt.Errorf("failed to get AI help: %w", err)
+	}
+	return response, nil
+}
+
+// ExecPodCommand executes a command inside a pod container using kubectl exec
+func (a *App) ExecPodCommand(namespace, podName, container, command string) (string, error) {
+	// Build kubectl exec command
+	execCmd := fmt.Sprintf("kubectl exec -n %s %s", namespace, podName)
+	if container != "" {
+		execCmd += fmt.Sprintf(" -c %s", container)
+	}
+	execCmd += fmt.Sprintf(" -- sh -c %q", command)
+
+	return a.RunCommand(execCmd)
 }
 
 // RunSynapseSweep executes popeye CLI for node status

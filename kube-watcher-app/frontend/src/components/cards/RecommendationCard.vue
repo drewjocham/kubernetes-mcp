@@ -4,7 +4,8 @@
       <strong>{{ recommendation.title }}</strong>
       <span :class="['pill', recommendation.severity]">{{ recommendation.severity }}</span>
     </div>
-    <p>{{ recommendation.summary }}</p>
+    <div class="recommendation-info-icon" title="Summary">i</div>
+    <p class="recommendation-summary">{{ recommendation.summary }}</p>
     <code v-if="recommendation.steps?.length">{{ recommendation.steps[0] }}</code>
   </li>
 </template>
@@ -26,6 +27,7 @@ defineProps<Props>()
   border: 1px solid var(--border);
   background: var(--card-bg);
   transition: all 0.2s;
+  position: relative;
 }
 
 .stack-card:hover {
@@ -83,11 +85,13 @@ defineProps<Props>()
   border: 1px solid rgba(34, 197, 94, 0.2);
 }
 
-.stack-card p {
+.recommendation-summary {
   margin: 8px 0;
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 
 .stack-card code {
@@ -102,5 +106,33 @@ defineProps<Props>()
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.recommendation-info-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  color: var(--card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: help;
+  transition: background 0.2s;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+}
+
+.recommendation-info-icon:hover {
+  background: var(--text-primary);
+}
+
+.recommendation-info-icon:hover ~ .recommendation-summary,
+.recommendation-summary:hover {
+  opacity: 1;
 }
 </style>

@@ -18,6 +18,23 @@ spec:
         app: signoz
         {{- include "kube-watcher.labels" . | nindent 8 }}
     spec:
+      initContainers:
+      - name: copy-clickhouse-users
+        image: busybox:latest
+        command: ["sh", "-c", "cp /config-users/* /users-d/"]
+        volumeMounts:
+        - name: clickhouse-users
+          mountPath: /config-users
+          readOnly: true
+        - name: clickhouse-users-empty
+          mountPath: /users-d
+      - name: init-signoz-dirs
+        image: busybox:latest
+        command: ["sh", "-c", "mkdir -p /var/lib/signoz/active_queries && chown -R 1000:1000 /var/lib/signoz"]
+        volumeMounts:
+        - name: signoz-data
+          mountPath: /var/lib/signoz
+
       containers:
       - name: signoz
         image: {{ .Values.signoz.image.repository }}:{{ .Values.signoz.image.tag }}
@@ -33,11 +50,26 @@ spec:
           name: query-service
         env:
         - name: ClickHouseUrl
-          value: "tcp://signoz-clickhouse:9000"
+          value: "tcp://default:default@127.0.0.1:9000?compatibility=21.8"
         - name: STORAGE
           value: "clickhouse"
         - name: DEPLOY_ENV
           value: "kubernetes"
+        - name: SIGNOZ_LOGS_ENABLED
+          value: "true"
+        - name: SIGNOZ_TOKENIZER_JWT_SECRET
+          value: "dev-secret-change-in-production"
+        startupProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
         {{- if .Values.signoz.resources }}
         resources:
           {{- toYaml .Values.signoz.resources | nindent 10 }}
@@ -47,6 +79,9 @@ spec:
           mountPath: /var/lib/signoz
         - name: clickhouse-data
           mountPath: /var/lib/clickhouse
+        - name: signoz-otel-config
+          mountPath: /etc/otel
+          readOnly: true
       - name: clickhouse
         image: {{ .Values.signoz.clickhouse.image.repository }}:{{ .Values.signoz.clickhouse.image.tag }}
         imagePullPolicy: {{ .Values.signoz.clickhouse.image.pullPolicy }}
@@ -59,7 +94,19 @@ spec:
         - name: CLICKHOUSE_USER
           value: "default"
         - name: CLICKHOUSE_PASSWORD
-          value: ""
+          value: "default"
+        - name: ALLOW_EMPTY_PASSWORD
+          value: "yes"
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 30
         {{- if .Values.signoz.clickhouse.resources }}
         resources:
           {{- toYaml .Values.signoz.clickhouse.resources | nindent 10 }}
@@ -67,9 +114,24 @@ spec:
         volumeMounts:
         - name: clickhouse-data
           mountPath: /var/lib/clickhouse
+        - name: clickhouse-config
+          mountPath: /etc/clickhouse-server/config.d/
+        - name: clickhouse-users-empty
+          mountPath: /etc/clickhouse-server/users.d/
       volumes:
       - name: signoz-data
         emptyDir: {}
       - name: clickhouse-data
+        emptyDir: {}
+      - name: signoz-otel-config
+        configMap:
+          name: signoz-otel-config
+      - name: clickhouse-config
+        configMap:
+          name: signoz-clickhouse-config
+      - name: clickhouse-users
+        configMap:
+          name: signoz-clickhouse-users
+      - name: clickhouse-users-empty
         emptyDir: {}
 {{- end }}

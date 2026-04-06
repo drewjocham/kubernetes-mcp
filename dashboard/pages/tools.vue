@@ -377,7 +377,7 @@ const validationErrors = computed(() => {
 
 const toolColumns: DataTableColumns<Tool> = [
   { title: 'Name', key: 'name' },
-  { title: 'Description', key: 'description' },
+  { title: 'Description', key: 'description', ellipsis: true, width: 300 },
   {
     title: 'Run',
     key: 'actions',

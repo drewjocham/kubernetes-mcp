@@ -66,7 +66,7 @@ function closeModal() {
 .anomstack-error-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+   background: rgba(0, 0, 0, 0.85);
   z-index: 999;
   display: flex;
   align-items: center;

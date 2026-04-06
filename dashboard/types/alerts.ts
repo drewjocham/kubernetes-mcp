@@ -16,6 +16,9 @@ export interface AlertIngestPayload {
     lastLogLines?: string[]
     describeOutput?: string
     clusterEvents?: string[]
+    yaml?: string
+    aiHelp?: string
+    podUID?: string
   }
 }
 
@@ -41,6 +44,8 @@ export interface AlertRecord extends AlertIngestPayload {
   thinkingSteps: AlertThinkingStep[]
   report?: RCAReport
   error?: string
+  podExists?: boolean
+  cachedAt?: string
 }
 
 export interface WorkflowConfig {

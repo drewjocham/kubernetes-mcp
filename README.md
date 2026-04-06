@@ -41,6 +41,15 @@ go mod tidy
 ### Homebrew commands
 If installed via Homebrew, the formula currently installs the `kube-watcher` binary.
 
+### Local development
+When building from source, the Makefile creates a `kw` symlink to `kube-watcher` for convenience. 
+You can install `kw` to your PATH using:
+```bash
+make install-local    # installs to ~/.local/bin
+# or
+make install-system   # installs to /usr/local/bin (may require sudo)
+```
+
 ```bash
 kube-watcher version
 ```

@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"kube-watcher-app/internal/charts"
+	"kube-watcher-app/internal/data"
+	"kube-watcher-app/internal/theme"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"kube-watcher-app/internal/charts"
-	"kube-watcher-app/internal/data"
-	"kube-watcher-app/internal/theme"
 )
 
-// Screen shows incident history with inline sparklines.
 type Screen struct {
 	incidents []data.Incident
 	viewport  viewport.Model
@@ -22,13 +22,11 @@ type Screen struct {
 	selected  int
 }
 
-// New creates an Anomalies screen.
 func New(width, height int) *Screen {
 	vp := viewport.New(width-2, height-4)
 	return &Screen{viewport: vp, width: width, height: height}
 }
 
-// SetHistory replaces the incident list and refreshes the view.
 func (s *Screen) SetHistory(incidents []data.Incident) {
 	s.incidents = incidents
 	s.selected = 0

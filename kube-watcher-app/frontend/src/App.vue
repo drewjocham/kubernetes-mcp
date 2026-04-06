@@ -5,7 +5,7 @@ import Sidebar from './components/layout/Sidebar.vue'
 import Header from './components/layout/Header.vue'
 import ArguskubePanel from './components/panels/ArguskubePanel.vue'
 import AnomaliesPanel from './components/panels/AnomaliesPanel.vue'
-import DeploymentsPanel from './components/panels/DeploymentsPanel.vue'
+
 import RuntimePanel from './components/panels/RuntimePanel.vue'
 import SummaryGrid from './components/summary/SummaryGrid.vue'
 import SweepControls from './components/controls/SweepControls.vue'
@@ -23,13 +23,12 @@ import { renderMarkdown, formatWhen } from './utils'
 import { data } from '../wailsjs/go/models'
 import type { ScanCell } from './components/panels/types'
 
-type TabId = 'arguskube' | 'anomalies' | 'deploy' | 'runtime'
+type TabId = 'arguskube' | 'anomalies' | 'runtime'
 
 const tabs: { id: TabId; label: string; eyebrow: string }[] = [
-  { id: 'arguskube', label: 'Arguskube', eyebrow: 'First class' },
-  { id: 'anomalies', label: 'Anomalies', eyebrow: 'Live context' },
-  { id: 'deploy', label: 'Deploy', eyebrow: 'Local to cluster' },
-  { id: 'runtime', label: 'Workspace', eyebrow: 'Services + scans' },
+  { id: 'arguskube', label: 'Arguskube', eyebrow: '' },
+  { id: 'anomalies', label: 'Anomalies', eyebrow: '' },
+  { id: 'runtime', label: 'Workspace', eyebrow: '' },
 ]
 
 const activeTab = ref<TabId>('anomalies')
@@ -50,7 +49,6 @@ const showContent = computed(() => !workspace.isLoading.value && !workspace.erro
 const isArguskubeExpanded = ref(false)
 const isTopPriorityExpanded = ref(false)
 const isPriorityQueueExpanded = ref(false)
-const isDeploymentTracksExpanded = ref(true)
 const showScanModal = ref(false)
 const selectedScanCell = ref<ScanCell | null>(null)
 const showAlertDetailModal = ref(false)
@@ -66,15 +64,12 @@ const connectivityStatus = computed(() => {
 })
 
 const activeClusterDisplay = computed(() => {
-  return clusterLabels.clusterLabels.value[workspace.currentContext.value] || workspace.currentContext.value
+  return clusterLabels.clusterLabels.value[workspace.currentContext.value]?.label || workspace.currentContext.value
 })
 
-const clusterLabel = computed(() => clusterLabels.clusterLabels.value[workspace.currentContext.value] || '')
+const clusterLabel = computed(() => clusterLabels.clusterLabels.value[workspace.currentContext.value]?.label || '')
 
-const statusText = computed(() => {
-  const running = workspace.services.value.filter((s) => s.status === 'running').length
-  return `${running}/${workspace.services.value.length || 0} services online`
-})
+
 
 const scanGrid = computed(() => sweep.synapseSweepGrid.value as { cells: ScanCell[], headline: string, fallback: string })
 
@@ -90,8 +85,8 @@ function handleTabChange(tab: string) {
 function handleEditClusterLabel() {
   const cluster = workspace.mcpStatus.value?.cluster
   if (!cluster) return
-  const currentLabel = clusterLabels.clusterLabels.value[cluster] || ''
-  clusterLabels.createClusterLabel(cluster, currentLabel)
+  const currentInfo = clusterLabels.clusterLabels.value[cluster]
+  clusterLabels.createClusterLabel(cluster, currentInfo)
 }
 
 function handleOpenSettings() {
@@ -102,9 +97,7 @@ function handleScan() {
   sweep.runSynapseSweep()
 }
 
-function handleToggleService(service: data.ServiceStatus) {
-  workspace.toggleService(service)
-}
+
 
 function handleOpenScanModal(cell: ScanCell) {
   selectedScanCell.value = cell
@@ -132,7 +125,7 @@ function handleInvestigateAlert(alert: data.AlertRecord) {
 
 function handleUsePlaybook(playbook: any) {
   chat.usePlaybook(playbook, (tab) => {
-    if (tab === 'deploy') activeTab.value = 'deploy'
+    // Tab switching disabled after removal of deploy tab
   })
 }
 
@@ -214,9 +207,10 @@ watch(() => workspace.error.value, (newError) => {
     />
 
     <main class="main-panel">
-      <div class="debug-tab" style="position: fixed; top: 10px; left: 300px; z-index: 9999; background: rgba(0,0,0,0.8); color: white; padding: 5px; font-size: 12px; max-width: 600px;">
+      <!-- Debug panel commented out to avoid rendering issues -->
+      <!-- <div class="debug-tab" style="position: fixed; top: 10px; left: 300px; z-index: 9999; background: rgba(0,0,0,0.8); color: white; padding: 5px; font-size: 12px; max-width: 600px;">
         Active tab: {{ activeTab }} | Loading: {{ workspace.isLoading.value }} | Error: {{ workspace.error.value }} | Context: {{ workspace.currentContext.value }} | Workspace: {{ !!workspace.workspace.value }} | Alerts: {{ workspace.alerts.value.length }} | Services: {{ workspace.services.value.length }}
-      </div>
+      </div> -->
       <Header :title="workspaceSummary?.headline ?? 'Loading AI workspace…'" :subtitle="workspaceSummary?.subheadline ?? 'Pulling alerts, history, and recommendations.'">
         <template #actions>
           <SweepControls
@@ -277,10 +271,6 @@ watch(() => workspace.error.value, (newError) => {
           </div>
 
             <template v-else>
-              <div style="border: 2px solid yellow; padding: 10px; margin-bottom: 10px;">
-                CONTENT LOADED - showContent: {{ showContent }}, activeTab: {{ activeTab }}, isLoading: {{ workspace.isLoading.value }}, error: {{ workspace.error.value }}
-              </div>
-              
               <div v-if="activeTab === 'arguskube'" key="arguskube">
                 <ArguskubePanel
                   :is-expanded="isArguskubeExpanded"
@@ -309,20 +299,10 @@ watch(() => workspace.error.value, (newError) => {
                   @alert-clicked="handleOpenAlertDetailModal"
                 />
               </div>
-              <div v-else-if="activeTab === 'deploy'" key="deploy">
-                <DeploymentsPanel
-                  :is-expanded="isDeploymentTracksExpanded"
-                  :deployment-plans="workspace.workspace.value?.deploymentPlans"
-                  @toggle-expand="isDeploymentTracksExpanded = !isDeploymentTracksExpanded"
-                />
-              </div>
+
               <div v-else-if="activeTab === 'runtime'" key="runtime">
-                <RuntimePanel
-                  :services="workspace.services.value"
-                  :logs="workspace.runtimeLogs.value"
+                 <RuntimePanel
                   :scan-grid="scanGrid"
-                  :is-refreshing-services="workspace.isRefreshingServices.value"
-                  @toggle-service="handleToggleService"
                   @open-scan-modal="handleOpenScanModal"
                 />
               </div>
@@ -339,7 +319,7 @@ watch(() => workspace.error.value, (newError) => {
     <!-- Modals -->
     <SettingsModal
       v-model:show="settings.showSettings.value"
-      v-model:settings="settings.settings.value"
+      :settings="settings.settings.value"
       @save="settings.saveSettings"
     />
     <ScanModal
@@ -438,48 +418,7 @@ watch(() => workspace.error.value, (newError) => {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
 }
 
-.sweep-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
-.sweep-select {
-  background: #111;
-  color: #888;
-  border: 1px solid #333;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 13px;
-  outline: none;
-}
-
-.custom-interval-input {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.interval-number {
-  width: 50px;
-  background: #111;
-  color: #fff;
-  border: 1px solid #333;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 13px;
-  outline: none;
-}
-
-.interval-unit {
-  background: #111;
-  color: #888;
-  border: 1px solid #333;
-  padding: 4px 4px;
-  border-radius: 4px;
-  font-size: 13px;
-  outline: none;
-}
 
 .arguskube-thinking {
   margin-bottom: 24px;

@@ -1,15 +1,22 @@
 <template>
-  <li class="stack-card" @click="handleClick">
+  <li :class="['stack-card', podExistsBorder]" @click="handleClick">
     <div class="stack-title">
       <strong>{{ alert.name }}</strong>
-      <span :class="['pill', alert.severity]">{{ alert.severity }}</span>
+      <div class="alert-badges">
+        <span :class="['pill', alert.severity]">{{ alert.severity }}</span>
+        <span v-if="stateLabel" class="state-badge" :style="{ backgroundColor: stateColor }">
+          {{ stateLabel }}
+        </span>
+      </div>
     </div>
-    <p>{{ alert.message }}</p>
+    <div class="alert-info-icon" title="Message">i</div>
+    <p class="alert-message">{{ alert.message }}</p>
     <small>{{ alert.namespace || 'cluster-wide' }} · {{ formatWhen(alert.receivedAt) }}</small>
   </li>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { data } from '../../../wailsjs/go/models'
 
 interface Props {
@@ -25,6 +32,40 @@ const emit = defineEmits<{
 const handleClick = () => {
   emit('click', props.alert)
 }
+
+const podExistsBorder = computed(() => {
+  if (props.alert.podExists === true) return 'border-pod-exists'
+  if (props.alert.podExists === false) return 'border-pod-gone'
+  return ''
+})
+
+const stateLabel = computed(() => {
+  const state = props.alert.state
+  if (!state) return ''
+  const labels: Record<string, string> = {
+    new: 'New',
+    acknowledged: 'Acknowledged',
+    silenced: 'Silenced',
+    being_investigated: 'Investigating',
+    false_positive: 'False Positive',
+    deleted: 'Deleted'
+  }
+  return labels[state] || state
+})
+
+const stateColor = computed(() => {
+  const state = props.alert.state
+  if (!state) return ''
+  const colors: Record<string, string> = {
+    new: 'var(--info)',
+    acknowledged: 'var(--success)',
+    silenced: 'var(--warning)',
+    being_investigated: 'var(--primary)',
+    false_positive: 'var(--error)',
+    deleted: 'var(--text-tertiary)'
+  }
+  return colors[state] || 'var(--border)'
+})
 </script>
 
 <style scoped>
@@ -35,11 +76,20 @@ const handleClick = () => {
   background: var(--card-bg);
   transition: all 0.2s;
   cursor: pointer;
+  position: relative;
 }
 
 .stack-card:hover {
   border-color: var(--border-active);
   background: var(--hover);
+}
+
+.border-pod-exists {
+  border-color: rgba(59, 130, 246, 0.6); /* blue */
+}
+
+.border-pod-gone {
+  border-color: rgba(245, 158, 11, 0.6); /* yellow */
 }
 
 .stack-title {
@@ -92,12 +142,61 @@ const handleClick = () => {
   border: 1px solid rgba(34, 197, 94, 0.2);
 }
 
-.stack-card p {
+.alert-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.state-badge {
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: white;
+  white-space: nowrap;
+}
+
+.alert-message {
   margin: 8px 0;
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
+
+.alert-info-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  color: var(--card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: help;
+  transition: background 0.2s;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+}
+
+.alert-info-icon:hover {
+  background: var(--text-primary);
+}
+
+.alert-info-icon:hover ~ .alert-message,
+.alert-message:hover {
+  opacity: 1;
+}
+
+
 
 .stack-card small {
   font-size: 12px;

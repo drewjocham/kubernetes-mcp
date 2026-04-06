@@ -1,6 +1,8 @@
+# ─── Namespaces ──────────────────────────────────────────────────────────────
 namespaces:
   kubeWatcher: kube-watcher
-  anomstack: kw-anomaly
+  # Changed to match kubeWatcher to avoid ownership conflicts during install
+  anomstack: kube-watcher
 
 serviceAccount:
   name: kube-watcher
@@ -43,8 +45,6 @@ watcher:
     limits:
       cpu: 500m
       memory: 256Mi
-  # Set enabled: true to use a PVC instead of emptyDir for the BadgerDB data.
-  # ReadWriteOnce is sufficient for single-node clusters (minikube / kind).
   persistence:
     enabled: false
     size: 1Gi
@@ -75,30 +75,7 @@ prometheus:
       cpu: 500m
       memory: 512Mi
 
-# ─── Grafana ─────────────────────────────────────────────────────────────────
-grafana:
-  enabled: true
-  image:
-    repository: grafana/grafana-oss
-    tag: latest
-    pullPolicy: IfNotPresent
-  port: 3000
-  adminUser: admin
-  adminPassword: admin
-  plugins: "grafana-piechart-panel"
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 256Mi
-  persistence:
-    enabled: false
-    size: 1Gi
-    storageClass: ""
-
-# ─── Anomstack (Dagster-based anomaly detection)
+# ─── Anomstack (Dagster-based anomaly detection) ───────────────────────────
 anomstack:
   enabled: false
   dagster:
@@ -129,22 +106,8 @@ anomstack:
       limits:
         cpu: 500m
         memory: 512Mi
-    webserver:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-    dashboard:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
 
-# ─── K8sGPT (AI-Powered Kubernetes Analysis) ────────────────────────────────
+# ─── K8sGPT  ────────────────────────────────
 k8sgpt:
   enabled: false
   image:
@@ -153,12 +116,9 @@ k8sgpt:
     pullPolicy: IfNotPresent
   port: 8089
   mcpPort: 8089
-  # K8sGPT backend configuration
   backend: openai
   model: gpt-4o
-  # API key for AI provider (set via environment variable or secret)
-  apiKey: ""
-  # Enable MCP server for AI assistant integration
+  apiKey: "OPENAI_API_KEY_REMOVED"
   enableMCP: true
   resources:
     requests:
@@ -168,7 +128,7 @@ k8sgpt:
       cpu: 500m
       memory: 256Mi
 
-# ─── Signoz (Observability Platform) ────────────────────────────────────────
+# ─── Signoz  ────────────────────────────────────────
 signoz:
   enabled: true
   replicaCount: 1
@@ -177,17 +137,20 @@ signoz:
     tag: v0.117.1
     pullPolicy: IfNotPresent
   clickhouse:
+    profiles:
+      default:
+        ignore_unknown_settings: 1
     image:
       repository: clickhouse/clickhouse-server
-      tag: 23.8-alpine
+      tag: 24.8-alpine
       pullPolicy: IfNotPresent
     resources:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 512Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1024Mi
   resources:
     requests:
       cpu: 100m

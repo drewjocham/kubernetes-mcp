@@ -12,6 +12,14 @@
 
       <div class="settings-modal-content">
         <div class="settings-section">
+          <label class="settings-label">Cluster Type</label>
+          <select v-model="localSettings.clusterType" class="settings-input">
+            <option value="real">Real Cluster</option>
+            <option value="local">Local Cluster</option>
+          </select>
+        </div>
+
+        <div class="settings-section">
           <label class="settings-label">Kubernetes Context</label>
           <input
             v-model="localSettings.context"
@@ -69,10 +77,69 @@
               Add URL
             </button>
           </div>
-        </div>
-      </div>
+         </div>
 
-      <div class="settings-modal-footer">
+         <div class="settings-section">
+           <h4 class="settings-section-title">AI Agent Configuration</h4>
+           <div class="settings-ai-grid">
+             <div class="settings-section">
+               <label class="settings-label">AI Provider</label>
+               <select v-model="localSettings.aiProvider" class="settings-input">
+                 <option value="openai">OpenAI</option>
+                 <option value="azure">Azure OpenAI</option>
+                 <option value="anthropic">Anthropic</option>
+                 <option value="ollama">Ollama</option>
+                 <option value="custom">Custom Endpoint</option>
+               </select>
+             </div>
+             <div class="settings-section">
+               <label class="settings-label">API Key</label>
+               <input
+                 v-model="localSettings.aiApiKey"
+                 type="password"
+                 class="settings-input"
+                 placeholder="Enter your API key"
+               >
+             </div>
+              <div class="settings-section">
+                <label class="settings-label">Base URL</label>
+                <input
+                  v-model="localSettings.aiBaseUrl"
+                  type="url"
+                  class="settings-input"
+                  :placeholder="getBaseURLPlaceholder()"
+                >
+                <p class="settings-field-hint" v-if="localSettings.aiProvider !== 'custom'">
+                  Default: {{ getDefaultBaseURL() }}
+                </p>
+              </div>
+             <div class="settings-section">
+               <label class="settings-label">Model</label>
+               <input
+                 v-model="localSettings.aiModel"
+                 type="text"
+                 class="settings-input"
+                  placeholder="gpt-3.5-turbo"
+               >
+             </div>
+             <div class="settings-section">
+               <label class="settings-label">Backend</label>
+               <input
+                 v-model="localSettings.aiBackend"
+                 type="text"
+                 class="settings-input"
+                 placeholder="openai"
+               >
+             </div>
+           </div>
+           <p class="settings-hint">
+             AI agent will be used for analyzing Kubernetes issues and answering questions.
+             K8sGPT integration uses separate environment variables (K8SGPT_*).
+           </p>
+         </div>
+       </div>
+ 
+       <div class="settings-modal-footer">
          <button class="ghost-btn" @click="closeModal">Cancel</button>
         <button class="primary-btn" @click="saveSettings">Save Settings</button>
       </div>
@@ -85,8 +152,26 @@ import { ref, watch } from 'vue'
 
 interface Settings {
   context: string
+  clusterType: string // 'real' or 'local'
   prometheusRoutes: string[]
   webhookUrls: string[]
+  aiProvider: string
+  aiApiKey: string
+  aiBaseUrl: string
+  aiModel: string
+  aiBackend: string
+}
+
+const defaultSettings: Settings = {
+  context: '',
+  clusterType: 'real',
+  prometheusRoutes: [],
+  webhookUrls: [],
+  aiProvider: 'openai',
+  aiApiKey: '',
+  aiBaseUrl: '',
+  aiModel: 'gpt-3.5-turbo',
+  aiBackend: 'openai',
 }
 
 interface Props {
@@ -106,10 +191,19 @@ function closeModal() {
   emit('close')
 }
 
-const localSettings = ref<Settings>({ ...props.settings })
+const localSettings = ref<Settings>({ ...defaultSettings, ...(props.settings || {}) })
+const isUpdating = ref(false)
 
 watch(() => props.settings, (newSettings) => {
-  localSettings.value = { ...newSettings }
+  if (!newSettings) return
+  localSettings.value = { ...defaultSettings, ...newSettings }
+  // Ensure base URL has default if empty
+  if (!localSettings.value.aiBaseUrl) {
+    const defaultURL = getDefaultBaseURLForProvider(localSettings.value.aiProvider)
+    if (defaultURL && defaultURL.trim() !== '') {
+      localSettings.value.aiBaseUrl = defaultURL
+    }
+  }
 }, { deep: true })
 
 function addRoute() {
@@ -131,6 +225,83 @@ function removeWebhook(index: number) {
 function saveSettings() {
   emit('save', localSettings.value)
 }
+
+function getBaseURLPlaceholder(): string {
+  const provider = localSettings.value?.aiProvider ?? 'openai'
+  switch (provider) {
+    case 'openai':
+      return 'https://api.openai.com/v1/chat/completions'
+    case 'azure':
+      return 'https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2023-05-15'
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1/messages'
+    case 'ollama':
+      return 'http://localhost:11434/v1/chat/completions'
+    case 'custom':
+      return 'https://api.example.com/v1'
+    default:
+      return 'https://opencode.ai/zen/v1/chat/completions'
+  }
+}
+
+function getDefaultBaseURL(): string {
+  const provider = localSettings.value?.aiProvider ?? 'openai'
+  switch (provider) {
+    case 'openai':
+      return 'https://api.openai.com/v1/chat/completions'
+    case 'azure':
+      return 'Azure OpenAI requires full deployment URL'
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1/messages'
+    case 'ollama':
+      return 'http://localhost:11434/v1/chat/completions'
+    case 'custom':
+      return 'Custom endpoint required'
+    default:
+      return 'https://opencode.ai/zen/v1/chat/completions'
+  }
+}
+
+// Watch for provider changes to update base URL with default if empty
+watch(() => localSettings.value.aiProvider, (newProvider, oldProvider) => {
+  // Guard against undefined/null or recursive updates
+  if (!localSettings.value || isUpdating.value) return
+  if (!newProvider) return
+  
+  // Only update if base URL is empty or still has old provider's default
+  const currentBaseUrl = localSettings.value.aiBaseUrl
+  const oldDefault = oldProvider ? getDefaultBaseURLForProvider(oldProvider) : ''
+  if (!currentBaseUrl || currentBaseUrl === oldDefault) {
+    const defaultURL = getDefaultBaseURLForProvider(newProvider)
+    if (defaultURL && defaultURL.trim() !== '' && !defaultURL.includes('requires') && defaultURL !== 'Custom endpoint required') {
+      // Prevent recursive updates
+      isUpdating.value = true
+      try {
+        localSettings.value.aiBaseUrl = defaultURL
+      } finally {
+        // Reset flag on next tick to avoid interfering with other updates
+        setTimeout(() => { isUpdating.value = false }, 0)
+      }
+    }
+  }
+})
+
+function getDefaultBaseURLForProvider(provider: string): string {
+  switch (provider) {
+    case 'openai':
+      return 'https://api.openai.com/v1/chat/completions'
+    case 'azure':
+      return '' // Azure requires user input
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1/messages'
+    case 'ollama':
+      return 'http://localhost:11434/v1/chat/completions'
+    case 'custom':
+      return '' // Custom requires user input
+    default:
+      return 'https://opencode.ai/zen/v1/chat/completions'
+  }
+}
 </script>
 
 <style scoped>
@@ -140,7 +311,7 @@ function saveSettings() {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+   background: rgba(0, 0, 0, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -205,6 +376,40 @@ function saveSettings() {
 
 .settings-section:last-child {
   margin-bottom: 0;
+}
+
+.settings-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-ai-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.settings-ai-grid .settings-section {
+  margin-bottom: 0;
+}
+
+.settings-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+.settings-field-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .settings-label {

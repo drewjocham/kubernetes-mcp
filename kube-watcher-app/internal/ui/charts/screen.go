@@ -6,14 +6,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"kube-watcher-app/internal/charts"
 	"kube-watcher-app/internal/data"
 	promclient "kube-watcher-app/internal/data/prometheus"
 	"kube-watcher-app/internal/theme"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Source selects the active data source.

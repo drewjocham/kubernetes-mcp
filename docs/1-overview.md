@@ -176,7 +176,7 @@ The `FrequencyDelta` from history is attached so the consumer knows if the probl
 ## Deployment Options
 
 1. **Standalone binary** — `make build-mcp` / `make build-watcher`
-2. **Docker Compose** — `make up` (MCP + watcher + Prometheus + Grafana + Badger Explorer)
+ 2. **Docker Compose** — `make up` (MCP + watcher + Prometheus + Badger Explorer)
 3. **Homebrew** — `brew install drewjocham/tap/kube-watcher` (see Homebrew section in repo)
 
 ## Configuration

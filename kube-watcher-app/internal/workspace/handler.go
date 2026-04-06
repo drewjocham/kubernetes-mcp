@@ -188,22 +188,6 @@ func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommend
 		})
 	}
 
-	unhealthy := make([]string, 0)
-	for _, service := range services {
-		if strings.EqualFold(service.Status, "running") {
-			continue
-		}
-		unhealthy = append(unhealthy, service.Name)
-	}
-	if len(unhealthy) > 0 {
-		priorities = append(priorities, data.AIPriority{
-			Title:       "Recover platform dependencies",
-			Severity:    "medium",
-			Detail:      fmt.Sprintf("Services not running: %s", strings.Join(unhealthy, ", ")),
-			ActionLabel: "Restart stack",
-		})
-	}
-
 	if len(priorities) == 0 {
 		priorities = append(priorities, data.AIPriority{
 			Title:       "No urgent drift detected",

@@ -106,9 +106,9 @@ settings:
     listen: ":9090"
   model:
     enabled: false
-    endpoint: ""
+    endpoint: "https://api.openai.com/v1/chat/completions"
     timeout: 5s
-    api_key_env: "MODEL_API_KEY"
+    api_key_env: "OPENAI_API_KEY_REMOVED"
     min_confidence: 0.65
     system_prompt: "You are a Kubernetes SRE anomaly detector. Return only strict JSON."
   heartbeat:

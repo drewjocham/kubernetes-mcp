@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"kube-watcher/mcp/monitoring/alerts"
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/monitoring/recommendation"
 	"log/slog"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 
 	"kube-watcher/mcp/tools"
 	"kube-watcher/pkg/kube"
@@ -47,13 +51,20 @@ type Config struct {
 	HistoryPath  string
 	K8sClient    kube.ClientInterface
 	HistoryStore history.Recorder
+	AlertsStore  alerts.StoreInterface
+	PodTracker   *kwatch.PodTracker
 	Watcher      *kwatch.Manager
 	PollInterval time.Duration
 }
 
 type AlertRecord struct {
+	ID             string                        `json:"id"`
 	Alert          kwatch.Alert                  `json:"alert"`
 	Recommendation recommendation.Recommendation `json:"recommendation"`
+	PodExists      bool                          `json:"pod_exists,omitempty"`
+	PodCache       *alerts.PodCache              `json:"pod_cache,omitempty"`
+	State          string                        `json:"state,omitempty"`
+	Comments       []alerts.Comment              `json:"comments,omitempty"`
 }
 
 type ToolSummary struct {
@@ -63,12 +74,14 @@ type ToolSummary struct {
 }
 
 type MCPServer struct {
-	logger  *slog.Logger
-	mcp     *mcp.Server
-	client  kube.ClientInterface
-	history history.Recorder
-	engine  *recommendation.Engine
-	watcher *kwatch.Manager
+	logger      *slog.Logger
+	mcp         *mcp.Server
+	client      kube.ClientInterface
+	history     history.Recorder
+	alertsStore alerts.StoreInterface
+	podTracker  *kwatch.PodTracker
+	engine      *recommendation.Engine
+	watcher     *kwatch.Manager
 
 	tools     map[string]Tool
 	executors map[string]func(context.Context, map[string]interface{}) (map[string]interface{}, error)
@@ -90,14 +103,16 @@ func NewMCPServer(logger *slog.Logger, cfg Config) (*MCPServer, error) {
 	})
 
 	server := &MCPServer{
-		logger:    logger,
-		mcp:       mcpServer,
-		client:    cfg.K8sClient,
-		history:   cfg.HistoryStore,
-		engine:    recommendation.NewEngine(cfg.HistoryStore, logger),
-		watcher:   cfg.Watcher,
-		tools:     make(map[string]Tool),
-		executors: make(map[string]func(context.Context, map[string]interface{}) (map[string]interface{}, error)),
+		logger:      logger,
+		mcp:         mcpServer,
+		client:      cfg.K8sClient,
+		history:     cfg.HistoryStore,
+		alertsStore: cfg.AlertsStore,
+		podTracker:  cfg.PodTracker,
+		engine:      recommendation.NewEngine(cfg.HistoryStore, logger),
+		watcher:     cfg.Watcher,
+		tools:       make(map[string]Tool),
+		executors:   make(map[string]func(context.Context, map[string]interface{}) (map[string]interface{}, error)),
 	}
 
 	server.setupResources()
@@ -109,6 +124,14 @@ func NewMCPServer(logger *slog.Logger, cfg Config) (*MCPServer, error) {
 func (s *MCPServer) Start(ctx context.Context) error {
 	alertCh := s.watcher.Start(ctx)
 	go s.listenForAlerts(ctx, alertCh)
+
+	if s.podTracker != nil {
+		if err := s.podTracker.Start(ctx); err != nil {
+			s.logger.Warn("failed to start pod tracker", "error", err)
+		} else {
+			defer s.podTracker.Stop()
+		}
+	}
 
 	if err := s.mcp.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		s.logger.Warn("mcp server disconnected", "error", err)
@@ -214,11 +237,35 @@ func (s *MCPServer) processAlert(ctx context.Context, a kwatch.Alert) {
 		s.logger.Warn("failed to generate recommendation", "alert", a.Name, "error", err)
 	}
 	s.alertsMu.Lock()
-	s.alerts = append([]AlertRecord{{Alert: a, Recommendation: rec}}, s.alerts...)
+	s.alerts = append([]AlertRecord{{
+		ID:             alerts.GenerateAlertID(a),
+		Alert:          a,
+		Recommendation: rec,
+		State:          "",
+		Comments:       nil,
+	}}, s.alerts...)
 	if len(s.alerts) > maxAlertRecords {
 		s.alerts = s.alerts[:maxAlertRecords]
 	}
 	s.alertsMu.Unlock()
+
+	// Store alert in alerts store if configured
+	if s.alertsStore != nil {
+		metadata := map[string]interface{}{
+			"recommendation": rec,
+			"stored_by":      "mcp_server",
+		}
+		if err := s.alertsStore.StoreAlert(ctx, a, metadata); err != nil {
+			s.logger.Warn("failed to store alert in alerts store", "alert", a.Name, "error", err)
+		} else {
+			s.logger.Debug("alert stored in alerts store", "alert", a.Name, "kind", a.Kind)
+		}
+
+		// If pod alert, capture pod data asynchronously
+		if a.Kind == kwatch.AlertKindPod && a.Namespace != "" && a.Name != "" {
+			go s.capturePodData(ctx, a)
+		}
+	}
 
 	if err := s.history.Record(ctx, history.Incident{
 		ID:        uuid.NewString(),
@@ -237,7 +284,7 @@ func (s *MCPServer) processAlert(ctx context.Context, a kwatch.Alert) {
 }
 
 func (s *MCPServer) handleReadAlerts(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	data, err := json.Marshal(s.AlertsSnapshot())
+	data, err := json.Marshal(s.AlertsSnapshot(ctx))
 	if err != nil {
 		s.logger.Warn("failed to marshal alerts", "error", err)
 		return nil, err
@@ -298,11 +345,41 @@ func (s *MCPServer) HealthCheck(ctx context.Context) map[string]interface{} {
 	return map[string]interface{}{"status": status}
 }
 
-func (s *MCPServer) AlertsSnapshot() []AlertRecord {
+func (s *MCPServer) AlertsSnapshot(ctx context.Context) []AlertRecord {
 	s.alertsMu.RLock()
 	defer s.alertsMu.RUnlock()
 	out := make([]AlertRecord, len(s.alerts))
 	copy(out, s.alerts)
+
+	// Enrich pod alerts with pod existence and cache if alerts store is available
+	if s.alertsStore != nil {
+		for i := range out {
+			alert := out[i].Alert
+			if alert.Kind == kwatch.AlertKindPod && alert.Namespace != "" && alert.Name != "" {
+				// Check pod existence via pod tracker
+				if s.podTracker != nil {
+					out[i].PodExists = s.podTracker.PodExists(alert.Namespace, alert.Name)
+				}
+				// Try to get pod cache
+				cache, err := s.alertsStore.GetPodCache(ctx, alert.Namespace, alert.Name)
+				if err == nil {
+					out[i].PodCache = cache
+					// Ensure PodExists reflects current state from pod tracker if available
+					if s.podTracker != nil {
+						out[i].PodExists = s.podTracker.PodExists(alert.Namespace, alert.Name)
+					} else {
+						out[i].PodExists = cache.PodExists
+					}
+				}
+			}
+			// Enrich with state and comments from store
+			stored, err := s.alertsStore.GetAlert(ctx, out[i].ID)
+			if err == nil {
+				out[i].State = stored.State
+				out[i].Comments = stored.Comments
+			}
+		}
+	}
 	return out
 }
 
@@ -319,6 +396,115 @@ func (s *MCPServer) IncidentHistory(ctx context.Context, window time.Duration) (
 		all = append(all, incidents...)
 	}
 	return all, nil
+}
+
+// UpdateAlertState updates the state of an alert in the store
+func (s *MCPServer) UpdateAlertState(ctx context.Context, id string, state string) error {
+	if s.alertsStore == nil {
+		return errors.New("alerts store not configured")
+	}
+	return s.alertsStore.UpdateAlertState(ctx, id, state)
+}
+
+// AddAlertComment adds a comment to an alert in the store
+func (s *MCPServer) AddAlertComment(ctx context.Context, id string, author string, content string) error {
+	if s.alertsStore == nil {
+		return errors.New("alerts store not configured")
+	}
+	return s.alertsStore.AddAlertComment(ctx, id, author, content)
+}
+
+// capturePodData asynchronously captures pod logs, describe, YAML and AI help for pod alerts
+func (s *MCPServer) capturePodData(ctx context.Context, a kwatch.Alert) {
+	if s.client == nil || s.alertsStore == nil {
+		return
+	}
+
+	// Check pod existence via pod tracker if available
+	podExists := false
+	var podUID string
+	if s.podTracker != nil {
+		podExists = s.podTracker.PodExists(a.Namespace, a.Name)
+		uid, ok := s.podTracker.GetPodUID(a.Namespace, a.Name)
+		if ok {
+			podUID = uid
+		}
+	}
+
+	// Get pod info
+	var logs, describe, yamlStr, aiHelp string
+	if podExists {
+		// Fetch pod details
+		podInfo, err := s.client.GetPod(ctx, a.Namespace, a.Name)
+		if err != nil {
+			s.logger.Warn("failed to fetch pod info", "namespace", a.Namespace, "pod", a.Name, "error", err)
+		} else {
+			// Generate YAML representation
+			rawPod, err := s.client.GetRawInterface().CoreV1().Pods(a.Namespace).Get(ctx, a.Name, metav1.GetOptions{})
+			if err == nil {
+				yamlBytes, err := yaml.Marshal(rawPod)
+				if err == nil {
+					yamlStr = string(yamlBytes)
+				}
+			}
+			// Get logs from first container (if any)
+			if len(podInfo.Containers) > 0 {
+				containerName := podInfo.Containers[0].Name
+				logs, err = s.client.GetPodLogs(ctx, a.Namespace, a.Name, containerName, 100, 3600, false)
+				if err != nil {
+					s.logger.Debug("failed to fetch pod logs", "namespace", a.Namespace, "pod", a.Name, "error", err)
+				}
+			}
+			// Generate describe output
+			describe = generatePodDescribe(podInfo)
+		}
+	}
+
+	cache := alerts.PodCache{
+		PodUID:      podUID,
+		PodName:     a.Name,
+		Namespace:   a.Namespace,
+		CachedAt:    time.Now(),
+		Logs:        logs,
+		YAML:        yamlStr,
+		Describe:    describe,
+		AIHelp:      aiHelp,
+		PodExists:   podExists,
+		LastChecked: time.Now(),
+	}
+
+	if err := s.alertsStore.StorePodCache(ctx, cache); err != nil {
+		s.logger.Warn("failed to store pod cache", "namespace", a.Namespace, "pod", a.Name, "error", err)
+	} else {
+		s.logger.Debug("pod cache stored", "namespace", a.Namespace, "pod", a.Name, "exists", podExists)
+	}
+}
+
+// generatePodDescribe creates a human-readable description of a pod
+func generatePodDescribe(pod *kube.PodInfo) string {
+	if pod == nil {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Name:         %s\n", pod.Name))
+	sb.WriteString(fmt.Sprintf("Namespace:    %s\n", pod.Namespace))
+	sb.WriteString(fmt.Sprintf("Status:       %s\n", pod.Status))
+	sb.WriteString(fmt.Sprintf("Phase:        %s\n", pod.Phase))
+	sb.WriteString(fmt.Sprintf("Node:         %s\n", pod.NodeName))
+	sb.WriteString(fmt.Sprintf("Age:          %v\n", pod.Age))
+	sb.WriteString(fmt.Sprintf("Restarts:     %d\n", pod.RestartCount))
+	if len(pod.Labels) > 0 {
+		sb.WriteString("Labels:\n")
+		for k, v := range pod.Labels {
+			sb.WriteString(fmt.Sprintf("  %s=%s\n", k, v))
+		}
+	}
+	sb.WriteString("Containers:\n")
+	for _, c := range pod.Containers {
+		sb.WriteString(fmt.Sprintf("  - %s: %s (Ready: %v, Restarts: %d)\n",
+			c.Name, c.Image, c.Ready, c.RestartCount))
+	}
+	return sb.String()
 }
 
 // Recommendations returns a deduplicated slice of recommendations derived

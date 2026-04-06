@@ -2,9 +2,9 @@
 .PHONY: dashboard-deps dashboard-dev dashboard-build dashboard-preview \
 	dashboard-lint dashboard-typecheck \
 	k8s-status k8s-events k8s-top \
-	k8s-logs-prometheus k8s-logs-grafana k8s-logs-anomstack \
-	k8s-pf-grafana k8s-pf-prometheus k8s-pf-anomstack k8s-pf-all \
-	k8s-restart-grafana k8s-restart-anomstack
+	k8s-logs-prometheus k8s-logs-anomstack \
+	k8s-pf-prometheus k8s-pf-anomstack k8s-pf-all \
+	k8s-restart-anomstack
 
 # ── Vue Dashboard ──────────────────────────────────────────────────────────────
 
@@ -69,17 +69,14 @@ k8s-top:
 k8s-logs-prometheus:
 	kubectl logs -n $(KW_NAMESPACE) -l app=prometheus --tail=100 -f
 
-k8s-logs-grafana:
-	kubectl logs -n $(KW_NAMESPACE) -l app=grafana --tail=100 -f
+
 
 k8s-logs-anomstack:
 	kubectl logs -n $(ANOMSTACK_NS) -l app=anomstack-webserver --tail=100 -f
 
 # ── Kubernetes — Port-Forwards ────────────────────────────────────────────────
 
-k8s-pf-grafana:
-	@echo "Grafana → http://localhost:3000"
-	kubectl port-forward -n $(KW_NAMESPACE) svc/grafana 3000:3000
+
 
 k8s-pf-prometheus:
 	@echo "Prometheus → http://localhost:9090"
@@ -92,13 +89,11 @@ k8s-pf-anomstack:
 k8s-pf-all:
 	@echo "Starting all port-forwards in background..."
 	kubectl port-forward -n $(KW_NAMESPACE) svc/mcp 8080:8080 &
-	kubectl port-forward -n $(KW_NAMESPACE) svc/grafana 3000:3000 &
 	kubectl port-forward -n $(KW_NAMESPACE) svc/prometheus 9090:9090 &
 	kubectl port-forward -n $(KW_NAMESPACE) svc/watcher 4101:4101 &
 	kubectl port-forward -n $(ANOMSTACK_NS) svc/anomstack-webserver 3001:3000 &
 	@echo ""
 	@echo "  MCP API        → http://localhost:8080"
-	@echo "  Grafana        → http://localhost:3000"
 	@echo "  Prometheus     → http://localhost:9090"
 	@echo "  Badger Explorer→ http://localhost:4101"
 	@echo "  Anomstack UI   → http://localhost:3001"
@@ -106,10 +101,6 @@ k8s-pf-all:
 	@echo "Kill all: pkill -f 'kubectl port-forward'"
 
 # ── Kubernetes — Rolling Restarts ─────────────────────────────────────────────
-
-k8s-restart-grafana:
-	kubectl rollout restart deployment/grafana -n $(KW_NAMESPACE)
-	kubectl rollout status deployment/grafana -n $(KW_NAMESPACE)
 
 k8s-restart-anomstack:
 	kubectl rollout restart \

@@ -103,18 +103,56 @@
               </NButton>
             </NSpace>
           </template>
-          <NDataTable
-            :columns="columns"
-            :data="alerts"
-            :row-key="(row: AlertRecord) => row.id"
-            :pagination="{ pageSize: 8 }"
-            :checked-row-keys="selectedRowKeys"
-            :single-line="false"
-            keyboard
-            class="alerts-table"
-            @update:checked-row-keys="handleRowSelect"
-            @keydown="handleKeydown"
-          />
+          <div class="alerts-grid">
+            <div
+              v-for="alert in alerts"
+              :key="alert.id"
+              :class="['alert-card', { selected: selectedRowKeys.includes(alert.id) }]"
+              @click="selectAlert(alert)"
+            >
+              <div class="alert-card-header">
+                <span class="alert-kind">{{ alert.kind }}</span>
+                <NTag :type="alert.severity === 'critical' ? 'error' : 'warning'" size="small">
+                  {{ alert.severity || 'warning' }}
+                </NTag>
+                <NTag v-if="alert.podExists !== undefined" :type="alert.podExists ? 'success' : 'error'" size="small">
+                  {{ alert.podExists ? 'Pod Exists' : 'Pod Gone' }}
+                </NTag>
+              </div>
+              <div class="alert-card-body">
+                <div class="alert-info-row">
+                  <span class="label">Cluster:</span>
+                  <span class="value">{{ alert.cluster }}</span>
+                </div>
+                <div class="alert-info-row">
+                  <span class="label">Namespace:</span>
+                  <span class="value">{{ alert.namespace }}</span>
+                </div>
+                <div class="alert-info-row">
+                  <span class="label">Pod:</span>
+                  <span class="value">{{ alert.pod }}</span>
+                </div>
+                <div class="alert-info-row">
+                  <span class="label">Status:</span>
+                  <NTag :type="alert.status === 'failed' ? 'error' : alert.status === 'report_ready' ? 'success' : 'warning'" size="tiny">
+                    {{ alert.status }}
+                  </NTag>
+                </div>
+                <div v-if="alert.diagnostics?.lastLogLines?.length" class="alert-logs">
+                  <div class="logs-label">Recent logs:</div>
+                  <div class="logs-content">{{ truncateLogs(alert.diagnostics.lastLogLines) }}</div>
+                </div>
+                <div v-if="alert.report?.rootCause" class="alert-root-cause">
+                  <div class="cause-label">Root Cause:</div>
+                  <div class="cause-content">{{ alert.report.rootCause }}</div>
+                </div>
+              </div>
+              <div class="alert-card-footer">
+                <span class="timestamp">{{ formatTime(alert.createdAt) }}</span>
+                <span v-if="alert.cachedAt" class="cached-info">Cached {{ formatTime(alert.cachedAt) }}</span>
+              </div>
+            </div>
+          </div>
         </NCard>
         <NCard
           v-if="selectedAlert"
@@ -205,12 +243,13 @@ watch(() => alertData.value?.alerts, (next) => {
 const selectedAlert = ref<AlertRecord | null>(null)
 const selectedRowKeys = ref<string[]>([])
 
-function handleRowSelect(keys: (string | number)[]) {
-  selectedRowKeys.value = keys.map(k => String(k))
-  if (keys.length > 0) {
-    selectedAlert.value = alerts.value.find(alert => alert.id === String(keys[0])) || null
-  } else {
+function selectAlert(alert: AlertRecord) {
+  if (selectedRowKeys.value.includes(alert.id)) {
+    selectedRowKeys.value = []
     selectedAlert.value = null
+  } else {
+    selectedRowKeys.value = [alert.id]
+    selectedAlert.value = alert
   }
 }
 
@@ -236,78 +275,16 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-const columns: DataTableColumns<AlertRecord> = [
-  {
-    title: 'Kind',
-    key: 'kind',
-    render: (row) => h('span', { class: selectedRowKeys.value.includes(row.id) ? 'selected-row-highlight' : '' }, row.kind)
-  },
-  {
-    title: 'Cluster',
-    key: 'cluster',
-    render: (row) => h('span', { class: selectedRowKeys.value.includes(row.id) ? 'selected-row-highlight' : '' }, row.cluster)
-  },
-  {
-    title: 'Namespace',
-    key: 'namespace',
-    render: (row) => h('span', { class: selectedRowKeys.value.includes(row.id) ? 'selected-row-highlight' : '' }, row.namespace)
-  },
-  {
-    title: 'Pod',
-    key: 'pod',
-    render: (row) => h('span', { class: selectedRowKeys.value.includes(row.id) ? 'selected-row-highlight' : '' }, row.pod)
-  },
-  {
-    title: 'Status',
-    key: 'status',
-    render: (row) =>
-      h(
-        NTag,
-        { type: row.status === 'failed' ? 'error' : row.status === 'report_ready' ? 'success' : 'warning' },
-        { default: () => row.status }
-      )
-  },
-  {
-    title: 'RCA',
-    key: 'report',
-    render: (row) =>
-      row.report
-        ? h('div', [
-            h('strong', { style: 'color: #8B5CF6;' }, row.report.rootCause),
-            h('div', { style: 'margin-top: 6px; font-size: 12px; color: #94A3B8;' }, row.report.summary)
-          ])
-        : h('span', { style: 'color: #64748B; font-style: italic;' }, 'Pending')
-  },
-  {
-    title: 'Thinking',
-    key: 'thinking',
-    render: (row) =>
-      h(
-        NSpace,
-        { vertical: true, size: 2 },
-        {
-          default: () => row.thinkingSteps.map((step) => h('div', { style: 'font-size: 12px; color: #CBD5E1;' }, `• ${step.title}`))
-        }
-      )
-  },
-  {
-    title: 'Action',
-    key: 'action',
-    render: (row) =>
-      h(
-        NButton,
-        {
-          size: 'small',
-          type: selectedRowKeys.value.includes(row.id) ? 'primary' : 'default',
-          onClick: () => {
-            selectedRowKeys.value = [row.id]
-            selectedAlert.value = row
-          }
-        },
-        { default: () => 'View' }
-      )
-  }
-]
+function truncateLogs(logLines: string[]): string {
+  const joined = logLines.join(' ')
+  if (joined.length <= 100) return joined
+  return joined.substring(0, 100) + '...'
+}
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString)
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 
 const watcherYamlExample = `actions:
   dashboard-webhook:

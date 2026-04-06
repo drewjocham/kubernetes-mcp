@@ -177,13 +177,13 @@ func TestMCPServer_AlertsSnapshot(t *testing.T) {
 	srv, store := newTestServer(t)
 	defer func() { _ = store.Close() }()
 
-	assert.Empty(t, srv.AlertsSnapshot())
+	assert.Empty(t, srv.AlertsSnapshot(context.Background()))
 
 	srv.processAlert(context.Background(), kwatch.Alert{
 		Kind: kwatch.AlertKindPod, Name: "api", Severity: "high", OccurredAt: time.Now(),
 	})
 
-	alerts := srv.AlertsSnapshot()
+	alerts := srv.AlertsSnapshot(context.Background())
 	assert.Len(t, alerts, 1)
 	assert.Equal(t, "api", alerts[0].Alert.Name)
 }

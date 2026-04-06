@@ -76,20 +76,7 @@ services:
     depends_on:
       - watcher
 
-  grafana:
-    image: grafana/grafana-oss:latest
-    ports:
-      - "3001:3000"
-    depends_on:
-      - prometheus
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS:-admin}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_INSTALL_PLUGINS: grafana-piechart-panel
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
 
   badger-explorer:
     image: watcher-badger-explorer:latest
@@ -122,4 +109,3 @@ services:
 
 volumes:
   watcher-data: {}
-  grafana-data: {}

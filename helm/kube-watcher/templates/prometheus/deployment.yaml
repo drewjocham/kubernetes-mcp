@@ -17,6 +17,7 @@ spec:
       labels:
         app: prometheus
     spec:
+      serviceAccountName: {{ include "kube-watcher.serviceAccountName" . }}
       securityContext:
         runAsUser: 65534
         runAsGroup: 65534

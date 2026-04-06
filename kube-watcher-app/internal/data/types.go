@@ -13,12 +13,23 @@ type AlertRecord struct {
 	Reason     string    `json:"reason"`
 	Message    string    `json:"message"`
 	Status     string    `json:"status"` // detected | thinking | report_ready | failed
+	State      string    `json:"state,omitempty"`
 	ReceivedAt time.Time `json:"receivedAt"`
+	PodExists  bool      `json:"podExists,omitempty"`
+	Comments   []Comment `json:"comments,omitempty"`
 	// RCA fields (populated when status=report_ready)
 	RootCause  string   `json:"rootCause,omitempty"`
 	Summary    string   `json:"summary,omitempty"`
 	Actions    []string `json:"actions,omitempty"`
 	Confidence float64  `json:"confidence,omitempty"`
+}
+
+// Comment represents a user comment on an alert
+type Comment struct {
+	ID        string    `json:"id"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Incident is a historical event record from the MCP /history endpoint.
@@ -92,7 +103,7 @@ type LogLine struct {
 	Raw       string    `json:"raw"`
 }
 
-// ServiceStatus is the status of a Docker-managed compose service.
+// ServiceStatus is a placeholder (Docker Compose support removed).
 type ServiceStatus struct {
 	Name      string `json:"name"`
 	Image     string `json:"image"`
@@ -147,4 +158,27 @@ type AnomalyDeploymentPlan struct {
 	Commands   []string `json:"commands"`
 	Validation []string `json:"validation"`
 	Artifacts  []string `json:"artifacts"`
+}
+
+// PodInfo represents a Kubernetes pod with essential metadata and status.
+type PodInfo struct {
+	Name         string            `json:"name"`
+	Namespace    string            `json:"namespace"`
+	Status       string            `json:"status"`
+	Phase        string            `json:"phase"`
+	NodeName     string            `json:"nodeName"`
+	Age          time.Duration     `json:"age"`
+	Labels       map[string]string `json:"labels"`
+	Annotations  map[string]string `json:"annotations"`
+	Containers   []ContainerInfo   `json:"containers"`
+	RestartCount int               `json:"restartCount"`
+}
+
+// ContainerInfo represents a single container within a pod.
+type ContainerInfo struct {
+	Name         string `json:"name"`
+	Image        string `json:"image"`
+	Ready        bool   `json:"ready"`
+	RestartCount int32  `json:"restartCount"`
+	State        string `json:"state"`
 }

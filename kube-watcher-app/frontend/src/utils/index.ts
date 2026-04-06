@@ -1,7 +1,9 @@
 export function formatWhen(value: unknown) {
   if (!value) return 'Just now'
   const date = new Date(String(value))
-  if (Number.isNaN(date.getTime())) return String(value)
+  if (Number.isNaN(date.getTime())) return 'Timestamp missing'
+  // Check for dates before year 2000 (likely invalid/placeholder)
+  if (date.getFullYear() < 2000) return 'Timestamp missing'
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',

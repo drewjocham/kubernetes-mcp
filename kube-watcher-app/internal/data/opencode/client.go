@@ -15,6 +15,9 @@ import (
 type Client struct {
 	baseURL      string
 	apiKey       string
+	provider     string
+	model        string
+	backend      string
 	httpClient   *http.Client
 	pollInterval time.Duration
 	timeout      time.Duration
@@ -29,18 +32,35 @@ func New() *Client {
 	if apiKey == "" {
 		apiKey = "sk-2oEB1XMGNjoYuDf7WzH3uTXGTK3X7jjnCMswFG4vef2uGTtHtnSIakDZ135FoBmo"
 	}
+	provider := os.Getenv("OPENCODE_PROVIDER")
+	if provider == "" {
+		provider = "opencode"
+	}
+	model := os.Getenv("OPENCODE_MODEL")
+	if model == "" {
+		model = "big-pickle"
+	}
+	backend := os.Getenv("OPENCODE_BACKEND")
+	if backend == "" {
+		backend = "openai"
+	}
 	return &Client{
 		baseURL:      baseURL,
 		apiKey:       apiKey,
+		provider:     provider,
+		model:        model,
+		backend:      backend,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		pollInterval: 5 * time.Second,
 		timeout:      5 * time.Minute,
 	}
 }
 
-type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "***" + key[len(key)-4:]
 }
 
 type ChatMessage struct {
@@ -48,10 +68,45 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+type ChatRequest struct {
+	Model    string        `json:"model"`
+	Messages []ChatMessage `json:"messages"`
+}
+
 type ChatResponse struct {
 	Choices []struct {
 		Message ChatMessage `json:"message"`
 	} `json:"choices"`
+}
+
+type AnthropicRequest struct {
+	Model     string             `json:"model"`
+	Messages  []AnthropicMessage `json:"messages"`
+	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system,omitempty"`
+}
+
+type AnthropicMessage struct {
+	Role    string                    `json:"role"`
+	Content []AnthropicMessageContent `json:"content"`
+}
+
+type AnthropicMessageContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type AnthropicResponse struct {
+	Content []AnthropicResponseContent `json:"content"`
+	Usage   struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+type AnthropicResponseContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type StartRequest struct {
@@ -85,24 +140,32 @@ func (c *Client) Ask(ctx context.Context, prompt string, contextStr string) (str
 		fullPrompt = fmt.Sprintf("Context:\n%s\n\nQuestion: %s", contextStr, prompt)
 	}
 
-	// Detect if this is an OpenAI-compatible endpoint
-	if strings.Contains(c.baseURL, "/chat/completions") {
+	// Route based on provider
+	fmt.Printf("[opencode] Ask: provider=%q, baseURL=%q, model=%q, backend=%q\n",
+		c.provider, c.baseURL, c.model, c.backend)
+	switch c.provider {
+	case "anthropic":
+		return c.anthropicCompletion(ctx, fullPrompt)
+	case "opencode":
+		// If baseURL contains /chat/completions, treat as OpenAI-compatible
+		if strings.Contains(c.baseURL, "/chat/completions") {
+			return c.chatCompletion(ctx, fullPrompt)
+		}
+		// Otherwise use Warp/Oz logic
+		runID, err := c.startRun(ctx, fullPrompt)
+		if err != nil {
+			return "", fmt.Errorf("start opencode run: %w", err)
+		}
+		return c.pollRun(ctx, runID)
+	default:
+		// openai, azure, ollama, custom - treat as OpenAI-compatible
 		return c.chatCompletion(ctx, fullPrompt)
 	}
-
-	// 1. Start the run (Warp/Oz logic)
-	runID, err := c.startRun(ctx, fullPrompt)
-	if err != nil {
-		return "", fmt.Errorf("start opencode run: %w", err)
-	}
-
-	// 2. Poll for results
-	return c.pollRun(ctx, runID)
 }
 
 func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, error) {
 	reqBody := ChatRequest{
-		Model: "big-pickle", // Default model as seen in issue description
+		Model: c.model,
 		Messages: []ChatMessage{
 			{Role: "system", Content: "You are a helpful AI assistant. Always respond with well-formatted markdown. Use code blocks for JSON, commands, and configuration. Use bullet points for lists. Do not use HTML tags like <br>, use markdown formatting instead."},
 			{Role: "user", Content: prompt},
@@ -116,7 +179,11 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.provider == "azure" || strings.Contains(c.baseURL, "azure.com") {
+		req.Header.Set("api-key", c.apiKey)
+	} else if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -143,86 +210,67 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 	return cleanupMarkdown(content), nil
 }
 
-func decodeHtmlEntities(input string) string {
-	result := input
-	result = strings.ReplaceAll(result, "&lt;", "<")
-	result = strings.ReplaceAll(result, "&gt;", ">")
-	result = strings.ReplaceAll(result, "&amp;", "&")
-	result = strings.ReplaceAll(result, "&quot;", "\"")
-	result = strings.ReplaceAll(result, "&#39;", "'")
-	result = strings.ReplaceAll(result, "&nbsp;", " ")
-	return result
-}
-
-func cleanupMarkdown(input string) string {
-	if input == "" {
-		return input
+func (c *Client) anthropicCompletion(ctx context.Context, prompt string) (string, error) {
+	// Anthropic API endpoint
+	endpoint := c.baseURL
+	if endpoint == "" || !strings.Contains(endpoint, "anthropic.com") {
+		endpoint = "https://api.anthropic.com/v1/messages"
 	}
 
-	// Decode HTML entities first
-	result := decodeHtmlEntities(input)
-
-	// Replace HTML line breaks with newlines
-	result = strings.ReplaceAll(result, "<br>", "\n")
-	result = strings.ReplaceAll(result, "<br/>", "\n")
-	result = strings.ReplaceAll(result, "<br />", "\n")
-
-	// Fix common malformed patterns
-	// Remove duplicate consecutive code block markers
-	// This is a simplified approach - for production, use proper regex
-	lines := strings.Split(result, "\n")
-	var cleanedLines []string
-	inCodeBlock := false
-	prevLine := ""
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Check if this line starts a code block
-		if strings.HasPrefix(trimmed, "```") {
-			if inCodeBlock {
-				// Already in code block, might be duplicate opener
-				// Skip if previous line was also a code block opener
-				if strings.HasPrefix(strings.TrimSpace(prevLine), "```") {
-					continue // Skip duplicate opener
-				}
-			}
-			inCodeBlock = !inCodeBlock
-		}
-
-		cleanedLines = append(cleanedLines, line)
-		prevLine = line
+	// Prepare messages: Anthropic expects array of content blocks
+	content := []AnthropicMessageContent{
+		{Type: "text", Text: prompt},
+	}
+	messages := []AnthropicMessage{
+		{Role: "user", Content: content},
 	}
 
-	result = strings.Join(cleanedLines, "\n")
+	reqBody := AnthropicRequest{
+		Model:     c.model,
+		Messages:  messages,
+		MaxTokens: 4096,
+		System:    "You are a helpful AI assistant. Always respond with well-formatted markdown. Use code blocks for JSON, commands, and configuration. Use bullet points for lists. Do not use HTML tags like <br>, use markdown formatting instead.",
+	}
 
-	// Remove any remaining HTML tags (simple approach)
-	result = strings.ReplaceAll(result, "<strong>", "**")
-	result = strings.ReplaceAll(result, "</strong>", "**")
-	result = strings.ReplaceAll(result, "<b>", "**")
-	result = strings.ReplaceAll(result, "</b>", "**")
-	result = strings.ReplaceAll(result, "<em>", "*")
-	result = strings.ReplaceAll(result, "</em>", "*")
-	result = strings.ReplaceAll(result, "<i>", "*")
-	result = strings.ReplaceAll(result, "</i>", "*")
+	bodyBytes, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", err
+	}
 
-	// Remove any other HTML tags (crude but works for common cases)
-	for strings.Contains(result, "<") && strings.Contains(result, ">") {
-		start := strings.Index(result, "<")
-		end := strings.Index(result, ">")
-		if start >= 0 && end > start {
-			result = result[:start] + result[end+1:]
-		} else {
-			break
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("anthropic completion error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+	}
+
+	var anthropicResp AnthropicResponse
+	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+		return "", err
+	}
+
+	if len(anthropicResp.Content) == 0 {
+		return "", fmt.Errorf("no content in anthropic response")
+	}
+
+	// Extract text from content blocks
+	var builder strings.Builder
+	for _, block := range anthropicResp.Content {
+		if block.Type == "text" {
+			builder.WriteString(block.Text)
 		}
 	}
 
-	// Normalize newlines (3+ newlines -> 2 newlines)
-	for strings.Contains(result, "\n\n\n") {
-		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
-	}
-
-	return strings.TrimSpace(result)
+	return cleanupMarkdown(builder.String()), nil
 }
 
 func (c *Client) startRun(ctx context.Context, prompt string) (string, error) {
@@ -360,4 +408,136 @@ func getString(m map[string]any, path string) string {
 		return s
 	}
 	return ""
+}
+
+func decodeHtmlEntities(input string) string {
+	result := input
+	result = strings.ReplaceAll(result, "&lt;", "<")
+	result = strings.ReplaceAll(result, "&gt;", ">")
+	result = strings.ReplaceAll(result, "&amp;", "&")
+	result = strings.ReplaceAll(result, "&quot;", "\"")
+	result = strings.ReplaceAll(result, "&#39;", "'")
+	result = strings.ReplaceAll(result, "&nbsp;", " ")
+	return result
+}
+
+func cleanupMarkdown(input string) string {
+	if input == "" {
+		return input
+	}
+
+	// Decode HTML entities first
+	result := decodeHtmlEntities(input)
+
+	// Replace HTML line breaks with newlines
+	result = strings.ReplaceAll(result, "<br>", "\n")
+	result = strings.ReplaceAll(result, "<br/>", "\n")
+	result = strings.ReplaceAll(result, "<br />", "\n")
+
+	// Fix common malformed patterns
+	// Remove duplicate consecutive code block markers
+	// This is a simplified approach - for production, use proper regex
+	lines := strings.Split(result, "\n")
+	var cleanedLines []string
+	inCodeBlock := false
+	prevLine := ""
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Check if this line starts a code block
+		if strings.HasPrefix(trimmed, "```") {
+			if inCodeBlock {
+				// Already in code block, might be duplicate opener
+				// Skip if previous line was also a code block opener
+				if strings.HasPrefix(strings.TrimSpace(prevLine), "```") {
+					continue // Skip duplicate opener
+				}
+			}
+			inCodeBlock = !inCodeBlock
+		}
+
+		cleanedLines = append(cleanedLines, line)
+		prevLine = line
+	}
+
+	result = strings.Join(cleanedLines, "\n")
+
+	// Remove any remaining HTML tags (simple approach)
+	result = strings.ReplaceAll(result, "<strong>", "**")
+	result = strings.ReplaceAll(result, "</strong>", "**")
+	result = strings.ReplaceAll(result, "<b>", "**")
+	result = strings.ReplaceAll(result, "</b>", "**")
+	result = strings.ReplaceAll(result, "<em>", "*")
+	result = strings.ReplaceAll(result, "</em>", "*")
+	result = strings.ReplaceAll(result, "<i>", "*")
+	result = strings.ReplaceAll(result, "</i>", "*")
+
+	// Remove any other HTML tags (crude but works for common cases)
+	for strings.Contains(result, "<") && strings.Contains(result, ">") {
+		start := strings.Index(result, "<")
+		end := strings.Index(result, ">")
+		if start >= 0 && end > start {
+			result = result[:start] + result[end+1:]
+		} else {
+			break
+		}
+	}
+
+	// Normalize newlines (3+ newlines -> 2 newlines)
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(result)
+}
+
+func (c *Client) SetConfig(baseURL, apiKey, provider, model, backend string) {
+	fmt.Printf("[opencode] SetConfig called: provider=%q, apiKey=%q (len=%d), baseURL=%q, model=%q, backend=%q\n",
+		provider, maskAPIKey(apiKey), len(apiKey), baseURL, model, backend)
+	fmt.Printf("[opencode] Before update: provider=%q, apiKey=%q, baseURL=%q\n",
+		c.provider, maskAPIKey(c.apiKey), c.baseURL)
+	if provider != "" {
+		c.provider = provider
+	}
+	if apiKey != "" {
+		c.apiKey = apiKey
+	}
+	if model != "" {
+		c.model = model
+	}
+	if backend != "" {
+		c.backend = backend
+	}
+	// Set appropriate default base URL based on provider if not provided
+	if baseURL != "" {
+		c.baseURL = baseURL
+	} else {
+		// Set default URLs based on provider
+		switch c.provider {
+		case "openai":
+			c.baseURL = "https://api.openai.com/v1/chat/completions"
+		case "azure":
+			// Azure OpenAI requires resource and deployment in URL
+			// User should provide full URL: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2023-05-15
+			// Keep existing baseURL if already set
+			if c.baseURL == "" {
+				c.baseURL = "https://opencode.ai/zen/v1/chat/completions" // Fallback
+			}
+		case "anthropic":
+			c.baseURL = "https://api.anthropic.com/v1/messages"
+		case "ollama":
+			c.baseURL = "http://localhost:11434/v1/chat/completions"
+		case "custom":
+			// For custom, keep existing or use opencode default
+			if c.baseURL == "" {
+				c.baseURL = "https://opencode.ai/zen/v1/chat/completions"
+			}
+		default:
+			// opencode or unknown provider
+			if c.baseURL == "" {
+				c.baseURL = "https://opencode.ai/zen/v1/chat/completions"
+			}
+		}
+	}
 }

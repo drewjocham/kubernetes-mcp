@@ -31,7 +31,6 @@ import (
 	"kube-watcher-app/internal/ui/sidebar"
 )
 
-// AppModel is the root Bubble Tea model.
 type AppModel struct {
 	// Layout
 	zones layout.Zones
@@ -210,7 +209,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Focus-based routing
 		switch m.focus {
 		case layout.FocusModal:
 			h, cmd := m.helpModal.Update(msg)
@@ -266,9 +264,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screens[1].(*anomaliesscreen.Screen).SetHistory(msg.Incidents)
 		m.screens[2].(*chartsscreen.Screen).SetHistory(msg.Incidents)
 
-	case hub.ServicesUpdatedMsg:
-		m.screens[6].(*deployments.Screen).SetServices(msg.Services)
-
 	case hub.RecsUpdatedMsg:
 		m.screens[4].(*hintsscreen.Screen).SetRecommendations(msg.Recs)
 
@@ -315,8 +310,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.hubData.PollAlerts())
 	case hub.HistoryUpdatedMsg:
 		cmds = append(cmds, m.hubData.PollHistory())
-	case hub.ServicesUpdatedMsg:
-		cmds = append(cmds, m.hubData.PollServices())
+
 	case hub.RecsUpdatedMsg:
 		cmds = append(cmds, m.hubData.PollRecs())
 	case hub.ConnectionStatusMsg:

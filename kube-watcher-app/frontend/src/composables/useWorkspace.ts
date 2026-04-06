@@ -1,17 +1,13 @@
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import {
   GetAIWorkspace,
   GetAlerts,
   GetHistory,
   GetRecommendations,
-  GetServiceStatus,
-  GetLogs,
   GetStatus,
   GetEndpoint,
   GetAnomstackAnomalies,
   GetCurrentContext,
-  StartService,
-  StopService,
 } from '../../wailsjs/go/main/App'
 import { data } from '../../wailsjs/go/models'
 
@@ -20,15 +16,14 @@ export function useWorkspace() {
   const alerts = ref<data.AlertRecord[]>([])
   const history = ref<data.Incident[]>([])
   const recommendations = ref<data.Recommendation[]>([])
-  const services = ref<data.ServiceStatus[]>([])
-  const logs = ref<data.LogLine[]>([])
+  const logs = ref<any[]>([])
   const mcpStatus = ref<data.StatusResponse | null>(null)
   const mcpEndpoint = ref('')
   const currentContext = ref('unknown')
   const anomstackConnected = ref(false)
   const isLoading = ref(false)
-  const isRefreshingServices = ref(false)
   const error = ref<string | null>(null)
+  const services = ref<any[]>([])
 
   const summaryCards = computed(() => {
     if (!workspace.value) return []
@@ -63,6 +58,8 @@ export function useWorkspace() {
     }
   }
 
+
+
   async function loadWorkspace() {
     isLoading.value = true
     error.value = null
@@ -73,8 +70,6 @@ export function useWorkspace() {
         GetAlerts(),
         GetHistory(),
         GetRecommendations(),
-        GetServiceStatus(),
-        GetLogs(),
         GetStatus(),
         GetEndpoint(),
       ])
@@ -87,10 +82,10 @@ export function useWorkspace() {
       const alertData = getValue(results[1]) || []
       const historyData = getValue(results[2]) || []
       const recommendationData = getValue(results[3]) || []
-      const serviceData = getValue(results[4]) || []
-      const logData = getValue(results[5]) || []
-      const statusData = getValue(results[6])
-      const endpointData = getValue(results[7]) || ''
+      const statusData = getValue(results[4])
+      const endpointData = getValue(results[5]) || ''
+      
+      // Service data is empty (Docker Compose support removed)
       
       // Log any failures
       results.forEach((result, idx) => {
@@ -105,8 +100,8 @@ export function useWorkspace() {
         alerts: alertData.length, 
         history: historyData.length,
         recommendations: recommendationData.length,
-        services: serviceData.length,
-        logs: logData.length,
+        services: 0,
+        logs: 0,
         status: !!statusData,
         endpoint: endpointData
       })
@@ -121,8 +116,8 @@ export function useWorkspace() {
       alerts.value = alertData // Start with MCP alerts only
       history.value = historyData
       recommendations.value = recommendationData
-      services.value = serviceData
-      logs.value = logData
+      services.value = []
+      logs.value = []
       mcpStatus.value = statusData
       mcpEndpoint.value = endpointData
       
@@ -150,23 +145,9 @@ export function useWorkspace() {
     }
   }
 
-  async function toggleService(service: data.ServiceStatus) {
-    isRefreshingServices.value = true
-    try {
-      if (service.status === 'running') {
-        await StopService(service.name)
-      } else {
-        await StartService(service.name)
-      }
-      // Refresh services list
-      services.value = await GetServiceStatus()
-    } catch (error) {
-      console.error('Service action failed:', error)
-      throw error
-    } finally {
-      isRefreshingServices.value = false
-    }
-  }
+
+
+
 
   return {
     workspace,
@@ -180,7 +161,6 @@ export function useWorkspace() {
     currentContext,
     anomstackConnected,
     isLoading,
-    isRefreshingServices,
     error,
     summaryCards,
     topPriority,
@@ -188,6 +168,5 @@ export function useWorkspace() {
     runtimeLogs,
     loadCurrentContext,
     loadWorkspace,
-    toggleService,
   }
 }

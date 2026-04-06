@@ -15,6 +15,12 @@ data:
             <level>information</level>
             <console>true</console>
         </logger>
+        <profiles>
+            <default>
+                <ignore_unknown_settings>1</ignore_unknown_settings>
+                <allow_experimental_json_type>1</allow_experimental_json_type>
+            </default>
+        </profiles>
         <http_port>8123</http_port>
         <tcp_port>9000</tcp_port>
         <mysql_port>9004</mysql_port>
@@ -44,21 +50,14 @@ data:
             <users_xml>
                 <path>users.xml</path>
             </users_xml>
-            <users_d>
-                <path>users.d</path>
-            </users_d>
         </user_directories>
         <default_profile>default</default_profile>
         <default_database>default</default_database>
         <timezone>UTC</timezone>
         <mlock_executable>true</mlock_executable>
-        <remotes>
-        </remotes>
-        <zookeeper>
-        </zookeeper>
-        <distributed_ddl>
-            <path>/clickhouse/task_queue/ddl</path>
-        </distributed_ddl>
+         <!-- remotes disabled -->
+         <!-- zookeeper disabled -->
+
         <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
     </clickhouse>
 ---
@@ -77,6 +76,7 @@ data:
         <users>
             <default>
                 <password></password>
+                <ignore_unknown_settings>1</ignore_unknown_settings>
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
                 <show_named_collections>1</show_named_collections>

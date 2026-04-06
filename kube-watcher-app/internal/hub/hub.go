@@ -13,7 +13,6 @@ import (
 type (
 	AlertsUpdatedMsg    struct{ Records []data.AlertRecord }
 	HistoryUpdatedMsg   struct{ Incidents []data.Incident }
-	ServicesUpdatedMsg  struct{ Services []data.ServiceStatus }
 	RecsUpdatedMsg      struct{ Recs []data.Recommendation }
 	ConnectionStatusMsg struct {
 		MCP        bool
@@ -113,32 +112,6 @@ func (h *Hub) PingStatus() tea.Cmd {
 	})
 }
 
-// FetchServices immediately fetches Docker service statuses (one-shot).
-func (h *Hub) FetchServices() tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		svcs, err := h.mcp.Services(ctx)
-		if err != nil {
-			return DataErrorMsg{Source: "services", Err: err}
-		}
-		return ServicesUpdatedMsg{Services: svcs}
-	}
-}
-
-// PollServices returns a tea.Cmd that refetches service statuses every 20s.
-func (h *Hub) PollServices() tea.Cmd {
-	return tea.Tick(20*time.Second, func(_ time.Time) tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		svcs, err := h.mcp.Services(ctx)
-		if err != nil {
-			return DataErrorMsg{Source: "services", Err: err}
-		}
-		return ServicesUpdatedMsg{Services: svcs}
-	})
-}
-
 // FetchRecs immediately fetches recommendations (one-shot).
 func (h *Hub) FetchRecs() tea.Cmd {
 	return func() tea.Msg {
@@ -171,12 +144,10 @@ func (h *Hub) Init() tea.Cmd {
 		h.FetchStatus(),
 		h.FetchAlerts(),
 		h.FetchHistory(),
-		h.FetchServices(),
 		h.FetchRecs(),
 		h.PingStatus(),
 		h.PollAlerts(),
 		h.PollHistory(),
-		h.PollServices(),
 		h.PollRecs(),
 	)
 }

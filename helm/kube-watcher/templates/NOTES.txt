@@ -1,18 +1,14 @@
 kube-watcher has been deployed.
 
 NAMESPACES
-  kube-watcher  — MCP, watcher engine, Prometheus, Grafana
+  kube-watcher  — MCP, watcher engine, Prometheus
   kw-anomaly    — Anomstack daemon, webserver, dashboard
 
 PORT-FORWARD (or: make k8s-pf-all)
-  Grafana:          kubectl port-forward -n kube-watcher svc/grafana 3000:3000
   MCP API:          kubectl port-forward -n kube-watcher svc/mcp 8080:8080
   Prometheus:       kubectl port-forward -n kube-watcher svc/prometheus 9090:9090
   Badger Explorer:  kubectl port-forward -n kube-watcher svc/watcher 4101:4101
   Anomstack UI:     kubectl port-forward -n kw-anomaly svc/anomstack-webserver 3001:3000
-
-CREDENTIALS
-  Grafana: {{ .Values.grafana.adminUser }} / {{ .Values.grafana.adminPassword }}
 
 STATUS
   make k8s-status

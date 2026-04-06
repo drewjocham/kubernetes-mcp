@@ -27,7 +27,7 @@ type Client struct {
 // New creates a new DeepSeek client with MCP integration
 func New(mcpClient *mcp.Client) *Client {
 	//apiKey := os.Getenv("DEEPSEEK_API_KEY")
-	apiKey := "sk-9573feef9ebf4544be9e8474717372b1"
+	apiKey := ""
 	if apiKey == "" {
 		apiKey = "sk-2oEB1XMGNjoYuDf7WzH3uTXGTK3X7jjnCMswFG4vef2uGTtHtnSIakDZ135FoBmo" // Default to OpenCode key for now
 	}

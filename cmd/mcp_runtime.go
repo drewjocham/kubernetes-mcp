@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"kube-watcher/mcp/monitoring/alerts"
 	"kube-watcher/mcp/monitoring/history"
 	"kube-watcher/mcp/server"
 	"kube-watcher/pkg/audit"
@@ -27,8 +28,9 @@ type mcpRuntimeConfig struct {
 }
 
 type mcpRuntime struct {
-	server  *server.MCPServer
-	history *history.Store
+	server      *server.MCPServer
+	history     *history.Store
+	alertsStore alerts.StoreInterface
 }
 
 func newMCPRuntime(cfg mcpRuntimeConfig) (*mcpRuntime, error) {
@@ -57,27 +59,43 @@ func newMCPRuntime(cfg mcpRuntimeConfig) (*mcpRuntime, error) {
 		return nil, fmt.Errorf("storage init failed: %w", err)
 	}
 
+	alertsStore, err := alerts.NewStore(strings.TrimSuffix(dbPath, ".db") + "-alerts.db")
+	if err != nil {
+		_ = historyStore.Close()
+		return nil, fmt.Errorf("alerts storage init failed: %w", err)
+	}
+
 	watchManager := kwatch.NewManager(k8sClient, logger, cfg.interval)
+	podTracker := kwatch.NewPodTracker(k8sClient.GetRawInterface(), logger)
+
 	mcpServer, err := server.NewMCPServer(logger, server.Config{
 		Version:      version,
 		GitCommit:    gitCommit,
 		BuildDate:    buildDate,
 		K8sClient:    k8sClient,
 		HistoryStore: historyStore,
+		AlertsStore:  alertsStore,
+		PodTracker:   podTracker,
 		Watcher:      watchManager,
 	})
 	if err != nil {
+		_ = alertsStore.Close()
 		_ = historyStore.Close()
-
 		return nil, fmt.Errorf("mcp server init failed: %w", err)
 	}
 
-	return &mcpRuntime{server: mcpServer, history: historyStore}, nil
+	return &mcpRuntime{server: mcpServer, history: historyStore, alertsStore: alertsStore}, nil
 }
 
 func (r *mcpRuntime) close() {
-	if r != nil && r.history != nil {
-		_ = r.history.Close()
+	logging.Shutdown()
+	if r != nil {
+		if r.history != nil {
+			_ = r.history.Close()
+		}
+		if r.alertsStore != nil {
+			_ = r.alertsStore.Close()
+		}
 	}
 }
 

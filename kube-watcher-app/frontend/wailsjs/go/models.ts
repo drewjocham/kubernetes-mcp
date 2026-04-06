@@ -125,6 +125,43 @@ export namespace data {
 		}
 	}
 	
+	export class Comment {
+	    id: string;
+	    author: string;
+	    content: string;
+	    // Go type: time
+	    created_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Comment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.author = source["author"];
+	        this.content = source["content"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AlertRecord {
 	    id: string;
 	    kind: string;
@@ -135,8 +172,11 @@ export namespace data {
 	    reason: string;
 	    message: string;
 	    status: string;
+	    state?: string;
 	    // Go type: time
 	    receivedAt: any;
+	    podExists?: boolean;
+	    comments?: Comment[];
 	    rootCause?: string;
 	    summary?: string;
 	    actions?: string[];
@@ -157,7 +197,10 @@ export namespace data {
 	        this.reason = source["reason"];
 	        this.message = source["message"];
 	        this.status = source["status"];
+	        this.state = source["state"];
 	        this.receivedAt = this.convertValues(source["receivedAt"], null);
+	        this.podExists = source["podExists"];
+	        this.comments = this.convertValues(source["comments"], Comment);
 	        this.rootCause = source["rootCause"];
 	        this.summary = source["summary"];
 	        this.actions = source["actions"];
@@ -183,6 +226,27 @@ export namespace data {
 		}
 	}
 	
+	
+	export class ContainerInfo {
+	    name: string;
+	    image: string;
+	    ready: boolean;
+	    restartCount: number;
+	    state: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContainerInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.image = source["image"];
+	        this.ready = source["ready"];
+	        this.restartCount = source["restartCount"];
+	        this.state = source["state"];
+	    }
+	}
 	export class Incident {
 	    id: string;
 	    // Go type: time
@@ -234,25 +298,34 @@ export namespace data {
 		    return a;
 		}
 	}
-	export class LogLine {
-	    // Go type: time
-	    timestamp: any;
-	    level: string;
-	    source: string;
-	    message: string;
-	    raw: string;
+	export class PodInfo {
+	    name: string;
+	    namespace: string;
+	    status: string;
+	    phase: string;
+	    nodeName: string;
+	    age: number;
+	    labels: Record<string, string>;
+	    annotations: Record<string, string>;
+	    containers: ContainerInfo[];
+	    restartCount: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new LogLine(source);
+	        return new PodInfo(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.timestamp = this.convertValues(source["timestamp"], null);
-	        this.level = source["level"];
-	        this.source = source["source"];
-	        this.message = source["message"];
-	        this.raw = source["raw"];
+	        this.name = source["name"];
+	        this.namespace = source["namespace"];
+	        this.status = source["status"];
+	        this.phase = source["phase"];
+	        this.nodeName = source["nodeName"];
+	        this.age = source["age"];
+	        this.labels = source["labels"];
+	        this.annotations = source["annotations"];
+	        this.containers = this.convertValues(source["containers"], ContainerInfo);
+	        this.restartCount = source["restartCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -297,26 +370,6 @@ export namespace data {
 	        this.relatedKind = source["relatedKind"];
 	        this.frequencyDelta = source["frequencyDelta"];
 	        this.alertRef = source["alertRef"];
-	    }
-	}
-	export class ServiceStatus {
-	    name: string;
-	    image: string;
-	    status: string;
-	    startedAt?: string;
-	    id?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ServiceStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.image = source["image"];
-	        this.status = source["status"];
-	        this.startedAt = source["startedAt"];
-	        this.id = source["id"];
 	    }
 	}
 	export class StatusResponse {

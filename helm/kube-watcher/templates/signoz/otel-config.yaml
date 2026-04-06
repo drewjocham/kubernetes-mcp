@@ -47,11 +47,7 @@ data:
 
     exporters:
       clickhouse:
-        datasource: tcp://localhost:9000
-      otlp:
-        endpoint: signoz-otel-collector-mq:4318
-        tls:
-          insecure: true
+        datasource: 'tcp://127.0.0.1:9000?compatibility=24.8&amp;ignore_unknown_settings=1'
 
     service:
       pipelines:

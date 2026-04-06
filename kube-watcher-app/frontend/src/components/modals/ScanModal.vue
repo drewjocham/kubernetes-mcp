@@ -19,7 +19,7 @@
           </div>
         </div>
 
-        <div class="scan-modal-issues" v-if="cell">
+        <div class="scan-modal-issues" v-if="cell && hasIssues(cell.detail)">
           <div v-if="getErrors(cell.detail).length > 0" class="scan-issue-section">
             <h4 class="scan-issue-header error-header">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -28,8 +28,13 @@
               Errors
             </h4>
             <ul class="scan-issue-list">
-              <li v-for="error in getErrors(cell.detail)" :key="error">
-                {{ error }}
+              <li v-for="(error, index) in getErrors(cell.detail)" :key="error.id + '-' + index">
+                <div class="issue-message">
+                  <strong>[POP-{{ error.id }}]</strong> {{ error.message }}
+                </div>
+                <div v-if="error.context" class="issue-context">
+                  {{ error.context }}
+                </div>
               </li>
             </ul>
           </div>
@@ -42,8 +47,13 @@
               Warnings
             </h4>
             <ul class="scan-issue-list">
-              <li v-for="warning in getWarnings(cell.detail)" :key="warning">
-                {{ warning }}
+              <li v-for="(warning, index) in getWarnings(cell.detail)" :key="warning.id + '-' + index">
+                <div class="issue-message">
+                  <strong>[POP-{{ warning.id }}]</strong> {{ warning.message }}
+                </div>
+                <div v-if="warning.context" class="issue-context">
+                  {{ warning.context }}
+                </div>
               </li>
             </ul>
           </div>
@@ -56,11 +66,21 @@
               Information
             </h4>
             <ul class="scan-issue-list">
-              <li v-for="info in getInfo(cell.detail)" :key="info">
-                {{ info }}
+              <li v-for="(info, index) in getInfo(cell.detail)" :key="info.id + '-' + index">
+                <div class="issue-message">
+                  <strong>[POP-{{ info.id }}]</strong> {{ info.message }}
+                </div>
+                <div v-if="info.context" class="issue-context">
+                  {{ info.context }}
+                </div>
               </li>
             </ul>
           </div>
+        </div>
+        
+        <div v-if="cell && !hasIssues(cell.detail)" class="scan-modal-details">
+          <h4 class="scan-details-header">Scan Details</h4>
+          <pre class="scan-modal-details-text">{{ cell.detail }}</pre>
         </div>
       </div>
     </div>
@@ -79,33 +99,100 @@ const emit = defineEmits<{
   close: []
 }>()
 
-function getErrors(detail: string): string[] {
-  const lines = detail.split('\n')
-  return lines.filter(line => 
-    line.toLowerCase().includes('error') || 
-    line.toLowerCase().includes('failed') ||
-    line.toLowerCase().includes('critical')
-  )
+interface Issue {
+  id: string
+  message: string
+  context: string
+  level: number // 3: error, 2: warning, 1: info
 }
 
-function getWarnings(detail: string): string[] {
+function parseIssues(detail: string, level: number): Issue[] {
+  const issues: Issue[] = []
   const lines = detail.split('\n')
-  return lines.filter(line => 
-    line.toLowerCase().includes('warning') || 
-    line.toLowerCase().includes('deprecated') ||
-    line.toLowerCase().includes('outdated')
-  )
+  
+  // Parse popeye issues - look for lines with [POP-XXXX] pattern
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line || line.length < 5) continue
+    
+    // Match popeye issue pattern: [POP-XXXX] message
+    const popMatch = line.match(/\[POP-(\d+)\]\s*(.+)/)
+    if (popMatch) {
+      const issueId = popMatch[1]
+      let message = popMatch[2].trim()
+      
+      // Clean up the message
+      message = message.replace(/^\[.*?\]\s*/, '')
+      
+      // Determine level from message content
+      let issueLevel = 2 // default warning
+      const lowerMsg = message.toLowerCase()
+      
+      if (lowerMsg.includes('error') || lowerMsg.includes('critical') || 
+          lowerMsg.includes('failed') || lowerMsg.includes('unhappy') || 
+          lowerMsg.includes('crash') || lowerMsg.includes('not found')) {
+        issueLevel = 3 // error
+      } else if (lowerMsg.includes('warning') || lowerMsg.includes('deprecated') || 
+                 lowerMsg.includes('no resources') || lowerMsg.includes('not secured') ||
+                 lowerMsg.includes('no limits') || lowerMsg.includes('no probes')) {
+        issueLevel = 2 // warning
+      } else if (lowerMsg.includes('info') || lowerMsg.includes('used?') || 
+                 lowerMsg.includes('unable to locate') || lowerMsg.includes('consider')) {
+        issueLevel = 1 // info
+      }
+      
+      if (issueLevel === level) {
+        // Try to get context from next line if it contains service/pod info
+        let context = ''
+        if (i + 1 < lines.length) {
+          const nextLine = lines[i + 1].trim()
+          if (nextLine && nextLine.length > 5 && !nextLine.match(/\[POP-\d+\]/)) {
+            context = nextLine
+          }
+        }
+        
+        issues.push({
+          id: issueId,
+          message: message,
+          context: context || 'Kubernetes resource configuration issue',
+          level: issueLevel
+        })
+      }
+    }
+  }
+  
+  // If no structured issues found, try to extract from the raw detail
+  if (issues.length === 0 && (detail.includes('errors') || detail.includes('warnings'))) {
+    const errorMatches = detail.match(/(\d+)\s+errors?/gi)
+    const warningMatches = detail.match(/(\d+)\s+warnings?/gi)
+    
+    if ((level === 3 && errorMatches) || (level === 2 && warningMatches)) {
+      issues.push({
+        id: 'general',
+        message: level === 3 ? 'Multiple configuration errors detected' : 'Multiple configuration warnings detected',
+        context: 'Check resource limits, network policies, and pod configurations',
+        level: level
+      })
+    }
+  }
+
+  return issues
 }
 
-function getInfo(detail: string): string[] {
-  const lines = detail.split('\n')
-  const errors = getErrors(detail)
-  const warnings = getWarnings(detail)
-  return lines.filter(line => 
-    !errors.includes(line) && 
-    !warnings.includes(line) && 
-    line.trim() !== ''
-  )
+function getErrors(detail: string): Issue[] {
+  return parseIssues(detail, 3)
+}
+
+function getWarnings(detail: string): Issue[] {
+  return parseIssues(detail, 2)
+}
+
+function getInfo(detail: string): Issue[] {
+  return parseIssues(detail, 1)
+}
+
+function hasIssues(detail: string): boolean {
+  return getErrors(detail).length > 0 || getWarnings(detail).length > 0 || getInfo(detail).length > 0
 }
 </script>
 
@@ -116,12 +203,13 @@ function getInfo(detail: string): string[] {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+   background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   padding: 20px;
+  backdrop-filter: blur(2px);
 }
 
 .scan-modal {
@@ -281,11 +369,60 @@ function getInfo(detail: string): string[] {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .scan-issue-list li:before {
-  content: '•';
-  margin-right: 8px;
+  content: none;
+}
+
+
+
+.issue-message {
+  line-height: 1.4;
+}
+
+.issue-message strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.issue-context {
+  font-size: 13px;
   color: var(--text-tertiary);
+  font-style: italic;
+  margin-top: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.scan-modal-details {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+}
+
+.scan-details-header {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-secondary);
+}
+
+.scan-modal-details-text {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
 }
 </style>
