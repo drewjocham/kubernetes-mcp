@@ -32,6 +32,21 @@ body {
     --good: #3fbf7f;
     --shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
     --modal-bg: var(--surface-strong);
+    --primary: var(--ink);
+    --primary-hover: #8a82e0;
+    --text-primary: var(--text);
+    --text-secondary: var(--text-muted);
+    --text-tertiary: #8885a3;
+    --hover: rgba(224, 223, 240, 0.08);
+    --border-active: var(--ink);
+    --input-bg: var(--surface);
+    --panel-bg: rgba(38, 37, 49, 0.92);
+    --sidebar-bg: rgba(15, 15, 19, 0.45);
+    --card-bg: rgba(255, 255, 255, 0.04);
+    --accent: var(--teal);
+    --error: var(--danger);
+    --info: var(--ink);
+    --success: var(--good);
 }
 
 * {
@@ -51,11 +66,16 @@ pre {
 .shell {
     min-height: 100vh;
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 280px minmax(0, 1fr);
     background:
         radial-gradient(circle at top left, rgba(125, 116, 214, 0.18), transparent 30%),
         radial-gradient(circle at top right, rgba(76, 167, 158, 0.16), transparent 26%),
         var(--bg);
+    transition: grid-template-columns 0.3s ease;
+}
+
+.shell.sidebar-collapsed {
+    grid-template-columns: 50px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -228,7 +248,7 @@ pre {
 
 .workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: 1fr;
     gap: 20px;
 }
 
@@ -650,10 +670,6 @@ code {
 }
 
 @media (max-width: 1180px) {
-    .workspace {
-        grid-template-columns: 1fr;
-    }
-
     .summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -688,23 +704,72 @@ code {
   gap: 0.5rem;
 }
 
+.select-input {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.select-input:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.select-input:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
+}
+
+.state-select {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.state-select:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.state-select:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
+}
+
 .sweep-select {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 0.875rem;
-  color: inherit;
   cursor: pointer;
   outline: none;
+  transition: all 0.2s ease;
 }
 
 .sweep-select:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
 }
 
 .sweep-select:focus {
-  border-color: var(--primary);
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .header-actions {
@@ -715,10 +780,10 @@ code {
 
 @media (prefers-color-scheme: dark) {
   .sweep-select {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--input-bg);
+    border-color: var(--border);
   }
   .sweep-select:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-strong);
   }
 }

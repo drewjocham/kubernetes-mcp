@@ -177,8 +177,24 @@ func executeAction(ctx context.Context, s *server.MCPServer, cfg config, logger 
 			}
 			go func() {
 				logger.Info("starting HTTP server", "addr", cfg.httpAddr)
-				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					logger.Error("HTTP server error", "error", err)
+				maxAttempts := 2
+				for attempt := 1; attempt <= maxAttempts; attempt++ {
+					err := httpServer.ListenAndServe()
+					if err == nil || err == http.ErrServerClosed {
+						// Normal shutdown, break out of retry loop
+						break
+					}
+					// Log error with attempt number
+					logger.Error("HTTP server error", "attempt", attempt, "error", err)
+					if attempt == maxAttempts {
+						logger.Warn("HTTP server failed after maximum retries, continuing in degraded mode (no HTTP API)")
+						break
+					}
+					// Wait before retry
+					retryDelay := 5 * time.Second
+					logger.Info("retrying HTTP server start", "delay", retryDelay)
+					time.Sleep(retryDelay)
+					// Continue loop to retry
 				}
 			}()
 			defer func() {

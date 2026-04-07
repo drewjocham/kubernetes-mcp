@@ -17,6 +17,7 @@ import (
 	terminalcore "kube-watcher/terminal/internal/core/terminal"
 	"kube-watcher/terminal/internal/domain"
 	"kube-watcher/terminal/internal/ui/tui"
+	"kube-watcher/terminal/internal/widgets"
 )
 
 func Run() error {
@@ -28,6 +29,11 @@ func Run() error {
 	adapter := ptyadapter.NewAdapter()
 	handler := terminalcore.NewHandler(adapter)
 	browserHandler := browsercore.NewHandler(browseradapter.NewAdapter())
+	repoPath, _ := os.Getwd()
+	widgetSet := []domain.Widget{
+		widgets.NewSystemStatsWidget(),
+		widgets.NewGitStatusWidget(repoPath),
+	}
 	var (
 		blocksMu sync.Mutex
 		blocks   []domain.Block
@@ -60,6 +66,7 @@ func Run() error {
 				},
 			})
 		}),
+		tui.WithWidgets(widgetSet),
 	)
 	program := tea.NewProgram(
 		model,

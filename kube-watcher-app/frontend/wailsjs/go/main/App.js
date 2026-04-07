@@ -10,6 +10,10 @@ export function AskAI(arg1, arg2) {
   return window['go']['main']['App']['AskAI'](arg1, arg2);
 }
 
+export function DeleteWidget(arg1) {
+  return window['go']['main']['App']['DeleteWidget'](arg1);
+}
+
 export function DeployAnomstack(arg1) {
   return window['go']['main']['App']['DeployAnomstack'](arg1);
 }
@@ -78,6 +82,26 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function GetWatcherConfig() {
+  return window['go']['main']['App']['GetWatcherConfig']();
+}
+
+export function GetWatcherResources() {
+  return window['go']['main']['App']['GetWatcherResources']();
+}
+
+export function GetWatcherRules() {
+  return window['go']['main']['App']['GetWatcherRules']();
+}
+
+export function GetWatcherStatus() {
+  return window['go']['main']['App']['GetWatcherStatus']();
+}
+
+export function GetWidgets() {
+  return window['go']['main']['App']['GetWidgets']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -88,6 +112,14 @@ export function RunCommand(arg1) {
 
 export function RunSynapseSweep() {
   return window['go']['main']['App']['RunSynapseSweep']();
+}
+
+export function SaveWidget(arg1) {
+  return window['go']['main']['App']['SaveWidget'](arg1);
+}
+
+export function StreamWatcherLogs() {
+  return window['go']['main']['App']['StreamWatcherLogs']();
 }
 
 export function UpdateAIConfig(arg1, arg2, arg3, arg4, arg5) {

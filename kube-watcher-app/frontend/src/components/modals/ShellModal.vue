@@ -14,7 +14,7 @@
         <!-- Container selector for multi-container pods -->
         <div v-if="pod && pod.containers && pod.containers.length > 1" class="container-selector">
           <label for="container-select">Container:</label>
-          <select id="container-select" v-model="selectedContainer">
+          <select id="container-select" v-model="selectedContainer" class="select-input">
             <option v-for="container in pod.containers" :key="container.name" :value="container.name">
               {{ container.name }}
             </option>
@@ -396,6 +396,21 @@ function handleVerticalArrow(direction: number) {
   background: var(--input-bg);
   color: var(--text-primary);
   flex: 1;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.container-selector select:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.container-selector select:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .terminal-output {

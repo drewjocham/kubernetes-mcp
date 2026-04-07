@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,17 +15,20 @@ import (
 	"kube-watcher-app/internal/data/mcp"
 	"kube-watcher-app/internal/data/opencode"
 	"kube-watcher-app/internal/data/prometheus"
-	"kube-watcher-app/internal/workspace"
+	"kube-watcher-app/internal/data/watcher"
+	"kube-watcher-app/internal/data/widgets"
 )
 
 type App struct {
-	ctx       context.Context
-	mcp       *mcp.Client
-	prom      *prometheus.Client
-	opencode  *opencode.Client
-	k8sgpt    *k8sgpt.Client
-	workspace *workspace.Handler
-	aiConfig  AIConfig
+	ctx         context.Context
+	mcp         *mcp.Client
+	prom        *prometheus.Client
+	opencode    *opencode.Client
+	k8sgpt      *k8sgpt.Client
+	watcher     *watcher.Client
+	workspace   *workspace.Handler
+	widgetStore *widgets.Store
+	aiConfig    AIConfig
 }
 
 type AIConfig struct {
@@ -100,6 +104,15 @@ func (a *App) startup(ctx context.Context) {
 	a.prom = prometheus.New()
 	a.opencode = opencode.New()
 	a.k8sgpt = k8sgpt.New()
+	a.watcher = watcher.New()
+	// Initialize widget store (ignore error for now, will be lazy-loaded)
+	widgetStore, err := widgets.DefaultStore()
+	if err != nil {
+		// Log error but continue (store will be nil)
+		fmt.Printf("Failed to initialize widget store: %v\n", err)
+	} else {
+		a.widgetStore = widgetStore
+	}
 	adapter := workspace.NewMCPAdapter(a.mcp)
 	a.workspace = workspace.NewHandler(
 		adapter,
@@ -150,6 +163,41 @@ func (a *App) GetStatus() (data.StatusResponse, error) {
 
 func (a *App) GetEndpoint() string {
 	return a.mcp.Endpoint()
+}
+
+func (a *App) GetWatcherConfig() (map[string]interface{}, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.GetConfig(a.ctx)
+}
+
+func (a *App) GetWatcherRules() ([]interface{}, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.GetRules(a.ctx)
+}
+
+func (a *App) GetWatcherResources() ([]string, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.GetResources(a.ctx)
+}
+
+func (a *App) GetWatcherStatus() (map[string]interface{}, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.GetStatus(a.ctx)
+}
+
+func (a *App) StreamWatcherLogs() (*http.Response, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.StreamLogs(a.ctx)
 }
 
 func (a *App) AskAI(prompt string, contextStr string) (string, error) {
@@ -360,24 +408,17 @@ func (a *App) GetPodLogs(namespace, podName, container string) (string, error) {
 
 // DeployAnomstack deploys anomstack using the specified profile (local, minikube, cluster)
 func (a *App) DeployAnomstack(profile string) (string, error) {
-	binaryPath, err := a.kwBinaryPath()
-	if err != nil {
-		return "", fmt.Errorf("failed to find kw binary: %w", err)
-	}
-	cmd := fmt.Sprintf("%s anomstack start --profile %s", binaryPath, profile)
-	return a.RunCommand(cmd)
+	return a.runKwCommand("anomstack", "start", "--profile", profile)
 }
 
 // GetPodYAML returns the YAML manifest of a pod
 func (a *App) GetPodYAML(namespace, podName string) (string, error) {
-	cmd := fmt.Sprintf("kubectl get pod -n %s %s -o yaml", namespace, podName)
-	return a.RunCommand(cmd)
+	return a.runKubectlCommand("get", "pod", "-n", namespace, podName, "-o", "yaml")
 }
 
 // DescribePod returns the kubectl describe output for a pod
 func (a *App) DescribePod(namespace, podName string) (string, error) {
-	cmd := fmt.Sprintf("kubectl describe pod -n %s %s", namespace, podName)
-	return a.RunCommand(cmd)
+	return a.runKubectlCommand("describe", "pod", "-n", namespace, podName)
 }
 
 // GetPodAIHelp returns AI-generated help for a pod using k8sgpt or opencode
@@ -393,14 +434,30 @@ func (a *App) GetPodAIHelp(namespace, podName string) (string, error) {
 
 // ExecPodCommand executes a command inside a pod container using kubectl exec
 func (a *App) ExecPodCommand(namespace, podName, container, command string) (string, error) {
-	// Build kubectl exec command
-	execCmd := fmt.Sprintf("kubectl exec -n %s %s", namespace, podName)
-	if container != "" {
-		execCmd += fmt.Sprintf(" -c %s", container)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	execCmd += fmt.Sprintf(" -- sh -c %q", command)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 
-	return a.RunCommand(execCmd)
+	args := []string{"exec", "-n", namespace, podName}
+	if container != "" {
+		args = append(args, "-c", container)
+	}
+	args = append(args, "--", "sh", "-c", command)
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Env = os.Environ()
+	if kPath := resolveKubeconfigPath(); kPath != "" {
+		cmd.Env = append(cmd.Env, "KUBECONFIG="+kPath)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("kubectl exec failed: %w (output: %s)", err, string(out))
+	}
+	return string(out), nil
 }
 
 // RunSynapseSweep executes popeye CLI for node status
@@ -493,4 +550,77 @@ func resolveKubeconfigPath() string {
 		return ""
 	}
 	return filepath.Join(home, ".kube", "config")
+}
+
+// runKubectlCommand executes a kubectl command with the given arguments.
+func (a *App) runKubectlCommand(args ...string) (string, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Env = os.Environ()
+	if kPath := resolveKubeconfigPath(); kPath != "" {
+		cmd.Env = append(cmd.Env, "KUBECONFIG="+kPath)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("kubectl command failed: %w (output: %s)", err, string(out))
+	}
+	return string(out), nil
+}
+
+// runKwCommand executes a kw command with the given arguments.
+func (a *App) runKwCommand(args ...string) (string, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	binaryPath, err := a.kwBinaryPath()
+	if err != nil {
+		return "", fmt.Errorf("failed to find kw binary: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Env = os.Environ()
+	if kPath := resolveKubeconfigPath(); kPath != "" {
+		cmd.Env = append(cmd.Env, "KUBECONFIG="+kPath)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("kw command failed: %w (output: %s)", err, string(out))
+	}
+	return string(out), nil
+}
+
+// GetWidgets returns all widgets.
+func (a *App) GetWidgets() ([]data.Widget, error) {
+	if a.widgetStore == nil {
+		return []data.Widget{}, nil
+	}
+	return a.widgetStore.All(a.ctx)
+}
+
+// SaveWidget creates or updates a widget.
+func (a *App) SaveWidget(widget data.Widget) error {
+	if a.widgetStore == nil {
+		return fmt.Errorf("widget store not initialized")
+	}
+	return a.widgetStore.Save(a.ctx, widget)
+}
+
+// DeleteWidget removes a widget by ID.
+func (a *App) DeleteWidget(id string) error {
+	if a.widgetStore == nil {
+		return fmt.Errorf("widget store not initialized")
+	}
+	return a.widgetStore.Delete(a.ctx, id)
 }

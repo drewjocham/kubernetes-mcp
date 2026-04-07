@@ -3,9 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,18 +33,206 @@ func WithBlocksChangedCallback(cb func([]domain.Block)) Option {
 	}
 }
 
+func (m *Model) toggleHighlightedBlockRenderMode() {
+	if m.highlightedBlockID == "" {
+		return
+	}
+	m.blockManager.ToggleBlockRenderMode(m.highlightedBlockID)
+}
+
+func (m *Model) copySelectedBlockOutput() {
+	if m.highlightedBlockID == "" {
+		return
+	}
+	block := m.blockManager.FindByID(m.highlightedBlockID)
+	if block == nil {
+		return
+	}
+	_ = clipboard.WriteAll(string(block.RawOutput))
+}
+
+func (m *Model) buildBlockHeader(block *domain.Block) string {
+	command := strings.TrimSpace(block.Command)
+	if command == "" {
+		command = "$"
+	} else {
+		command = "$ " + command
+	}
+
+	badges := []string{m.blockStatusBadge(block), m.blockRenderModeBadge(block)}
+	if cwd := strings.TrimSpace(block.CWD); cwd != "" {
+		badges = append(badges, "cwd:"+filepath.Base(cwd))
+	}
+	if block.Duration > 0 {
+		badges = append(badges, "dur:"+block.Duration.Round(time.Millisecond).String())
+	}
+	return command + "  [" + strings.Join(badges, " | ") + "]"
+}
+
+func (m *Model) blockStatusBadge(block *domain.Block) string {
+	if block.Active {
+		return "active"
+	}
+	if block.HasError {
+		return fmt.Sprintf("exit=%d", block.ExitCode)
+	}
+	return "ok"
+}
+
+func (m *Model) blockRenderModeBadge(block *domain.Block) string {
+	switch block.RenderMode {
+	case domain.RenderModeMarkdown:
+		return "mode:md"
+	case domain.RenderModePlain:
+		return "mode:plain"
+	default:
+		return "mode:auto"
+	}
+}
+
+func (m *Model) acceptGhostText() bool {
+	if m.ghostText == "" {
+		return false
+	}
+	current := m.inputField.Value()
+	if !strings.HasPrefix(m.ghostText, current) || m.ghostText == current {
+		return false
+	}
+	m.inputField.SetValue(m.ghostText)
+	m.inputField.SetCursor(len(m.ghostText))
+	return true
+}
+
+func (m *Model) selectNextArtifactTab() {
+	if len(m.artifacts) == 0 {
+		return
+	}
+	m.activeArtifactIdx = (m.activeArtifactIdx + 1) % len(m.artifacts)
+}
+
+func (m *Model) selectPreviousArtifactTab() {
+	if len(m.artifacts) == 0 {
+		return
+	}
+	m.activeArtifactIdx--
+	if m.activeArtifactIdx < 0 {
+		m.activeArtifactIdx = len(m.artifacts) - 1
+	}
+}
+
 func (m *Model) executeCommand(commandText string) {
 	command := strings.TrimSpace(commandText)
 	if command != "" {
 		m.blockManager.SetActiveCommand(command)
 	}
+	if cwd, err := os.Getwd(); err == nil {
+		m.blockManager.SetActiveCWD(cwd)
+	}
+	activeBlock := m.blockManager.FindByID(m.blockManager.Blocks()[len(m.blockManager.Blocks())-1].ID)
+	if activeBlock != nil {
+		m.highlightedBlockID = activeBlock.ID
+	}
+	if m.tryHandleSlashCommand(command) {
+		m.blockManager.SealAndNew()
+		m.inputField.SetValue("")
+		m.ghostText = ""
+		m.refreshViewport()
+		m.viewport.GotoBottom()
+		return
+	}
 	_ = m.ptyHandler.Write([]byte(commandText + "\n"))
 	m.blockManager.SealAndNew()
 	m.inputField.SetValue("")
 	m.ghostText = ""
-	m.highlightedBlockID = ""
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+}
+
+func (m *Model) tryHandleSlashCommand(command string) bool {
+	if !strings.HasPrefix(command, "/") {
+		return false
+	}
+	name, args := parseSlashCommand(command)
+	response, isErr, handled := m.executeSlashCommand(name, args)
+	if !handled {
+		return false
+	}
+	m.blockManager.SetActiveContentType(domain.ContentTypeMarkdown)
+	m.blockManager.AppendToActive([]byte(response + "\n"))
+	if isErr {
+		m.blockManager.MarkLastBlockExit(1, true)
+	} else {
+		m.blockManager.MarkLastBlockExit(0, false)
+	}
+	return true
+}
+
+func parseSlashCommand(raw string) (string, []string) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return "", nil
+	}
+	name := strings.TrimPrefix(fields[0], "/")
+	if len(fields) == 1 {
+		return strings.ToLower(name), nil
+	}
+	return strings.ToLower(name), fields[1:]
+}
+
+func (m *Model) executeSlashCommand(name string, args []string) (response string, isErr bool, handled bool) {
+	switch name {
+	case "help":
+		return m.renderHelpSlashCommand(), false, true
+	case "agent":
+		return m.renderAgentSlashCommand(), false, true
+	case "widgets":
+		return m.handleWidgetsSlashCommand(args), false, true
+	default:
+		return fmt.Sprintf("Unknown slash command: `/%s`\nUse `/help` to see available commands.", name), true, true
+	}
+}
+
+func (m *Model) renderHelpSlashCommand() string {
+	return strings.Join([]string{
+		"## Terminal Commands",
+		"- `/help` — show available terminal slash commands",
+		"- `/agent` — show agent/socket control capabilities",
+		"- `/widgets` — show widget status",
+		"- `/widgets refresh` — refresh all widgets now",
+		"",
+		"Shell commands still work normally (e.g. `kubectl get pods`).",
+	}, "\n")
+}
+
+func (m *Model) renderAgentSlashCommand() string {
+	return strings.Join([]string{
+		"## Agent Controls",
+		"Supported socket actions:",
+		"- `set_ghost_text` / `clear_ghost_text`",
+		"- `send_input`",
+		"- `pin_artifact`",
+		"- `create_split` / `focus_split`",
+		"- `open_url`",
+		"",
+		"Use `/help` for terminal slash commands.",
+	}, "\n")
+}
+
+func (m *Model) handleWidgetsSlashCommand(args []string) string {
+	if len(args) > 0 && strings.EqualFold(args[0], "refresh") {
+		m.refreshWidgets()
+	}
+	if len(m.widgets) == 0 {
+		return "## Widgets\nNo widgets are configured."
+	}
+	lines := []string{"## Widgets"}
+	for _, widget := range m.widgets {
+		lines = append(lines, fmt.Sprintf("- `%s` (%s)", widget.Title(), widget.ID()))
+	}
+	if len(args) > 0 && strings.EqualFold(args[0], "refresh") {
+		lines = append(lines, "", "Widgets refreshed.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) createSplit(splitID string) {
@@ -69,6 +261,12 @@ func WithDiagnosticRequestCallback(cb func(domain.AgentDiagnosticRequestMsg)) Op
 	}
 }
 
+func WithWidgets(widgets []domain.Widget) Option {
+	return func(m *Model) {
+		m.widgets = widgets
+	}
+}
+
 type Model struct {
 	ptyHandler *terminalcore.Handler
 	program    *tea.Program
@@ -91,10 +289,13 @@ type Model struct {
 	activeArtifactIdx  int
 	splits             []string
 	activeSplitID      string
+	widgets            []domain.Widget
 
 	onBlocksChanged     func([]domain.Block)
 	onDiagnosticRequest func(domain.AgentDiagnosticRequestMsg)
 }
+
+const widgetRefreshInterval = 5 * time.Second
 
 func NewModel(handler *terminalcore.Handler, shellPath string, opts ...Option) *Model {
 	input := textinput.New()
@@ -129,9 +330,12 @@ func (m *Model) SetProgram(program *tea.Program) {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return func() tea.Msg {
-		return domain.NewStartPTYMsg()
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			return domain.NewStartPTYMsg()
+		},
+		widgetRefreshCmd(),
+	)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -168,6 +372,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: fmt.Sprintf("Open URL requested:\n\n%s\n\nBrowser snapshot integration is not enabled yet in this build.", msg.URL),
 		})
 		return m, nil
+	case domain.WidgetRefreshMsg:
+		m.refreshWidgets()
+		return m, widgetRefreshCmd()
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
 	case tea.MouseMsg:
@@ -194,7 +401,7 @@ func (m *Model) View() string {
 
 	inputView := inputStyle.Width(max(1, m.mainWidth())).Render(m.renderInputWithGhost())
 	mainPane := lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), inputView)
-	if len(m.artifacts) == 0 {
+	if !m.hasSidebar() {
 		return mainPane
 	}
 
@@ -206,7 +413,7 @@ func (m *Model) View() string {
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("8")).
 		PaddingLeft(1).
-		Render(m.renderArtifacts())
+		Render(m.renderSidebar())
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, mainStyled, sidebar)
 }
@@ -231,6 +438,72 @@ func (m *Model) handleStartPTY() (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) hasSidebar() bool {
+	return len(m.artifacts) > 0 || len(m.widgets) > 0
+}
+
+func (m *Model) handleSidebarClick(msg tea.MouseMsg) bool {
+	if len(m.artifacts) == 0 {
+		return false
+	}
+	mainWidth := m.mainWidth()
+	if msg.X < mainWidth {
+		return false
+	}
+
+	sidebarX := msg.X - mainWidth
+	artifactTabsY := 0
+	if widgetsView := m.renderWidgets(); widgetsView != "" {
+		artifactTabsY = lipgloss.Height(widgetsView) + 2 // blank line gap before artifacts
+	}
+	if msg.Y != artifactTabsY {
+		return false
+	}
+
+	segments := m.artifactTabSegments()
+	for _, segment := range segments {
+		if sidebarX >= segment.startX && sidebarX < segment.endX {
+			m.activeArtifactIdx = segment.index
+			return true
+		}
+	}
+	return false
+}
+
+type tabSegment struct {
+	index  int
+	startX int
+	endX   int
+}
+
+func (m *Model) artifactTabSegments() []tabSegment {
+	if len(m.artifacts) == 0 {
+		return nil
+	}
+	segments := make([]tabSegment, 0, len(m.artifacts))
+	cursor := 0
+	for i := range m.artifacts {
+		title := m.artifacts[i].Title
+		if title == "" {
+			title = "artifact"
+		}
+		width := lipgloss.Width(title)
+		if width <= 0 {
+			width = len(title)
+		}
+		segments = append(segments, tabSegment{
+			index:  i,
+			startX: cursor,
+			endX:   cursor + width,
+		})
+		cursor += width
+		if i < len(m.artifacts)-1 {
+			cursor += 3 // " | "
+		}
+	}
+	return segments
 }
 
 func (m *Model) handlePTYOutput(data []byte) (tea.Model, tea.Cmd) {
@@ -272,14 +545,16 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.MouseLeft {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		var cmd tea.Cmd
 		m.inputField, cmd = m.inputField.Update(msg)
 		return m, cmd
 	}
+	if m.hasSidebar() && m.handleSidebarClick(msg) {
+		return m, nil
+	}
 
-	inputLine := max(0, m.height-1)
-	if msg.Y >= inputLine {
+	if msg.Y >= m.viewport.Height {
 		cursor := msg.X - 2
 		if cursor < 0 {
 			cursor = 0
@@ -311,10 +586,27 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+shift+c" {
+		m.copySelectedBlockOutput()
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		_ = m.ptyHandler.Close()
 		return m, tea.Quit
+	case tea.KeyTab:
+		if m.acceptGhostText() {
+			return m, nil
+		}
+		m.selectNextArtifactTab()
+		return m, nil
+	case tea.KeyShiftTab:
+		m.selectPreviousArtifactTab()
+		return m, nil
+	case tea.KeyCtrlT:
+		m.toggleHighlightedBlockRenderMode()
+		m.refreshViewport()
+		return m, nil
 	case tea.KeyEnter:
 		m.executeCommand(m.inputField.Value())
 		return m, nil
@@ -326,6 +618,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) refreshViewport() {
+	if m.highlightedBlockID != "" && m.blockManager.FindByID(m.highlightedBlockID) == nil {
+		m.highlightedBlockID = ""
+	}
 	var rendered []string
 	currentY := 0
 
@@ -345,13 +640,7 @@ func (m *Model) refreshViewport() {
 			}
 		}
 
-		header := "$ " + block.Command
-		if strings.TrimSpace(block.Command) == "" {
-			header = "$"
-		}
-		if block.HasError {
-			header = header + fmt.Sprintf("  [exit=%d]", block.ExitCode)
-		}
+		header := m.buildBlockHeader(block)
 
 		borderColor := "8"
 		if block.Active {
@@ -403,6 +692,12 @@ func (m *Model) publishBlocksSnapshot() {
 }
 
 func (m *Model) shouldRenderMarkdown(block *domain.Block, content string) bool {
+	switch block.RenderMode {
+	case domain.RenderModeMarkdown:
+		return true
+	case domain.RenderModePlain:
+		return false
+	}
 	if block.ContentType == domain.ContentTypeMarkdown {
 		return true
 	}
@@ -443,6 +738,41 @@ func (m *Model) pinArtifact(artifact domain.Artifact) {
 	m.activeArtifactIdx = len(m.artifacts) - 1
 }
 
+func (m *Model) renderSidebar() string {
+	sections := make([]string, 0, 2)
+	widgetsView := m.renderWidgets()
+	if widgetsView != "" {
+		sections = append(sections, widgetsView)
+	}
+	artifactsView := m.renderArtifacts()
+	if artifactsView != "" {
+		sections = append(sections, artifactsView)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func (m *Model) renderWidgets() string {
+	if len(m.widgets) == 0 {
+		return ""
+	}
+
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("246")).Bold(true)
+	cardStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("8")).
+		PaddingLeft(1).
+		MarginBottom(1)
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+
+	out := []string{headerStyle.Render("Widgets")}
+	for _, widget := range m.widgets {
+		out = append(out, cardStyle.Render(
+			titleStyle.Render(widget.Title())+"\n"+widget.View(),
+		))
+	}
+	return strings.Join(out, "\n")
+}
+
 func (m *Model) renderArtifacts() string {
 	if len(m.artifacts) == 0 {
 		return ""
@@ -464,14 +794,14 @@ func (m *Model) renderArtifacts() string {
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.JoinHorizontal(lipgloss.Left, tabs...),
+		strings.Join(tabs, " | "),
 		"",
 		content,
 	)
 }
 
 func (m *Model) mainWidth() int {
-	if len(m.artifacts) == 0 {
+	if len(m.artifacts) == 0 && len(m.widgets) == 0 {
 		return m.width
 	}
 	return max(1, m.width-max(28, m.width/3))
@@ -493,4 +823,21 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func widgetRefreshCmd() tea.Cmd {
+	return tea.Tick(widgetRefreshInterval, func(time.Time) tea.Msg {
+		return domain.WidgetRefreshMsg{}
+	})
+}
+
+func (m *Model) refreshWidgets() {
+	if len(m.widgets) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for _, widget := range m.widgets {
+		_ = widget.Refresh(ctx)
+	}
 }

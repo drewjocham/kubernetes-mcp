@@ -124,22 +124,40 @@
         <!-- Logs & Diagnostics -->
         <div v-if="isPod" class="alert-section">
           <h4 class="alert-section-header">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            Logs & Diagnostics
+            <div class="header-left">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              Logs & Diagnostics
+            </div>
+            <button class="streaming-toggle-btn" :class="{ active: streamingEnabled }" @click="toggleStreaming" :title="streamingEnabled ? 'Stop live streaming' : 'Start live streaming'">
+              <span class="toggle-indicator"></span>
+              <span class="toggle-label">Live</span>
+            </button>
           </h4>
           <div class="alert-section-content">
             <!-- Logs viewer with colored border -->
             <div :class="['logs-viewer', statusBorderColor]">
               <div class="logs-header">
                 <span>Pod Logs</span>
-                <button class="small-btn" @click="fetchLogs" :disabled="logsLoading">
-                  {{ logsLoading ? 'Fetching...' : 'View Logs' }}
-                </button>
+                <div class="logs-header-actions">
+                  <button class="small-btn" @click="fetchLogs" :disabled="logsLoading">
+                    {{ logsLoading ? 'Fetching...' : 'View Logs' }}
+                  </button>
+                  <button class="small-btn" @click="showLogsModal = true" :disabled="!logsContent">
+                    Fullscreen
+                  </button>
+                </div>
+              </div>
+              <div class="logs-controls">
+                <div class="logs-search">
+                  <input type="text" v-model="grepFilter" placeholder="Filter logs (grep)" class="logs-search-input">
+                  <button class="small-btn" @click="grepFilter = ''" v-if="grepFilter">Clear</button>
+                </div>
               </div>
               <div v-if="logsError" class="logs-error">{{ logsError }}</div>
-              <pre v-if="logsContent" class="logs-content">{{ logsContent }}</pre>
+              <pre v-if="logsContent && filteredLogs" class="logs-content">{{ filteredLogs }}</pre>
+              <div v-if="logsContent && grepFilter && filteredLogs === ''" class="logs-placeholder">No matching lines for "{{ grepFilter }}"</div>
               <div v-else class="logs-placeholder">Click "View Logs" to fetch pod logs</div>
             </div>
             
@@ -196,13 +214,31 @@
       :is-pre="false"
       @close="showAIHelpModal = false"
     />
+
+    <!-- Notification Components -->
+    <ToastNotification
+      :show="showToast"
+      :message="toastMessage"
+      :type="toastType"
+      @close="showToast = false"
+    />
+    <ErrorModal
+      :show="showErrorModal"
+      :summary="errorDetails.summary"
+      :error="errorDetails.error"
+      :context="errorDetails.context"
+      @update:show="showErrorModal = $event"
+      @close="showErrorModal = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import CommandBlock from '../CommandBlock.vue'
 import TextModal from './TextModal.vue'
+import ToastNotification from '../ToastNotification.vue'
+import ErrorModal from './ErrorModal.vue'
 import { data } from '../../../wailsjs/go/models'
 import { GetPodLogs, GetPodYAML, DescribePod, GetPodAIHelp, UpdateAlertState, AddAlertComment } from '../../../wailsjs/go/main/App'
 
@@ -227,6 +263,9 @@ const logsContent = ref('')
 const logsLoading = ref(false)
 const logsError = ref('')
 const showLogsModal = ref(false)
+const streamingEnabled = ref(false)
+const grepFilter = ref('')
+const logsIntervalId = ref<number | null>(null)
 const showYAMLModal = ref(false)
 const yamlContent = ref('')
 const yamlLoading = ref(false)
@@ -243,6 +282,17 @@ const newCommentAuthor = ref('user')
 const newCommentContent = ref('')
 const updatingState = ref(false)
 const addingComment = ref(false)
+
+// State for notifications
+const showToast = ref(false)
+const toastMessage = ref('')
+const toastType = ref<'success' | 'error' | 'info'>('success')
+const showErrorModal = ref(false)
+const errorDetails = ref({
+  summary: '',
+  error: '',
+  context: null as any
+})
 
 const emit = defineEmits<{
   close: []
@@ -264,6 +314,13 @@ watch(() => props.alert, () => {
   showYAMLModal.value = false
   showDescribeModal.value = false
   showAIHelpModal.value = false
+  // Stop streaming if active
+  if (logsIntervalId.value) {
+    clearInterval(logsIntervalId.value)
+    logsIntervalId.value = null
+  }
+  streamingEnabled.value = false
+  grepFilter.value = ''
   selectedState.value = props.alert?.state || ''
   newCommentAuthor.value = 'user'
   newCommentContent.value = ''
@@ -286,6 +343,13 @@ const statusBorderColor = computed(() => {
   }
 })
 
+const filteredLogs = computed(() => {
+  if (!grepFilter.value) return logsContent.value
+  const lines = logsContent.value.split('\n')
+  const filtered = lines.filter(line => line.includes(grepFilter.value))
+  return filtered.join('\n')
+})
+
 const handleInvestigate = () => {
   if (props.alert) {
     emit('investigate', props.alert)
@@ -302,13 +366,38 @@ async function fetchLogs() {
   logsError.value = ''
   try {
     logsContent.value = await GetPodLogs(props.alert.namespace, props.alert.name, '')
-    showLogsModal.value = true
   } catch (err) {
     logsError.value = 'Failed to fetch logs: ' + (err instanceof Error ? err.message : String(err))
     console.error(err)
   } finally {
     logsLoading.value = false
   }
+}
+
+function startStreaming() {
+  if (logsIntervalId.value) {
+    clearInterval(logsIntervalId.value)
+  }
+  // Fetch logs immediately
+  fetchLogs()
+  // Then set up interval every 5 seconds
+  logsIntervalId.value = setInterval(fetchLogs, 5000)
+}
+
+function stopStreaming() {
+  if (logsIntervalId.value) {
+    clearInterval(logsIntervalId.value)
+    logsIntervalId.value = null
+  }
+}
+
+function toggleStreaming() {
+  if (streamingEnabled.value) {
+    stopStreaming()
+  } else {
+    startStreaming()
+  }
+  streamingEnabled.value = !streamingEnabled.value
 }
 
 async function fetchYAML() {
@@ -368,6 +457,25 @@ async function fetchAIHelp() {
   }
 }
 
+// Helper functions for notifications
+function showSuccessToast(message: string) {
+  toastMessage.value = message
+  toastType.value = 'success'
+  showToast.value = true
+  setTimeout(() => {
+    showToast.value = false
+  }, 3000)
+}
+
+function showErrorDialog(summary: string, error: any, context?: any) {
+  errorDetails.value = {
+    summary,
+    error: error instanceof Error ? error.message : String(error),
+    context
+  }
+  showErrorModal.value = true
+}
+
 async function updateState() {
   if (!props.alert || !selectedState.value) return
   updatingState.value = true
@@ -377,8 +485,10 @@ async function updateState() {
     if (props.alert) {
       props.alert.state = selectedState.value
     }
+    showSuccessToast(`Alert state updated to ${selectedState.value}`)
   } catch (err) {
     console.error('Failed to update alert state:', err)
+    showErrorDialog('Failed to update alert state', err, { alertId: props.alert?.id, state: selectedState.value })
   } finally {
     updatingState.value = false
   }
@@ -392,12 +502,20 @@ async function addComment() {
     // Refresh comments by refetching alerts (parent will handle)
     // For now, just clear input
     newCommentContent.value = ''
+    showSuccessToast('Comment added successfully')
   } catch (err) {
     console.error('Failed to add comment:', err)
+    showErrorDialog('Failed to add comment', err, { alertId: props.alert?.id, author: newCommentAuthor.value })
   } finally {
     addingComment.value = false
   }
 }
+
+onUnmounted(() => {
+  if (logsIntervalId.value) {
+    clearInterval(logsIntervalId.value)
+  }
+})
 
 // Auto-send alert context to AI when modal opens
 onMounted(() => {
@@ -554,10 +672,65 @@ onMounted(() => {
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   background: rgba(59, 130, 246, 0.1);
   color: var(--info);
   border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.alert-section-header .header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.streaming-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.streaming-toggle-btn:hover {
+  background: var(--hover);
+  border-color: var(--border-active);
+}
+
+.streaming-toggle-btn.active {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
+}
+
+.streaming-toggle-btn.active .toggle-indicator {
+  background: white;
+  animation: pulse 1.5s infinite;
+}
+
+.toggle-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background 0.2s;
+}
+
+.toggle-label {
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 .alert-section-content {
@@ -626,6 +799,58 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
+.logs-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.logs-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.logs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.logs-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.logs-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logs-search-input {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 150px;
+}
+
+.logs-search-input:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
+}
+
 .logs-error {
   color: var(--error);
   font-size: 12px;
@@ -676,5 +901,28 @@ onMounted(() => {
 .small-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.state-select {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.state-select:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.state-select:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 </style>

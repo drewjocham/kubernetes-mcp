@@ -1,8 +1,8 @@
 # ── Variables ────────────────────────────────────────────────────────────────
-HELM_CHART_DIR ?= "helm/kube-watcher"
-HELM_VALUES    ?= "helm/kube-watcher/values.yaml"
-HELM_RELEASE   ?= "local"
-KW_NAMESPACE   ?= "default"
+HELM_CHART_DIR ?= "helm"
+HELM_VALUES    ?= "helm/values.yaml"
+HELM_RELEASE   ?= "kube-watcher"
+KW_NAMESPACE   ?= "kube-watcher"
 
 .PHONY: helm-lint helm-template helm-dry-run \
     helm-install helm-upgrade helm-uninstall \

@@ -260,4 +260,14 @@ func (s *stubStore) History(key string, limit int) []tracker.Snapshot {
 	return out
 }
 
+func (s *stubStore) List() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	keys := make([]string, 0, len(s.data))
+	for k := range s.data {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (s *stubStore) Close() error { return nil }

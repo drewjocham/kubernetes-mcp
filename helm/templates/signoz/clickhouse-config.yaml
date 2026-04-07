@@ -54,7 +54,7 @@ data:
         <default_profile>default</default_profile>
         <default_database>default</default_database>
         <timezone>UTC</timezone>
-        <mlock_executable>true</mlock_executable>
+        <mlock_executable>false</mlock_executable>
          <!-- remotes disabled -->
          <!-- zookeeper disabled -->
 

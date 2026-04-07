@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,16 +28,67 @@ import (
 	"kube-watcher/pkg/logging"
 	"kube-watcher/watcher/internal/actions"
 	"kube-watcher/watcher/internal/config"
+	"kube-watcher/watcher/internal/events"
 	"kube-watcher/watcher/internal/monitoring/metrics"
 	"kube-watcher/watcher/internal/pipeline"
 	"kube-watcher/watcher/internal/rules"
+	"kube-watcher/watcher/internal/security"
 	"kube-watcher/watcher/internal/source"
 	"kube-watcher/watcher/internal/tracker"
 )
 
 type engineApp struct {
-	cfg    *config.WatchConfig
-	logger *slog.Logger
+	cfg       *config.WatchConfig
+	logger    *slog.Logger
+	store     tracker.Store
+	sanitizer *security.Sanitizer
+
+	// For log streaming
+	listeners   map[chan string]struct{}
+	listenersMu sync.RWMutex
+}
+
+func (a *engineApp) Observe(evt events.ResourceEvent) {
+	// Sanitize sensitive data before streaming
+	var toMarshal interface{} = evt
+	if a.sanitizer != nil {
+		toMarshal = a.sanitizer.SanitizeEvent(&evt)
+	}
+
+	data, err := json.Marshal(toMarshal)
+	if err != nil {
+		a.logger.Warn("failed to marshal event for streaming", "error", err)
+		return
+	}
+	a.broadcast(string(data))
+}
+
+func (a *engineApp) Close() error {
+	return nil
+}
+
+func (a *engineApp) broadcast(msg string) {
+	a.listenersMu.RLock()
+	defer a.listenersMu.RUnlock()
+	for ch := range a.listeners {
+		select {
+		case ch <- msg:
+		default:
+			// channel full, skip
+		}
+	}
+}
+
+func (a *engineApp) addListener(ch chan string) {
+	a.listenersMu.Lock()
+	defer a.listenersMu.Unlock()
+	a.listeners[ch] = struct{}{}
+}
+
+func (a *engineApp) removeListener(ch chan string) {
+	a.listenersMu.Lock()
+	defer a.listenersMu.Unlock()
+	delete(a.listeners, ch)
 }
 
 var (
@@ -83,7 +135,12 @@ func runApplication(configPath string, debug bool, logFile string, httpAddr stri
 		return nil
 	}
 
-	app := &engineApp{cfg: cfg, logger: logger}
+	app := &engineApp{
+		cfg:       cfg,
+		logger:    logger,
+		sanitizer: security.NewSanitizer(true),
+		listeners: make(map[chan string]struct{}),
+	}
 	return app.run(configPath, httpAddr)
 }
 
@@ -105,6 +162,7 @@ func (a *engineApp) run(configPath, httpAddr string) error {
 	if err != nil {
 		return fmt.Errorf("store init: %w", err)
 	}
+	a.store = store
 	defer func() {
 		_ = store.Close()
 	}()
@@ -211,6 +269,7 @@ func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInt
 	if cfg.Settings.Metrics.Enabled {
 		pipe.AddObserver(metrics.NewExporter())
 	}
+	pipe.AddObserver(a)
 
 	return pipe
 }
@@ -220,7 +279,97 @@ func (a *engineApp) apiMux() *http.ServeMux {
 	h := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
 	mux.HandleFunc("/health", h)
 	mux.HandleFunc("/ready", h)
+
+	// API endpoints
+	mux.HandleFunc("GET /api/config", a.handleConfig)
+	mux.HandleFunc("GET /api/rules", a.handleRules)
+	mux.HandleFunc("GET /api/resources", a.handleResources)
+	mux.HandleFunc("GET /api/status", a.handleStatus)
+	mux.HandleFunc("GET /api/logs/stream", a.handleLogStream)
+
 	return mux
+}
+
+func (a *engineApp) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(snapshotWatchConfig(a.cfg)); err != nil {
+		a.logger.Warn("failed to encode config", "error", err)
+	}
+}
+
+func (a *engineApp) handleRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(a.cfg.Rules); err != nil {
+		a.logger.Warn("failed to encode rules", "error", err)
+	}
+}
+
+func (a *engineApp) handleResources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	var resources []string
+	if a.store != nil {
+		resources = a.store.List()
+	}
+	if err := json.NewEncoder(w).Encode(resources); err != nil {
+		a.logger.Warn("failed to encode resources", "error", err)
+	}
+}
+
+func (a *engineApp) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	status := map[string]interface{}{
+		"ready":   true,
+		"store":   a.store != nil,
+		"config":  a.cfg != nil,
+		"started": time.Now(),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		a.logger.Warn("failed to encode status", "error", err)
+	}
+}
+
+func (a *engineApp) handleLogStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan string, 100)
+	a.addListener(ch)
+	defer a.removeListener(ch)
+
+	for {
+		select {
+		case msg := <-ch:
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
 
 func (a *engineApp) metricsMux() *http.ServeMux {

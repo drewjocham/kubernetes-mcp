@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,13 +11,12 @@ import (
 	"time"
 
 	"kube-watcher-app/internal/data"
+	"kube-watcher-app/internal/httpclient"
 )
 
 // Client talks to the kube-watcher MCP REST API.
 type Client struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	*httpclient.BaseClient
 }
 
 // New returns a Client configured from environment variables or defaults.
@@ -30,10 +28,9 @@ func New() *Client {
 	if base == "" {
 		base = "http://localhost:8080/v1"
 	}
+	token := strings.TrimSpace(os.Getenv("KW_TOOLS_API_TOKEN"))
 	return &Client{
-		baseURL: strings.TrimRight(base, "/"),
-		token:   strings.TrimSpace(os.Getenv("KW_TOOLS_API_TOKEN")),
-		http:    &http.Client{Timeout: 10 * time.Second},
+		BaseClient: httpclient.NewBaseClient(base, token, 10*time.Second),
 	}
 }
 
@@ -43,95 +40,20 @@ func NewWithConfig(endpoint, token string) *Client {
 		endpoint = "http://localhost:8080/v1"
 	}
 	return &Client{
-		baseURL: strings.TrimRight(endpoint, "/"),
-		token:   token,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		BaseClient: httpclient.NewBaseClient(endpoint, token, 10*time.Second),
 	}
-}
-
-func (c *Client) get(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
-	if err != nil {
-		return err
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func (c *Client) post(ctx context.Context, path string, body any, out any) error {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %s: %s", resp.Status, strings.TrimSpace(string(raw)))
-	}
-	if out != nil {
-		return json.NewDecoder(resp.Body).Decode(out)
-	}
-	return nil
-}
-
-func (c *Client) put(ctx context.Context, path string, body any) error {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %s: %s", resp.Status, strings.TrimSpace(string(raw)))
-	}
-	return nil
 }
 
 // Endpoint returns the base URL of the MCP server.
 func (c *Client) Endpoint() string {
-	return c.baseURL
+	return c.BaseURL()
 }
 
 // Status pings the server and returns its status.
 func (c *Client) Status(ctx context.Context) (data.StatusResponse, error) {
 	start := time.Now()
 	var resp data.StatusResponse
-	err := c.get(ctx, "/status", &resp)
+	err := c.Get(ctx, "/status", &resp)
 	resp.Latency = time.Since(start).Milliseconds()
 	return resp, err
 }
@@ -157,10 +79,10 @@ func (c *Client) Alerts(ctx context.Context) ([]data.AlertRecord, error) {
 			Comments       []data.Comment         `json:"comments,omitempty"`
 		} `json:"alerts"`
 	}
-	if err := c.get(ctx, "/alerts", &payload); err != nil {
+	if err := c.Get(ctx, "/alerts", &payload); err != nil {
 		// Try alternate shape: direct array
 		var direct []data.AlertRecord
-		if err2 := c.get(ctx, "/alerts", &direct); err2 == nil {
+		if err2 := c.Get(ctx, "/alerts", &direct); err2 == nil {
 			return direct, nil
 		}
 		return nil, err
@@ -194,7 +116,7 @@ func (c *Client) UpdateAlertState(ctx context.Context, id string, state string) 
 	}{
 		State: state,
 	}
-	return c.put(ctx, fmt.Sprintf("/alerts/%s/state", id), req)
+	return c.Put(ctx, fmt.Sprintf("/alerts/%s/state", id), req)
 }
 
 // AddAlertComment adds a comment to an alert.
@@ -206,7 +128,7 @@ func (c *Client) AddAlertComment(ctx context.Context, id string, author string, 
 		Author:  author,
 		Content: content,
 	}
-	return c.post(ctx, fmt.Sprintf("/alerts/%s/comments", id), req, nil)
+	return c.Post(ctx, fmt.Sprintf("/alerts/%s/comments", id), req, nil)
 }
 
 // History returns recent incidents from BadgerDB via the history endpoint.
@@ -215,10 +137,10 @@ func (c *Client) History(ctx context.Context) ([]data.Incident, error) {
 		Records []data.Incident `json:"records"`
 		Window  string          `json:"window"`
 	}
-	if err := c.get(ctx, "/history", &response); err != nil {
+	if err := c.Get(ctx, "/history", &response); err != nil {
 		// Try alternate shape: direct array
 		var direct []data.Incident
-		if err2 := c.get(ctx, "/history", &direct); err2 == nil {
+		if err2 := c.Get(ctx, "/history", &direct); err2 == nil {
 			return direct, nil
 		}
 		return nil, err
@@ -231,7 +153,7 @@ func (c *Client) ListTools(ctx context.Context) ([]data.ToolSummary, error) {
 	var payload struct {
 		Tools []data.ToolSummary `json:"tools"`
 	}
-	if err := c.get(ctx, "/tools", &payload); err != nil {
+	if err := c.Get(ctx, "/tools", &payload); err != nil {
 		return nil, err
 	}
 	return payload.Tools, nil
@@ -243,7 +165,7 @@ func (c *Client) ExecuteTool(ctx context.Context, name string, args map[string]a
 		args = map[string]any{}
 	}
 	var raw map[string]any
-	if err := c.post(ctx, "/tools/"+name, args, &raw); err != nil {
+	if err := c.Post(ctx, "/tools/"+name, args, &raw); err != nil {
 		return data.ToolResult{Tool: name, Err: err.Error()}, err
 	}
 	b, _ := json.MarshalIndent(raw, "", "  ")
@@ -255,7 +177,7 @@ func (c *Client) Recommendations(ctx context.Context) ([]data.Recommendation, er
 	var payload struct {
 		Recommendations []data.Recommendation `json:"recommendations"`
 	}
-	if err := c.get(ctx, "/recommendations", &payload); err != nil {
+	if err := c.Get(ctx, "/recommendations", &payload); err != nil {
 		return nil, err
 	}
 	return payload.Recommendations, nil
@@ -264,6 +186,26 @@ func (c *Client) Recommendations(ctx context.Context) ([]data.Recommendation, er
 // Services returns empty slice (Docker Compose support removed).
 func (c *Client) Services(ctx context.Context) ([]data.ServiceStatus, error) {
 	return []data.ServiceStatus{}, nil
+}
+
+// StartService is a stub (Docker Compose support removed).
+func (c *Client) StartService(ctx context.Context, name string) error {
+	return fmt.Errorf("Docker Compose service control is no longer supported")
+}
+
+// StopService is a stub (Docker Compose support removed).
+func (c *Client) StopService(ctx context.Context, name string) error {
+	return fmt.Errorf("Docker Compose service control is no longer supported")
+}
+
+// RestartService is a stub (Docker Compose support removed).
+func (c *Client) RestartService(ctx context.Context, name string) error {
+	return fmt.Errorf("Docker Compose service control is no longer supported")
+}
+
+// FetchServiceLogs is a stub (Docker Compose support removed).
+func (c *Client) FetchServiceLogs(ctx context.Context, name string, lines string) ([]string, error) {
+	return nil, fmt.Errorf("Docker Compose service logs are no longer supported")
 }
 
 // GetAnomstackAnomalies fetches anomalies from the anomstack service
@@ -277,7 +219,7 @@ func (c *Client) GetAnomstackAnomalies(ctx context.Context) ([]data.AlertRecord,
 		return nil, fmt.Errorf("failed to create request to anomstack: %w", err)
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.HTTPClient().Do(req)
 	if err != nil {
 		// If kubectl proxy is not running, provide helpful error message
 		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {

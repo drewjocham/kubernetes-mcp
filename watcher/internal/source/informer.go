@@ -69,6 +69,12 @@ func (s *InformerSource) Run(ctx context.Context, out chan<- events.ResourceEven
 }
 
 func (s *InformerSource) emit(obj interface{}, out chan<- events.ResourceEvent, kind string) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic recovered in emit", "panic", r, "kind", kind)
+		}
+	}()
+
 	rtObj, meta := objectMeta(obj)
 	if rtObj == nil || meta == nil {
 		return

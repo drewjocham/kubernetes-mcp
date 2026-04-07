@@ -58,13 +58,15 @@ type Config struct {
 }
 
 type AlertRecord struct {
-	ID             string                        `json:"id"`
-	Alert          kwatch.Alert                  `json:"alert"`
-	Recommendation recommendation.Recommendation `json:"recommendation"`
-	PodExists      bool                          `json:"pod_exists,omitempty"`
-	PodCache       *alerts.PodCache              `json:"pod_cache,omitempty"`
-	State          string                        `json:"state,omitempty"`
-	Comments       []alerts.Comment              `json:"comments,omitempty"`
+	ID              string                        `json:"id"`
+	Alert           kwatch.Alert                  `json:"alert"`
+	Recommendation  recommendation.Recommendation `json:"recommendation"`
+	PodExists       bool                          `json:"pod_exists,omitempty"`
+	PodCache        *alerts.PodCache              `json:"pod_cache,omitempty"`
+	State           string                        `json:"state,omitempty"`
+	Comments        []alerts.Comment              `json:"comments,omitempty"`
+	OccurrenceCount int                           `json:"occurrence_count,omitempty"`
+	FirstOccurredAt time.Time                     `json:"first_occurred_at,omitempty"`
 }
 
 type ToolSummary struct {
@@ -237,15 +239,39 @@ func (s *MCPServer) processAlert(ctx context.Context, a kwatch.Alert) {
 		s.logger.Warn("failed to generate recommendation", "alert", a.Name, "error", err)
 	}
 	s.alertsMu.Lock()
-	s.alerts = append([]AlertRecord{{
-		ID:             alerts.GenerateAlertID(a),
-		Alert:          a,
-		Recommendation: rec,
-		State:          "",
-		Comments:       nil,
-	}}, s.alerts...)
-	if len(s.alerts) > maxAlertRecords {
-		s.alerts = s.alerts[:maxAlertRecords]
+	alertKey := a.Key()
+	foundIndex := -1
+	for i, existing := range s.alerts {
+		if existing.Alert.Key() == alertKey {
+			foundIndex = i
+			break
+		}
+	}
+
+	if foundIndex >= 0 {
+		// Update existing alert
+		existing := &s.alerts[foundIndex]
+		existing.Alert.OccurredAt = a.OccurredAt
+		existing.OccurrenceCount++
+		// Move to front (most recent)
+		if foundIndex > 0 {
+			s.alerts = append([]AlertRecord{*existing}, append(s.alerts[:foundIndex], s.alerts[foundIndex+1:]...)...)
+		}
+	} else {
+		// Add new alert
+		newRecord := AlertRecord{
+			ID:              alerts.GenerateAlertID(a),
+			Alert:           a,
+			Recommendation:  rec,
+			State:           "",
+			Comments:        nil,
+			OccurrenceCount: 1,
+			FirstOccurredAt: a.OccurredAt,
+		}
+		s.alerts = append([]AlertRecord{newRecord}, s.alerts...)
+		if len(s.alerts) > maxAlertRecords {
+			s.alerts = s.alerts[:maxAlertRecords]
+		}
 	}
 	s.alertsMu.Unlock()
 
@@ -403,6 +429,16 @@ func (s *MCPServer) UpdateAlertState(ctx context.Context, id string, state strin
 	if s.alertsStore == nil {
 		return errors.New("alerts store not configured")
 	}
+	// Update in-memory alert if present
+	s.alertsMu.Lock()
+	for i := range s.alerts {
+		if s.alerts[i].ID == id {
+			s.alerts[i].State = state
+			break
+		}
+	}
+	s.alertsMu.Unlock()
+	// Update persistent store
 	return s.alertsStore.UpdateAlertState(ctx, id, state)
 }
 
@@ -411,6 +447,22 @@ func (s *MCPServer) AddAlertComment(ctx context.Context, id string, author strin
 	if s.alertsStore == nil {
 		return errors.New("alerts store not configured")
 	}
+	// Update in-memory alert if present
+	s.alertsMu.Lock()
+	for i := range s.alerts {
+		if s.alerts[i].ID == id {
+			comment := alerts.Comment{
+				ID:        uuid.New().String(),
+				Author:    author,
+				Content:   content,
+				CreatedAt: time.Now(),
+			}
+			s.alerts[i].Comments = append(s.alerts[i].Comments, comment)
+			break
+		}
+	}
+	s.alertsMu.Unlock()
+	// Update persistent store
 	return s.alertsStore.AddAlertComment(ctx, id, author, content)
 }
 
@@ -486,23 +538,23 @@ func generatePodDescribe(pod *kube.PodInfo) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Name:         %s\n", pod.Name))
-	sb.WriteString(fmt.Sprintf("Namespace:    %s\n", pod.Namespace))
-	sb.WriteString(fmt.Sprintf("Status:       %s\n", pod.Status))
-	sb.WriteString(fmt.Sprintf("Phase:        %s\n", pod.Phase))
-	sb.WriteString(fmt.Sprintf("Node:         %s\n", pod.NodeName))
-	sb.WriteString(fmt.Sprintf("Age:          %v\n", pod.Age))
-	sb.WriteString(fmt.Sprintf("Restarts:     %d\n", pod.RestartCount))
+	fmt.Fprintf(&sb, "Name:         %s\n", pod.Name)
+	fmt.Fprintf(&sb, "Namespace:    %s\n", pod.Namespace)
+	fmt.Fprintf(&sb, "Status:       %s\n", pod.Status)
+	fmt.Fprintf(&sb, "Phase:        %s\n", pod.Phase)
+	fmt.Fprintf(&sb, "Node:         %s\n", pod.NodeName)
+	fmt.Fprintf(&sb, "Age:          %v\n", pod.Age)
+	fmt.Fprintf(&sb, "Restarts:     %d\n", pod.RestartCount)
 	if len(pod.Labels) > 0 {
 		sb.WriteString("Labels:\n")
 		for k, v := range pod.Labels {
-			sb.WriteString(fmt.Sprintf("  %s=%s\n", k, v))
+			fmt.Fprintf(&sb, "  %s=%s\n", k, v)
 		}
 	}
 	sb.WriteString("Containers:\n")
 	for _, c := range pod.Containers {
-		sb.WriteString(fmt.Sprintf("  - %s: %s (Ready: %v, Restarts: %d)\n",
-			c.Name, c.Image, c.Ready, c.RestartCount))
+		fmt.Fprintf(&sb, "  - %s: %s (Ready: %v, Restarts: %d)\n",
+			c.Name, c.Image, c.Ready, c.RestartCount)
 	}
 	return sb.String()
 }

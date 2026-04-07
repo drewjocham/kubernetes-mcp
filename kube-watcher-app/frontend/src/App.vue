@@ -5,14 +5,14 @@ import Sidebar from './components/layout/Sidebar.vue'
 import Header from './components/layout/Header.vue'
 import ArguskubePanel from './components/panels/ArguskubePanel.vue'
 import AnomaliesPanel from './components/panels/AnomaliesPanel.vue'
-
-import RuntimePanel from './components/panels/RuntimePanel.vue'
+import WatcherPanel from './components/panels/WatcherPanel.vue'
 import SummaryGrid from './components/summary/SummaryGrid.vue'
 import SweepControls from './components/controls/SweepControls.vue'
 import SettingsModal from './components/modals/SettingsModal.vue'
 import ScanModal from './components/modals/ScanModal.vue'
 import AlertDetailModal from './components/modals/AlertDetailModal.vue'
 import AnomstackErrorModal from './components/modals/AnomstackErrorModal.vue'
+import InvestigationModal from './components/modals/InvestigationModal.vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { useChat } from './composables/useChat'
 import { useSynapseSweep } from './composables/useSynapseSweep'
@@ -23,12 +23,12 @@ import { renderMarkdown, formatWhen } from './utils'
 import { data } from '../wailsjs/go/models'
 import type { ScanCell } from './components/panels/types'
 
-type TabId = 'arguskube' | 'anomalies' | 'runtime'
+type TabId = 'arguskube' | 'anomalies' | 'watcher'
 
 const tabs: { id: TabId; label: string; eyebrow: string }[] = [
   { id: 'arguskube', label: 'Arguskube', eyebrow: '' },
   { id: 'anomalies', label: 'Anomalies', eyebrow: '' },
-  { id: 'runtime', label: 'Workspace', eyebrow: '' },
+  { id: 'watcher', label: 'Watcher', eyebrow: '' },
 ]
 
 const activeTab = ref<TabId>('anomalies')
@@ -53,8 +53,10 @@ const showScanModal = ref(false)
 const selectedScanCell = ref<ScanCell | null>(null)
 const showAlertDetailModal = ref(false)
 const selectedAlert = ref<data.AlertRecord | null>(null)
+const showInvestigationModal = ref(false)
 const loadError = ref<string | null>(null)
 const hasAutoRetried = ref(false)
+const sidebarCollapsed = ref(false)
 
 // Computed
 const connectivityStatus = computed(() => {
@@ -119,6 +121,18 @@ function handleCloseAlertDetailModal() {
   selectedAlert.value = null
 }
 
+function handleCloseInvestigationModal() {
+  showInvestigationModal.value = false
+}
+
+function handleToggleSidebarCollapse() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function handleRefreshContext() {
+  workspace.loadWorkspace()
+}
+
 function handleInvestigateAlert(alert: data.AlertRecord) {
   chat.sendPrompt(`Please investigate this alert: ${alert.name} (${alert.severity} severity).`, JSON.stringify(alert))
 }
@@ -144,11 +158,7 @@ function handleConnectAnomstack() {
 }
 
 function handleInvestigateAnomalies() {
-  chat.sendPrompt('Please investigate the current anomalies and provide recommendations.', JSON.stringify({
-    alerts: workspace.alerts.value,
-    recommendations: workspace.recommendations.value,
-    timeline: workspace.timeline.value,
-  }))
+  showInvestigationModal.value = true
 }
 
 // Error handling
@@ -193,7 +203,7 @@ watch(() => workspace.error.value, (newError) => {
 </script>
 
 <template>
-  <div class="shell">
+  <div :class="['shell', { 'sidebar-collapsed': sidebarCollapsed }]">
     <Sidebar
       :activeTab="activeTab"
       :tabs="tabs"
@@ -201,9 +211,11 @@ watch(() => workspace.error.value, (newError) => {
       :clusterLabel="clusterLabel"
       :endpoint="workspace.mcpEndpoint.value"
       :connectivityStatus="connectivityStatus"
+      :collapsed="sidebarCollapsed"
       @tab-change="handleTabChange"
       @edit-cluster-label="handleEditClusterLabel"
       @open-settings="handleOpenSettings"
+      @toggle-collapse="handleToggleSidebarCollapse"
     />
 
     <main class="main-panel">
@@ -243,7 +255,7 @@ watch(() => workspace.error.value, (newError) => {
       <SummaryGrid :cards="workspace.summaryCards.value" />
 
       <section class="workspace">
-        <div class="workspace-main" style="border: 2px solid red; min-height: 100px;">
+        <div class="workspace-main">
           <div v-if="errorMessage" class="loading-state">
             <div class="arguskube-thinking">
               <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -300,11 +312,8 @@ watch(() => workspace.error.value, (newError) => {
                 />
               </div>
 
-              <div v-else-if="activeTab === 'runtime'" key="runtime">
-                 <RuntimePanel
-                  :scan-grid="scanGrid"
-                  @open-scan-modal="handleOpenScanModal"
-                />
+              <div v-else-if="activeTab === 'watcher'" key="watcher">
+                 <WatcherPanel />
               </div>
               <div v-else style="background: orange; color: white; padding: 20px;">
                 UNKNOWN TAB: {{ activeTab }}
@@ -337,6 +346,16 @@ watch(() => workspace.error.value, (newError) => {
       :error="anomstack.anomstackError.value"
       :recommendations="anomstack.anomstackRecommendations.value"
       @retry="handleConnectAnomstack"
+    />
+    <InvestigationModal
+      :show="showInvestigationModal"
+      :context="{
+        alerts: workspace.alerts.value,
+        recommendations: workspace.recommendations.value,
+        timeline: workspace.timeline.value,
+      }"
+      @close="handleCloseInvestigationModal"
+      @refresh-context="handleRefreshContext"
     />
   </div>
 </template>

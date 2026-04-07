@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar">
+  <aside :class="['sidebar', { collapsed }]">
     <div class="sidebar-header">
       <h2>Argus Console</h2>
       <p class="sidebar-subtitle">Kubernetes AI Control Plane</p>
@@ -46,6 +46,10 @@
         Settings
       </button>
     </div>
+
+    <button class="collapse-toggle" @click="emit('toggle-collapse')" :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+      {{ collapsed ? '>>' : '<<' }}
+    </button>
   </aside>
 </template>
 
@@ -65,6 +69,7 @@ interface Props {
   clusterLabel?: string
   endpoint: string
   connectivityStatus: string
+  collapsed?: boolean
 }
 
 const props = defineProps<Props>()
@@ -72,6 +77,7 @@ const emit = defineEmits<{
   'tab-change': [id: string]
   'edit-cluster-label': []
   'open-settings': []
+  'toggle-collapse': []
 }>()
 </script>
 
@@ -84,6 +90,22 @@ const emit = defineEmits<{
   flex-direction: column;
   padding: 24px;
   gap: 32px;
+  height: 100%;
+  overflow-y: auto;
+  transition: width 0.3s ease;
+}
+
+.sidebar.collapsed {
+  width: 50px;
+  padding: 24px 8px;
+}
+
+.sidebar.collapsed .sidebar-header,
+.sidebar.collapsed .sidebar-nav,
+.sidebar.collapsed .sidebar-footer {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 
 .sidebar-header h2 {
@@ -102,6 +124,8 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .nav-item {
@@ -146,6 +170,7 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   gap: 24px;
+  flex-shrink: 0;
 }
 
 .cluster-info h3 {
@@ -219,5 +244,49 @@ const emit = defineEmits<{
 .ghost-btn.small {
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.collapse-toggle {
+  position: absolute;
+  bottom: 20px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 20;
+}
+
+.collapse-toggle:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+  border-color: var(--border-active);
+}
+
+.sidebar.collapsed .collapse-toggle {
+  right: 8px;
+}
+
+@media (max-width: 880px) {
+  .sidebar {
+    position: static;
+    height: auto;
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-nav {
+    flex: none;
+    overflow-y: visible;
+  }
 }
 </style>

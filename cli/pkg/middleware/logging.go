@@ -41,10 +41,6 @@ func NewLoggingMiddleware(config LoggingConfig) func(*cobra.Command, []string) {
 		logger := slog.New(handler)
 
 		// Store logger in command context
-		ctx := cmd.Context()
-		if ctx == nil {
-			ctx = cmd.Context()
-		}
 		// Note: In real implementation, we'd set logger in context
 		// For now, we'll just log command execution
 

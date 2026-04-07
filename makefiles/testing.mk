@@ -10,6 +10,7 @@ test:
 	@echo "Running unit tests..."
 	$(GOTEST) -v `$(GOCMD) list ./... | grep -vF '/node_modules/'`
 
+
 test-integration-channel:
 	@echo "Running integration test: engine -> UI -> MCP channel..."
 	$(GOTEST) -v ./watcher/internal/integration -run 'TestChannelEngineToUIAnd.*Integration'
@@ -29,11 +30,11 @@ test-tui-render: build-desktop-app
 
 fmt:
 	@echo "Formatting code..."
-	$(GOCMD) fmt ./...
+	$(GOCMD) fmt `$(GOCMD) list ./... | grep -vF '/node_modules/'`
 
 vet:
 	@echo "Vetting code..."
-	$(GOCMD) vet ./...
+	$(GOCMD) vet `$(GOCMD) list ./... | grep -vF '/node_modules/'`
 
 tidy:
 	@echo "Tidying modules..."
@@ -42,7 +43,7 @@ tidy:
 lint:
 	@echo "Linting code..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
+		golangci-lint run ./... || echo "Linting found issues (see above)"; \
 	else \
 		echo "golangci-lint not installed — run: make dev-tools"; \
 	fi

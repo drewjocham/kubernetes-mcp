@@ -129,6 +129,9 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, nil
 		case "s":
+			if len(s.services) == 0 {
+				return s, nil
+			}
 			if !s.busy && s.selected < len(s.services) {
 				svc := s.services[s.selected]
 				s.busy = true
@@ -136,6 +139,9 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, s.doServiceAction(svc.Name, "start")
 			}
 		case "x":
+			if len(s.services) == 0 {
+				return s, nil
+			}
 			if !s.busy && s.selected < len(s.services) {
 				svc := s.services[s.selected]
 				s.busy = true
@@ -143,6 +149,9 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, s.doServiceAction(svc.Name, "stop")
 			}
 		case "r":
+			if len(s.services) == 0 {
+				return s, nil
+			}
 			if !s.busy && s.selected < len(s.services) {
 				svc := s.services[s.selected]
 				s.busy = true
@@ -150,6 +159,9 @@ func (s *Screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, s.doServiceAction(svc.Name, "restart")
 			}
 		case "l":
+			if len(s.services) == 0 {
+				return s, nil
+			}
 			if s.selected < len(s.services) {
 				svc := s.services[s.selected]
 				s.mode = modeLogs
@@ -241,6 +253,9 @@ func (s Screen) View() string {
 	} else if s.busy {
 		hint = s.spinner.View() + lipgloss.NewStyle().Foreground(theme.TextMuted).
 			Render(fmt.Sprintf("  %s…", s.busyService))
+	} else if len(s.services) == 0 {
+		hint = lipgloss.NewStyle().Foreground(theme.TextMuted).Italic(true).
+			Render("  Docker Compose support removed. See Kubernetes services via cluster analysis tool.")
 	} else {
 		hint = lipgloss.NewStyle().Foreground(theme.TextMuted).
 			Render("  ↑↓/jk=navigate  s=start  x=stop  r=restart  l=logs")
@@ -302,7 +317,7 @@ func (s Screen) renderTable() string {
 
 	if len(s.services) == 0 {
 		rows = append(rows, lipgloss.NewStyle().Foreground(theme.TextMuted).Italic(true).Padding(1, 2).
-			Render("No services found. Is the MCP server running?"))
+			Render("No services found. Docker Compose support has been removed."))
 		return strings.Join(rows, "\n")
 	}
 

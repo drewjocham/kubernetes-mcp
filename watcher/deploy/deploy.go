@@ -856,7 +856,6 @@ func IsValidDNSLabel(name string) bool {
 	}
 	// Must start and end with alphanumeric
 	if (name[0] >= 'a' && name[0] <= 'z') || (name[0] >= '0' && name[0] <= '9') {
-		// valid start
 	} else {
 		return false
 	}

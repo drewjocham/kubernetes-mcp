@@ -1,0 +1,19 @@
+apiVersion: v2
+name: kube-watcher
+description: Watcher event engine, anomaly detection, and observability stack
+type: application
+version: 0.1.0
+appVersion: "dev"
+icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
+home: https://github.com/your-org/kube-watcher
+sources:
+  - https://github.com/your-org/kube-watcher
+maintainers:
+  - name: Your Name
+    email: your-email@example.com
+keywords:
+  - kubernetes
+  - monitoring
+  - mcp
+  - anomaly-detection
+  - dagster

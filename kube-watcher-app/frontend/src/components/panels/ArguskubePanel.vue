@@ -3,7 +3,6 @@
     <div class="panel-head">
       <div>
         <p class="meta-label">Arguskube</p>
-        <h3>Arguskube is always on deck</h3>
       </div>
       <button class="ghost-btn expand-toggle" @click="emit('toggle-expand')">
         {{ isExpanded ? '−' : '+' }}

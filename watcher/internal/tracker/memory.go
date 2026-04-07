@@ -16,6 +16,7 @@ type Store interface {
 	Set(key string, snap Snapshot)
 	RecordHistory(key string, snap Snapshot)
 	History(key string, limit int) []Snapshot
+	List() []string
 	Close() error
 }
 
@@ -76,6 +77,16 @@ func (m *MemoryStore) History(key string, limit int) []Snapshot {
 	out := make([]Snapshot, len(h))
 	copy(out, h)
 	return out
+}
+
+func (m *MemoryStore) List() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	keys := make([]string, 0, len(m.data))
+	for k := range m.data {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func (m *MemoryStore) Close() error {

@@ -28,8 +28,12 @@ build-chatbridge:
 	$(GOBUILD) -o $(BIN_DIR)/$(CHAT_BRIDGE_BINARY_NAME) $(CHAT_BRIDGE_CMD)
 
 build-desktop-app:
-	@echo "Building $(DESKTOP_APP_BINARY_NAME) Wails desktop app..."
-	cd kube-watcher-app && wails build
+	@if [ -d "kube-watcher-app" ]; then \
+		echo "Building $(DESKTOP_APP_BINARY_NAME) Wails desktop app..."; \
+		cd kube-watcher-app && wails build; \
+	else \
+		echo "Skipping desktop app: kube-watcher-app directory not found"; \
+	fi
 
 # Cross-compilation (MCP binary only)
 build-all: build-linux build-darwin build-windows
@@ -82,7 +86,7 @@ dev: fmt vet
 
 docker-build:
 	@echo "Building Docker image..."
-	$(COMPOSE_ENV) docker compose -f $(COMPOSE_FILE) build mcp
+	docker build -f $(ROOT_DIR)/Dockerfile.mcp -t watcher-mcp:latest $(ROOT_DIR)
 
 docker-run:
 	@echo "Running Docker container (health check)..."
@@ -94,10 +98,15 @@ mcp-up:
 # ── Desktop App ────────────────────────────────────────────────────────────────
 
 desktop-dev:
-	@echo "Starting Kube-Watcher Desktop App (Wails + Vue) in development mode..."
-	@echo "Prerequisites:"
-	@echo "  MCP server: make run-server (or set KW_TOOLS_ENDPOINT)"
-	cd kube-watcher-app && KW_CLI_BINARY_PATH="$(ROOT_DIR)/bin/kw-cli" KW_BINARY_PATH="$(ROOT_DIR)/bin/kw" wails dev
+	@if [ -d "kube-watcher-app" ]; then \
+		echo "Starting Kube-Watcher Desktop App (Wails + Vue) in development mode..."; \
+		echo "Prerequisites:"; \
+		echo "  MCP server: make run-server (or set KW_TOOLS_ENDPOINT)"; \
+		cd kube-watcher-app && KW_CLI_BINARY_PATH="$(ROOT_DIR)/bin/kw-cli" KW_BINARY_PATH="$(ROOT_DIR)/bin/kw" wails dev; \
+	else \
+		echo "Desktop app not available: kube-watcher-app directory not found"; \
+		echo "To use the desktop app, clone the kube-watcher-app repository"; \
+	fi
 
 desktop-build: build-desktop-app
 

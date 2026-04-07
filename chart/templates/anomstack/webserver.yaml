@@ -1,0 +1,117 @@
+{{- if .Values.anomstack.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anomstack-webserver
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack-webserver
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.anomstack.replicaCount }}
+  selector:
+    matchLabels:
+      app: anomstack-webserver
+  template:
+    metadata:
+      labels:
+        app: anomstack-webserver
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- with .Values.anomstack.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.anomstack.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.anomstack.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webserver
+          image: {{ .Values.anomstack.dagster.image.repository }}:{{ .Values.anomstack.dagster.image.tag }}
+          imagePullPolicy: {{ .Values.anomstack.dagster.image.pullPolicy }}
+          args:
+            - "dagster-webserver"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "3000"
+            - "-w"
+            - "/opt/dagster/dagster_home/workspace.yaml"
+          envFrom:
+            - configMapRef:
+                name: anomstack-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /server_info
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /server_info
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.anomstack.resources.webserver | nindent 12 }}
+          volumeMounts:
+            - name: metrics
+              mountPath: /opt/dagster/app/metrics
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: metrics
+          configMap:
+            name: anomstack-system-metrics
+        - name: data
+          persistentVolumeClaim:
+            claimName: anomstack-data
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anomstack-webserver
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack-webserver
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: anomstack-webserver
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

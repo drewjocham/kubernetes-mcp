@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"kube-watcher-app/internal/util"
 )
 
 type Client struct {
@@ -150,7 +152,7 @@ func (c *Client) queryMCP(ctx context.Context, prompt string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("MCP error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+		return "", fmt.Errorf("MCP error (%d): %s", resp.StatusCode, util.CleanupMarkdown(string(body)))
 	}
 
 	var mcpResp MCPResponse
@@ -159,7 +161,7 @@ func (c *Client) queryMCP(ctx context.Context, prompt string) (string, error) {
 	}
 
 	if mcpResp.Error != nil {
-		return "", fmt.Errorf("MCP error: %s", cleanupMarkdown(mcpResp.Error.Message))
+		return "", fmt.Errorf("MCP error: %s", util.CleanupMarkdown(mcpResp.Error.Message))
 	}
 
 	// Extract analysis from response
@@ -179,7 +181,7 @@ func (c *Client) queryMCP(ctx context.Context, prompt string) (string, error) {
 
 	analysis := result.Content[0].Text
 	response := fmt.Sprintf("K8sGPT Analysis:\n%s\n\nAnswer to your question: %s", analysis, enhancedPrompt)
-	return cleanupMarkdown(response), nil
+	return util.CleanupMarkdown(response), nil
 }
 
 func (c *Client) analyzeCluster(ctx context.Context, prompt string) (string, error) {
@@ -209,7 +211,7 @@ func (c *Client) analyzeCluster(ctx context.Context, prompt string) (string, err
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("analysis error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+		return "", fmt.Errorf("analysis error (%d): %s", resp.StatusCode, util.CleanupMarkdown(string(body)))
 	}
 
 	var analysisResp AnalyzeResponse
@@ -244,88 +246,7 @@ func (c *Client) analyzeCluster(ctx context.Context, prompt string) (string, err
 	builder.WriteString(fmt.Sprintf("**Question**: %s\n\n", prompt))
 	builder.WriteString("Based on the cluster analysis above, if your question relates to any of these issues, the solution is provided. If not, please provide more specific details about your Kubernetes question.")
 
-	return cleanupMarkdown(builder.String()), nil
-}
-
-func decodeHtmlEntities(input string) string {
-	result := input
-	result = strings.ReplaceAll(result, "&lt;", "<")
-	result = strings.ReplaceAll(result, "&gt;", ">")
-	result = strings.ReplaceAll(result, "&amp;", "&")
-	result = strings.ReplaceAll(result, "&quot;", "\"")
-	result = strings.ReplaceAll(result, "&#39;", "'")
-	result = strings.ReplaceAll(result, "&nbsp;", " ")
-	return result
-}
-
-func cleanupMarkdown(input string) string {
-	if input == "" {
-		return input
-	}
-
-	// Decode HTML entities first
-	result := decodeHtmlEntities(input)
-
-	// Replace HTML line breaks with newlines
-	result = strings.ReplaceAll(result, "<br>", "\n")
-	result = strings.ReplaceAll(result, "<br/>", "\n")
-	result = strings.ReplaceAll(result, "<br />", "\n")
-
-	// Fix common malformed patterns
-	// Remove duplicate consecutive code block markers
-	lines := strings.Split(result, "\n")
-	var cleanedLines []string
-	inCodeBlock := false
-	prevLine := ""
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Check if this line starts a code block
-		if strings.HasPrefix(trimmed, "```") {
-			if inCodeBlock {
-				// Already in code block, might be duplicate opener
-				// Skip if previous line was also a code block opener
-				if strings.HasPrefix(strings.TrimSpace(prevLine), "```") {
-					continue // Skip duplicate opener
-				}
-			}
-			inCodeBlock = !inCodeBlock
-		}
-
-		cleanedLines = append(cleanedLines, line)
-		prevLine = line
-	}
-
-	result = strings.Join(cleanedLines, "\n")
-
-	// Remove any remaining HTML tags (simple approach)
-	result = strings.ReplaceAll(result, "<strong>", "**")
-	result = strings.ReplaceAll(result, "</strong>", "**")
-	result = strings.ReplaceAll(result, "<b>", "**")
-	result = strings.ReplaceAll(result, "</b>", "**")
-	result = strings.ReplaceAll(result, "<em>", "*")
-	result = strings.ReplaceAll(result, "</em>", "*")
-	result = strings.ReplaceAll(result, "<i>", "*")
-	result = strings.ReplaceAll(result, "</i>", "*")
-
-	// Remove any other HTML tags (crude but works for common cases)
-	for strings.Contains(result, "<") && strings.Contains(result, ">") {
-		start := strings.Index(result, "<")
-		end := strings.Index(result, ">")
-		if start >= 0 && end > start {
-			result = result[:start] + result[end+1:]
-		} else {
-			break
-		}
-	}
-
-	// Normalize newlines (3+ newlines -> 2 newlines)
-	for strings.Contains(result, "\n\n\n") {
-		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
-	}
-
-	return strings.TrimSpace(result)
+	return util.CleanupMarkdown(builder.String()), nil
 }
 
 func IsKubernetesQuestion(prompt string) bool {

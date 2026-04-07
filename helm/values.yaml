@@ -40,7 +40,7 @@ mcp:
 
 # ─── Watcher Event Engine
 watcher:
-  enabled: false
+  enabled: true
   replicaCount: 1
   image:
     repository: watcher
@@ -66,7 +66,7 @@ watcher:
     storageClass: ""
 
 badgerExplorer:
-  enabled: true
+  enabled: false
   image:
     repository: watcher-badger-explorer
     tag: latest
@@ -177,7 +177,7 @@ signoz:
         ignore_unknown_settings: 1
     image:
       repository: clickhouse/clickhouse-server
-      tag: 24.8-alpine
+      tag: 23.3
       pullPolicy: IfNotPresent
     resources:
       requests:

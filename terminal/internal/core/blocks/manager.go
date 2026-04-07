@@ -13,6 +13,8 @@ type Manager struct {
 	activeID string
 }
 
+const MaxLiveBlocks = 50
+
 func (m *Manager) MarkLastBlockExit(exitCode int, hasError bool) {
 	if len(m.blocks) == 0 {
 		return
@@ -20,14 +22,23 @@ func (m *Manager) MarkLastBlockExit(exitCode int, hasError bool) {
 	last := m.blocks[len(m.blocks)-1]
 	last.ExitCode = exitCode
 	last.HasError = hasError
+	if last.CompletedAt.IsZero() {
+		last.CompletedAt = time.Now().UTC()
+	}
+	if !last.StartedAt.IsZero() {
+		last.Duration = last.CompletedAt.Sub(last.StartedAt)
+	}
 }
 
 func NewManager() *Manager {
+	now := time.Now().UTC()
 	initial := &domain.Block{
 		ID:          uuid.NewString(),
 		ContentType: domain.ContentTypePlainText,
+		RenderMode:  domain.RenderModeAuto,
 		Active:      true,
-		Timestamp:   time.Now().UTC(),
+		Timestamp:   now,
+		StartedAt:   now,
 	}
 
 	return &Manager{
@@ -63,20 +74,40 @@ func (m *Manager) SetActiveContentType(contentType string) {
 	}
 	active.ContentType = contentType
 }
+func (m *Manager) SetActiveCWD(cwd string) {
+	active := m.active()
+	if active == nil {
+		return
+	}
+	active.CWD = cwd
+}
 
 func (m *Manager) SealAndNew() {
+	now := time.Now().UTC()
 	for _, block := range m.blocks {
+		if !block.Active {
+			continue
+		}
 		block.Active = false
+		if block.CompletedAt.IsZero() {
+			block.CompletedAt = now
+		}
+		if !block.StartedAt.IsZero() {
+			block.Duration = block.CompletedAt.Sub(block.StartedAt)
+		}
 	}
 
 	next := &domain.Block{
 		ID:          uuid.NewString(),
 		ContentType: domain.ContentTypePlainText,
+		RenderMode:  domain.RenderModeAuto,
 		Active:      true,
-		Timestamp:   time.Now().UTC(),
+		Timestamp:   now,
+		StartedAt:   now,
 	}
 	m.blocks = append(m.blocks, next)
 	m.activeID = next.ID
+	m.pruneOldBlocks()
 }
 
 func (m *Manager) SetRenderBounds(blockID string, y, height int) {
@@ -99,6 +130,42 @@ func (m *Manager) FindByRenderY(y int) *domain.Block {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) FindByID(blockID string) *domain.Block {
+	for _, block := range m.blocks {
+		if block.ID == blockID {
+			return block
+		}
+	}
+	return nil
+}
+
+func (m *Manager) ToggleBlockRenderMode(blockID string) string {
+	block := m.FindByID(blockID)
+	if block == nil {
+		return ""
+	}
+	switch block.RenderMode {
+	case domain.RenderModeAuto:
+		block.RenderMode = domain.RenderModeMarkdown
+	case domain.RenderModeMarkdown:
+		block.RenderMode = domain.RenderModePlain
+	default:
+		block.RenderMode = domain.RenderModeAuto
+	}
+	return block.RenderMode
+}
+
+func (m *Manager) pruneOldBlocks() {
+	if len(m.blocks) <= MaxLiveBlocks {
+		return
+	}
+	pruneCount := len(m.blocks) - MaxLiveBlocks
+	m.blocks = m.blocks[pruneCount:]
+	if m.active() == nil && len(m.blocks) > 0 {
+		m.activeID = m.blocks[len(m.blocks)-1].ID
+	}
 }
 
 func (m *Manager) active() *domain.Block {

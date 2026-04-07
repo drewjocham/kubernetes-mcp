@@ -22,6 +22,12 @@ type AlertRecord struct {
 	Summary    string   `json:"summary,omitempty"`
 	Actions    []string `json:"actions,omitempty"`
 	Confidence float64  `json:"confidence,omitempty"`
+	// Anomaly lifecycle fields
+	LifecycleStage  string    `json:"lifecycleStage,omitempty"` // detected, investigating, resolved, suppressed
+	InvestigatedBy  string    `json:"investigatedBy,omitempty"`
+	ResolvedAt      time.Time `json:"resolvedAt,omitempty"`
+	ResolutionNotes string    `json:"resolutionNotes,omitempty"`
+	AnomalyScore    float64   `json:"anomalyScore,omitempty"`
 }
 
 // Comment represents a user comment on an alert
@@ -161,6 +167,7 @@ type AnomalyDeploymentPlan struct {
 }
 
 // PodInfo represents a Kubernetes pod with essential metadata and status.
+// Mirrors kube-watcher/pkg/kube.PodInfo (duplicated due to separate Go modules).
 type PodInfo struct {
 	Name         string            `json:"name"`
 	Namespace    string            `json:"namespace"`
@@ -175,10 +182,46 @@ type PodInfo struct {
 }
 
 // ContainerInfo represents a single container within a pod.
+// Mirrors kube-watcher/pkg/kube.ContainerInfo (duplicated due to separate Go modules).
 type ContainerInfo struct {
 	Name         string `json:"name"`
 	Image        string `json:"image"`
 	Ready        bool   `json:"ready"`
 	RestartCount int32  `json:"restartCount"`
 	State        string `json:"state"`
+}
+
+// SetLifecycleStage updates the lifecycle stage of an alert record.
+func (a *AlertRecord) SetLifecycleStage(stage string, investigatedBy string) {
+	a.LifecycleStage = stage
+	if investigatedBy != "" {
+		a.InvestigatedBy = investigatedBy
+	}
+	if stage == "resolved" {
+		a.ResolvedAt = time.Now()
+	}
+}
+
+// MarkAsResolved marks the anomaly as resolved with optional notes.
+func (a *AlertRecord) MarkAsResolved(resolvedBy string, notes string) {
+	a.SetLifecycleStage("resolved", resolvedBy)
+	a.ResolutionNotes = notes
+}
+
+// Widget represents a terminal widget with command labels.
+type Widget struct {
+	ID       string        `json:"id"`
+	Title    string        `json:"title"`
+	Icon     string        `json:"icon"`
+	Position int           `json:"position"` // Order in sidebar (0-indexed)
+	Labels   []WidgetLabel `json:"labels"`
+}
+
+// WidgetLabel represents a clickable label within a widget.
+type WidgetLabel struct {
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	Icon    string `json:"icon"`
+	Command string `json:"command"`
+	Color   string `json:"color"` // CSS color string (e.g., "rgba(59, 130, 246, 0.15)")
 }

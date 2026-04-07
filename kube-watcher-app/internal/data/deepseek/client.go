@@ -1,36 +1,29 @@
 package deepseek
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"kube-watcher-app/internal/data"
 	"kube-watcher-app/internal/data/mcp"
+	"kube-watcher-app/internal/httpclient"
 )
 
 // Client is an AI agent that uses DeepSeek API and can automatically
 // use MCP tools to investigate anomalies.
 type Client struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	mcpClient  *mcp.Client
+	*httpclient.BaseClient
+	mcpClient *mcp.Client
 }
 
 // New creates a new DeepSeek client with MCP integration
 func New(mcpClient *mcp.Client) *Client {
-	//apiKey := os.Getenv("DEEPSEEK_API_KEY")
-	apiKey := ""
-	if apiKey == "" {
-		apiKey = "sk-2oEB1XMGNjoYuDf7WzH3uTXGTK3X7jjnCMswFG4vef2uGTtHtnSIakDZ135FoBmo" // Default to OpenCode key for now
-	}
+	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+	// If API key is not set, client will fail when attempting to use it
+	// User must set DEEPSEEK_API_KEY environment variable
 
 	baseURL := os.Getenv("DEEPSEEK_BASE_URL")
 	if baseURL == "" {
@@ -38,9 +31,7 @@ func New(mcpClient *mcp.Client) *Client {
 	}
 
 	return &Client{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		BaseClient: httpclient.NewBaseClient(baseURL, apiKey, 120*time.Second),
 		mcpClient:  mcpClient,
 	}
 }
@@ -114,7 +105,7 @@ func (c *Client) InvestigateAnomalies(ctx context.Context, anomalies []data.Aler
 
 // Ask sends a prompt to DeepSeek and returns the response
 func (c *Client) Ask(ctx context.Context, prompt string, contextStr string) (string, error) {
-	if c.apiKey == "" {
+	if !c.HasToken() {
 		return "", fmt.Errorf("DEEPSEEK_API_KEY is not set")
 	}
 
@@ -135,29 +126,9 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 		},
 	}
 
-	bodyBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("DeepSeek API error (%d): %s", resp.StatusCode, string(body))
-	}
-
 	var chatResp ChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return "", err
+	if err := c.Post(ctx, "", reqBody, &chatResp); err != nil {
+		return "", fmt.Errorf("DeepSeek API error: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {
@@ -203,29 +174,9 @@ func (c *Client) chatWithTools(ctx context.Context, prompt string, tools []data.
 		Messages: messages,
 	}
 
-	bodyBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("DeepSeek API error (%d): %s", resp.StatusCode, string(body))
-	}
-
 	var chatResp ChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return "", err
+	if err := c.Post(ctx, "", reqBody, &chatResp); err != nil {
+		return "", fmt.Errorf("DeepSeek API error: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {

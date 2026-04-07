@@ -39,6 +39,21 @@ builds:
     ldflags:
       - -s -w
 
+  - id: kw-cli
+    main: ./cmd/kw-cli
+    binary: kw-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
 archives:
   - id: kube-watcher
     builds:
@@ -62,6 +77,18 @@ archives:
       - LICENSE
       - watcher/internal/config/config.yaml
 
+  - id: kw-cli
+    builds:
+      - kw-cli
+    format: tar.gz
+    name_template: "kw-cli_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+
 checksum:
   name_template: "checksums.txt"
 
@@ -77,6 +104,7 @@ brews:
   - name: kube-watcher
     ids:
       - kube-watcher
+      - kw-cli
     repository:
       owner: drewjocham
       name: homebrew-tap
@@ -86,15 +114,19 @@ brews:
       email: bot@goreleaser.com
     directory: Formula
     homepage: "https://github.com/drewjocham/kubernetes-mcp"
-    description: "Kubernetes monitoring MCP server — exposes cluster insights to AI assistants and REST APIs"
+    description: "Kubernetes monitoring MCP server and CLI — exposes cluster insights to AI assistants and REST APIs"
     license: "MIT"
     dependencies:
       - name: go
         type: optional
     install: |
       bin.install "kube-watcher"
+      bin.install "kw-cli"
+      # Create kw symlink for convenience
+      bin.install_symlink "kw-cli" => "kw"
     test: |
       system "#{bin}/kube-watcher", "--version"
+      system "#{bin}/kw", "version"
 
 release:
   github:

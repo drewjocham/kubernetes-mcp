@@ -34,37 +34,37 @@
 
 ### Block UX Improvements
 
-- [ ] Attach command lifecycle metadata per block:
-  - [ ] cwd
-  - [ ] duration
-  - [ ] status badges
-- [ ] Add max-block retention policy + pruning
-- [ ] Add explicit markdown mode toggle per block
-- [ ] Add copy-output action on selected block
+- [x] Attach command lifecycle metadata per block:
+  - [x] cwd
+  - [x] duration
+  - [x] status badges
+- [x] Add max-block retention policy + pruning
+- [x] Add explicit markdown mode toggle per block
+- [x] Add copy-output action on selected block
 
 ### Desktop-like Input UX
 
-- [ ] Add `Tab` accept for ghost text
-- [ ] Add shortcut-driven artifact tab switching
-- [ ] Improve mouse targeting for block and input hit-testing
-- [ ] Evaluate `textarea` for multiline editor mode
+- [x] Add `Tab` accept for ghost text
+- [x] Add shortcut-driven artifact tab switching
+- [x] Improve mouse targeting for block and input hit-testing
+- [x] Evaluate `textarea` for multiline editor mode (deferred for MVP)
 
 ### Widgets
 
-- [ ] Define widget interface (`ID`, `Title`, `Refresh`, `View`)
-- [ ] Implement System Stats widget
-- [ ] Implement Git Status widget
-- [ ] Add widget panel mount + refresh scheduling
+- [x] Define widget interface (`ID`, `Title`, `Refresh`, `View`)
+- [x] Implement System Stats widget
+- [x] Implement Git Status widget
+- [x] Add widget panel mount + refresh scheduling
 
 ### Reliability & Tests
 
 - [ ] Table-driven unit tests:
-  - [ ] block manager behavior
-  - [ ] markdown detection strategy
+  - [x] block manager behavior
+  - [x] markdown detection strategy
   - [x] socket request routing and validation
-  - [ ] ghost/artifact/diagnostic message handling
-- [ ] Integration test for `kw terminal` startup + socket actions
-- [ ] Add graceful shutdown tests for PTY/socket/browser resources
+  - [x] ghost/artifact/diagnostic message handling
+- [x] Integration test for `kw terminal` startup + socket actions
+- [x] Add graceful shutdown tests for PTY/socket/browser resources
 
 ## Suggested order of execution
 

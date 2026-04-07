@@ -94,6 +94,27 @@ func (b *BadgerStore) Close() error {
 	return b.db.Close()
 }
 
+func (b *BadgerStore) List() []string {
+	var keys []string
+	_ = b.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			key := string(it.Item().Key())
+			// Skip history entries (contain ':')
+			if strings.Contains(key, ":") {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	return keys
+}
+
 func (b *BadgerStore) RecordHistory(key string, snap Snapshot) {
 	if snap.Timestamp.IsZero() {
 		snap.Timestamp = time.Now()

@@ -28,9 +28,10 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "kw",
-	Short: "Kube-Watcher CLI - Manage MCP Agents and K8s Monitoring",
-	Long:  "A unified interface to manage MCP servers, watcher engines, deployment operations, and AI agent definitions.",
+	Use:     "kw",
+	Short:   "Kube-Watcher CLI - Manage MCP Agents and K8s Monitoring",
+	Long:    "A unified interface to manage MCP servers, watcher engines, deployment operations, and AI agent definitions.",
+	Version: fmt.Sprintf("v%s (commit: %s, built: %s)", version, gitCommit, buildDate),
 }
 
 func Execute() {
@@ -54,7 +55,7 @@ func init() {
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newAnomstackCmd())
 	rootCmd.AddCommand(newProfileCmd())
-	// rootCmd.AddCommand(newTerminalCmd())  // terminal package currently has compilation errors
+	rootCmd.AddCommand(newTerminalCmd())
 }
 
 func setupMiddleware() {

@@ -127,10 +127,15 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Close() error {
-	if s.listener == nil {
+	s.mu.Lock()
+	listener := s.listener
+	s.listener = nil
+	s.mu.Unlock()
+
+	if listener == nil {
 		return nil
 	}
-	if err := s.listener.Close(); err != nil {
+	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("close unix listener: %w", err)
 	}
 	_ = os.Remove(s.socketPath)

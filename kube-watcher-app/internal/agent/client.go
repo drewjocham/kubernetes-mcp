@@ -1,14 +1,13 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"kube-watcher-app/internal/httpclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -27,9 +26,7 @@ type Message struct {
 
 // Client sends chat messages to a configured HTTP endpoint.
 type Client struct {
-	endpoint string
-	apiKey   string
-	http     *http.Client
+	*httpclient.BaseClient
 }
 
 // New returns a Client from environment variables.
@@ -41,19 +38,16 @@ func New() *Client {
 	if ep == "" {
 		ep = "http://localhost:3000/api/agent"
 	}
+	apiKey := strings.TrimSpace(os.Getenv("KW_AGENT_API_KEY"))
 	return &Client{
-		endpoint: ep,
-		apiKey:   strings.TrimSpace(os.Getenv("KW_AGENT_API_KEY")),
-		http:     &http.Client{Timeout: 60 * time.Second},
+		BaseClient: httpclient.NewBaseClient(ep, apiKey, 60*time.Second),
 	}
 }
 
 // NewWithConfig returns a Client using explicit values.
 func NewWithConfig(endpoint, apiKey string) *Client {
 	return &Client{
-		endpoint: endpoint,
-		apiKey:   apiKey,
-		http:     &http.Client{Timeout: 60 * time.Second},
+		BaseClient: httpclient.NewBaseClient(endpoint, apiKey, 60*time.Second),
 	}
 }
 
@@ -67,30 +61,6 @@ func (c *Client) Send(history []Message) tea.Cmd {
 			"messages": history,
 			"task":     "kubernetes_sre_assistance",
 		}
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return ResponseMsg{Err: fmt.Errorf("marshal: %w", err)}
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(b))
-		if err != nil {
-			return ResponseMsg{Err: fmt.Errorf("build request: %w", err)}
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			return ResponseMsg{Err: fmt.Errorf("request: %w", err)}
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return ResponseMsg{Err: fmt.Errorf("agent endpoint returned HTTP %s", resp.Status)}
-		}
-
 		var out struct {
 			Response string `json:"response"`
 			Message  string `json:"message"`
@@ -102,8 +72,8 @@ func (c *Client) Send(history []Message) tea.Cmd {
 				} `json:"message"`
 			} `json:"choices"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return ResponseMsg{Err: fmt.Errorf("decode response: %w", err)}
+		if err := c.DoRequest(ctx, http.MethodPost, "", payload, &out); err != nil {
+			return ResponseMsg{Err: err}
 		}
 
 		content := out.Response

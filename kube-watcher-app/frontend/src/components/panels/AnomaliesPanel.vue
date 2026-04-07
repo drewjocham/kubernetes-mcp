@@ -34,25 +34,37 @@
             </button>
           </div>
         </div>
-        <div class="filter-bar">
-          <button
-            v-for="severity in ['all', 'critical', 'error', 'warning', 'info', 'low']"
-            :key="severity"
-            :class="['filter-pill', { active: selectedSeverity === severity }]"
-            @click="selectedSeverity = severity"
-          >
-            {{ severity }}
-          </button>
-        </div>
-        <div class="filter-bar">
-          <button
-            v-for="opt in stateOptions"
-            :key="opt.value"
-            :class="['filter-pill', { active: selectedState === opt.value }]"
-            @click="selectedState = opt.value"
-          >
-            {{ opt.label }}
-          </button>
+        <div class="filter-section">
+          <div class="filter-category">
+            <span class="filter-category-label">Severity:</span>
+            <div class="filter-grid">
+              <button
+                v-for="severity in severityOptions"
+                :key="severity.value"
+                :class="['filter-pill', { active: selectedSeverity === severity.value }]"
+                @click="selectedSeverity = severity.value"
+                :title="severity.label"
+              >
+                <span class="filter-icon">{{ severity.icon }}</span>
+                <span class="filter-text">{{ severity.label }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="filter-category">
+            <span class="filter-category-label">State:</span>
+            <div class="filter-grid">
+              <button
+                v-for="opt in stateOptions"
+                :key="opt.value"
+                :class="['filter-pill', { active: selectedState === opt.value }]"
+                @click="selectedState = opt.value"
+                :title="opt.label"
+              >
+                <span class="filter-icon">{{ opt.icon }}</span>
+                <span class="filter-text">{{ opt.label }}</span>
+              </button>
+            </div>
+          </div>
         </div>
         <ul class="stack-list">
           <AlertCard
@@ -83,22 +95,10 @@
       </article>
 
       <!-- Incident History Panel -->
-      <article class="panel span-wide">
-        <div class="panel-head">
-          <div>
-            <p class="meta-label">Recent incident history</p>
-            <h3>Context the AI can cite back immediately</h3>
-          </div>
-        </div>
-        <div class="timeline">
-          <IncidentTimelineItem
-            v-for="incident in timeline"
-            :key="incident.id"
-            :incident="incident"
-            :format-when="formatWhen"
-          />
-        </div>
-      </article>
+      <IncidentHistoryTabs
+        :timeline="timeline"
+        :format-when="formatWhen"
+      />
     </div>
   </section>
 </template>
@@ -108,6 +108,7 @@ import { ref, computed, onMounted } from 'vue'
 import AlertCard from '../cards/AlertCard.vue'
 import RecommendationCard from '../cards/RecommendationCard.vue'
 import IncidentTimelineItem from '../cards/IncidentTimelineItem.vue'
+import IncidentHistoryTabs from './IncidentHistoryTabs.vue'
 import { data } from '../../../wailsjs/go/models'
 
 interface Props {
@@ -126,13 +127,22 @@ const selectedSeverity = ref<string>('all')
 const selectedState = ref<string>('all')
 
 const stateOptions = [
-  { value: 'all', label: 'All States' },
-  { value: 'new', label: 'New' },
-  { value: 'acknowledged', label: 'Acknowledged' },
-  { value: 'silenced', label: 'Silenced' },
-  { value: 'being_investigated', label: 'Being Investigated' },
-  { value: 'false_positive', label: 'False Positive' },
-  { value: 'deleted', label: 'Deleted' }
+  { value: 'all', label: 'All States', icon: '🌐' },
+  { value: 'new', label: 'New', icon: '🆕' },
+  { value: 'acknowledged', label: 'Acknowledged', icon: '✅' },
+  { value: 'silenced', label: 'Silenced', icon: '🔇' },
+  { value: 'being_investigated', label: 'Being Investigated', icon: '🔍' },
+  { value: 'false_positive', label: 'False Positive', icon: '👻' },
+  { value: 'deleted', label: 'Deleted', icon: '🗑️' }
+]
+
+const severityOptions = [
+  { value: 'all', label: 'All', icon: '🌐' },
+  { value: 'critical', label: 'Critical', icon: '🔥' },
+  { value: 'error', label: 'Error', icon: '❌' },
+  { value: 'warning', label: 'Warning', icon: '⚠️' },
+  { value: 'info', label: 'Info', icon: 'ℹ️' },
+  { value: 'low', label: 'Low', icon: '📉' }
 ]
 
 const filteredAlerts = computed(() => {
@@ -171,6 +181,7 @@ function handleAlertClick(alert: data.AlertRecord) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+  min-width: 0;
 }
 
 .panel {
@@ -178,6 +189,7 @@ function handleAlertClick(alert: data.AlertRecord) {
   border-radius: 24px;
   border: 1px solid var(--border);
   background: var(--panel-bg);
+  min-width: 0;
 }
 
 .panel.span-wide {
@@ -225,24 +237,58 @@ function handleAlertClick(alert: data.AlertRecord) {
   white-space: nowrap;
 }
 
-.filter-bar {
-  display: flex;
-  gap: 8px;
+.filter-section {
   margin-bottom: 16px;
-  flex-wrap: wrap;
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.filter-category {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-category:last-child {
+  margin-bottom: 0;
+}
+
+.filter-category-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  flex: 1;
 }
 
 .filter-pill {
-  padding: 6px 12px;
-  border-radius: 20px;
+  padding: 6px 10px;
+  border-radius: 12px;
   border: 1px solid var(--border);
-  background: var(--panel-bg);
+  background: var(--card-bg);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
 }
 
 .filter-pill:hover {
@@ -254,6 +300,16 @@ function handleAlertClick(alert: data.AlertRecord) {
   border-color: var(--primary);
   background: var(--primary);
   color: white;
+}
+
+.filter-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.filter-text {
+  flex: 1;
+  text-align: left;
 }
 
 .stack-list {
@@ -324,6 +380,12 @@ h3 {
   line-height: 1.3;
 }
 
+@media (max-width: 768px) {
+  .filter-section {
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 1024px) {
   .panel-grid {
     grid-template-columns: 1fr;
@@ -337,6 +399,26 @@ h3 {
   
   .panel-actions {
     justify-content: flex-start;
+  }
+  
+  .filter-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .filter-grid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+  
+  .filter-pill {
+    padding: 4px 8px;
+    font-size: 10px;
+    min-height: 28px;
+  }
+  
+  .filter-icon {
+    font-size: 10px;
   }
 }
 </style>

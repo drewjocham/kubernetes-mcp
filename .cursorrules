@@ -1,0 +1,46 @@
+---
+
+# AGENTS.md: Development & Review Guidelines
+
+## 1. System Overview & Scope
+This ecosystem manages Kubernetes observability and automation across three tiers:
+* **MCP (Mesh Control Protocol):** Central plane for 3rd-party sync (Google/iCloud), Markdown rendering, and UI widgets.
+* **Watcher:** Modular monitoring agent for files, K8s ops logs, and provider-specific changes.
+* **Kube-Watcher-App:** User interface for cluster alerts (pager) and searchable, toggleable streaming logs.
+
+## 2. AI Code Review Template (MANDATORY)
+When performing a review, AI agents must evaluate and report using these criteria:
+
+### A. Design & Architecture
+* **Concurrency:** Audit Goroutine lifecycles and `context.Context` propagation in log streams.
+* **Kube-Native Patterns:** Check for `SharedIndexInformers`. Ensure updates to MCP are idempotent.
+* **Decoupling:** Verify the `Watcher` remains provider-agnostic via clean interfaces.
+
+### B. Coding Style & Golang Best Practices
+* **DRY Audit:** Identify shared logic between `watcher` and `kube-watcher-app` (e.g., K8s event types).
+* **Error Handling:** Use `%w` for wrapping. No "stuttering" (e.g., `log.Error(err); return err`).
+* **Performance:** Check for slice/map pre-allocation and efficient regex in log scanning.
+
+### C. Security & Hardening
+* **RBAC:** Verify least-privilege K8s roles (limit to `watch/list` where possible).
+* **Data Integrity:** Ensure PII in logs is not persisted to Mongo during alert generation.
+* **Resilience:** Ensure `panic` recovery in long-running watcher loops.
+
+## 3. Cursor / Copilot Rules
+* **Rule 1 (Context):** Always read `DECISION_LOG.md` before suggesting architectural refactors.
+* **Rule 2 (No Stubs):** Do not provide "TODO" blocks for streaming or alert-highlighting logic.
+* **Rule 3 (Formatting):** Follow `anomstack/.cursor/rules/` for specific linting and import ordering.
+* **Rule 4 (DRY):** If a new utility is needed, check existing packages in `pkg/` and `internal/` before creating a local helper.
+
+## 4. Key Feature Logic
+* **Streaming Logs:** Must support search and `ON/OFF` toggles without restarting the watcher.
+* **Log-Based Alerts:** Highlighting a string in the UI must trigger a direct write to the built-in Tasks/Mongo store.
+* **Integrations:** Google Workspace and iCloud sync are "first-class"—prioritize robust OAuth2 handling.
+
+## 5. Development Workflow
+* **Decision Tracing:** New features must be added to the `ID,Decision,Impact,Proposal,Date,Status` table in `DECISION_LOG.md`.
+* **Test Commands:** * `make test`: Run all unit tests.
+    * `make lint`: Execute `golangci-lint` (must pass 100%).
+    * `make test-integration-channel`: Local integration test for the streaming log feature.
+    * `make run-watcher`: Run watcher engine locally for testing.
+    * `make run-server`: Run MCP HTTP server locally.

@@ -5,7 +5,7 @@
 # Update the `url`, `sha256`, and `version` fields for each release.
 
 class KubeWatcher < Formula
-  desc "Kubernetes monitoring MCP server — exposes cluster insights to AI assistants and REST APIs"
+  desc "Kubernetes monitoring MCP server and CLI — exposes cluster insights to AI assistants and REST APIs"
   homepage "https://github.com/drewjocham/kubernetes-mcp"
   version "1.0.0"
   license "MIT"
@@ -36,9 +36,13 @@ class KubeWatcher < Formula
 
   def install
     bin.install "kube-watcher"
+    bin.install "kw-cli"
+    # Create kw symlink for convenience
+    bin.install_symlink "kw-cli" => "kw"
   end
 
   test do
     system "#{bin}/kube-watcher", "--version"
+    system "#{bin}/kw", "version"
   end
 end

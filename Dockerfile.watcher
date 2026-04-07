@@ -1,0 +1,35 @@
+# Dockerfile for kube-watcher watcher engine
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY watcher/ ./watcher/
+COPY pkg/ ./pkg/
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /watcher-engine ./watcher/cmd/engine
+
+# Final minimal image
+FROM alpine:3.21
+
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S nonroot -g 65532 \
+    && adduser -S nonroot -G nonroot -u 65532 -h /home/nonroot
+
+USER nonroot:nonroot
+WORKDIR /home/nonroot
+
+COPY --from=builder --chown=nonroot:nonroot /watcher-engine /usr/local/bin/watcher-engine
+
+# Create directory for BadgerDB (if needed)
+RUN mkdir -p /home/nonroot/.kube-watcher && chown -R nonroot:nonroot /home/nonroot/.kube-watcher
+
+EXPOSE 8085
+
+ENTRYPOINT ["/usr/local/bin/watcher-engine"]
+CMD ["--http-addr", ":8085"]

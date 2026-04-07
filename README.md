@@ -12,16 +12,33 @@ A Kubernetes monitoring and analysis MCP (Model Context Protocol) server designe
 
 ```
 kube-watcher/
+├── cli/               # Unified CLI for MCP, watcher, and operations
+│   ├── root.go        # CLI root command
+│   ├── agent.go       # Agent management commands
+│   ├── ops.go         # Deployment operations
+│   └── ...            # Other command implementations
 ├── mcp/               # MCP server app
-│   ├── cmd/server     # CLI entrypoint
+│   ├── cmd/server     # MCP server entrypoint
 │   ├── server/        # MCP server implementation
 │   └── tools/         # Tool definitions
 ├── watcher/           # Event engine app
 │   ├── cmd/engine     # Event-engine entrypoint
 │   └── internal/      # Rules, pipeline, actions, trackers
-├── monitoring/        # Shared history/recommendation services
+├── services/          # Monitoring services (ingest, probe, processor)
+│   ├── ingest/        # Telemetry ingestion service
+│   ├── probe/         # Metrics collection service
+│   └── processor/     # Data processing service
 ├── pkg/               # Reusable libraries (logging, kube client, etc.)
-└── main.go            # Unified CLI (MCP + deploy management)
+│   ├── kube/          # Kubernetes client wrapper
+│   ├── logging/       # Structured logging utilities
+│   ├── profile/       # Configuration profile management
+│   └── ...            # Other shared packages
+├── terminal/          # Terminal emulator (PTY + Bubble Tea TUI)
+├── anomstack/         # Anomaly detection stack (submodule)
+├── popeye/            # Kubernetes cluster sanitizer
+├── helm/              # Helm charts for deployment
+├── integrations/      # Integration bridges (Google Chat, etc.)
+└── main.go            # CLI entry point
 ```
 ## Installation
 
@@ -42,7 +59,7 @@ go mod tidy
 If installed via Homebrew, the formula currently installs the `kube-watcher` binary.
 
 ### Local development
-When building from source, the Makefile creates a `kw` symlink to `kube-watcher` for convenience. 
+When building from source, the Makefile creates a `kw` symlink to `kw-cli` (the unified CLI) for convenience. 
 You can install `kw` to your PATH using:
 ```bash
 make install-local    # installs to ~/.local/bin
@@ -93,6 +110,17 @@ Checks runtime status and streams logs using the unified CLI.
 ```bash
 kw --help
 ```
+
+#### Launch terminal module
+```bash
+kw terminal
+# or via Makefile target
+make run-terminal
+# run terminal module tests
+make test-terminal
+```
+Inside the terminal module, built-in system commands are available:
+`/help`, `/agent`, `/widgets`, `/widgets refresh`.
 
 #### Print example config
 ```bash

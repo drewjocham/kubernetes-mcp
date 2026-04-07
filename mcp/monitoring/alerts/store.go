@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"kube-watcher/pkg/kube/watch"
+
 	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
-	"kube-watcher/pkg/kube/watch"
 )
 
-// AlertRecord represents a stored alert with its payload and metadata
 type AlertRecord struct {
 	ID         string                 `json:"id"`
 	Alert      watch.Alert            `json:"alert"`
@@ -28,7 +28,6 @@ type AlertRecord struct {
 	Comments   []Comment              `json:"comments,omitempty"`
 }
 
-// Comment represents a user comment on an alert
 type Comment struct {
 	ID        string    `json:"id"`
 	Author    string    `json:"author"`
@@ -50,14 +49,12 @@ type PodCache struct {
 	LastChecked time.Time `json:"last_checked"`
 }
 
-// Store manages alert storage and pod cache in BadgerDB
 type Store struct {
 	db     *badger.DB
 	closed bool
 	mu     sync.RWMutex
 }
 
-// StoreInterface defines the interface for alert storage
 type StoreInterface interface {
 	StoreAlert(ctx context.Context, alert watch.Alert, metadata map[string]interface{}) error
 	GetAlert(ctx context.Context, id string) (*AlertRecord, error)
@@ -72,7 +69,6 @@ type StoreInterface interface {
 
 var _ StoreInterface = (*Store)(nil)
 
-// NewStore creates a new alert store at the given path
 func NewStore(path string) (*Store, error) {
 	dir, err := resolvePath(path)
 	if err != nil {
@@ -106,7 +102,6 @@ func resolvePath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-// StoreAlert stores an alert in the database
 func (s *Store) StoreAlert(ctx context.Context, alert watch.Alert, metadata map[string]interface{}) error {
 	if s.closed {
 		return errors.New("alerts: store is closed")
@@ -132,7 +127,6 @@ func (s *Store) StoreAlert(ctx context.Context, alert watch.Alert, metadata map[
 	})
 }
 
-// GetAlert retrieves an alert by ID
 func (s *Store) GetAlert(ctx context.Context, id string) (*AlertRecord, error) {
 	if s.closed {
 		return nil, errors.New("alerts: store is closed")
@@ -167,7 +161,6 @@ func (s *Store) GetAlert(ctx context.Context, id string) (*AlertRecord, error) {
 	return record, err
 }
 
-// ListAlerts returns alerts filtered by time range and optionally by kind/namespace
 func (s *Store) ListAlerts(ctx context.Context, since time.Time, kind, namespace string) ([]AlertRecord, error) {
 	if s.closed {
 		return nil, errors.New("alerts: store is closed")

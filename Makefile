@@ -19,8 +19,8 @@ MCP_CMD               = ./mcp/cmd/server
 WATCHER_CMD           = ./watcher/cmd/engine
 DEPLOY_CMD            = ./watcher/cmd/deploy
 CHAT_BRIDGE_CMD       = ./integrations/cmd/chatbridge
-DESKTOP_APP_CMD       = ./cmd/kube-watcher-app
-CLI_CMD               = .
+DESKTOP_APP_CMD       = ./kube-watcher-app
+CLI_CMD               = ./cmd/kw-cli
 
 # Build metadata
 VERSION              ?= 1.0.0
@@ -39,7 +39,7 @@ GOMOD                 = cd "$(ROOT_DIR)" && $(GOCMD) mod
 GORUN                 = cd "$(ROOT_DIR)" && $(GOCMD) run
 
 # Helm / Kubernetes
-HELM_CHART_DIR       ?= $(ROOT_DIR)/helm/kube-watcher
+HELM_CHART_DIR       ?= $(ROOT_DIR)/helm
 HELM_RELEASE         ?= kube-watcher
 HELM_VALUES          ?= $(HELM_CHART_DIR)/values.yaml
 KW_NAMESPACE         ?= kube-watcher
@@ -56,6 +56,7 @@ include $(ROOT_DIR)/makefiles/watcher.mk
 include $(ROOT_DIR)/makefiles/monitoring.mk
 include $(ROOT_DIR)/makefiles/helm.mk
 include $(ROOT_DIR)/makefiles/testing.mk
+include $(ROOT_DIR)/makefiles/terminal.mk
 
 # ─── Top-Level Targets ────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ include $(ROOT_DIR)/makefiles/testing.mk
 
 all: fmt vet test build
 
-build: build-mcp build-cli build-watcher build-deploy build-chatbridge build-desktop-app
+build: build-mcp build-cli build-watcher build-deploy build-chatbridge
 
 clean:
 	@echo "Cleaning build artifacts..."
@@ -89,6 +90,7 @@ help:
 	@echo "  run-health        health check (degraded K8s allowed)"
 	@echo "  run-list          list registered tools"
 	@echo "  mcp-up            docker compose up mcp"
+	@echo "  run-terminal      launch kw terminal (Bubble Tea TUI)"
 	@echo "  docker-build      build MCP Docker image"
 	@echo "  docker-run        run MCP container (health check)"
 	@echo "  install           install binary to GOPATH/bin"
@@ -140,6 +142,7 @@ help:
 	@echo ""
 	@echo "Testing  (makefiles/testing.mk):"
 	@echo "  test              run unit tests"
+	@echo "  test-terminal     run terminal module tests"
 	@echo "  test-integration-channel  engine→UI→MCP integration test"
 	@echo "  test-coverage     tests with HTML coverage report"
 	@echo "  lint              golangci-lint"

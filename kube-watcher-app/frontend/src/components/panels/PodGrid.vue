@@ -8,7 +8,7 @@
       <div class="head-actions">
         <div class="namespace-filter">
           <label for="namespace-select">Namespace:</label>
-          <select id="namespace-select" v-model="selectedNamespace" @change="fetchPods">
+          <select id="namespace-select" v-model="selectedNamespace" @change="fetchPods" class="select-input">
             <option value="">All namespaces</option>
             <option v-for="ns in namespaces" :key="ns" :value="ns">{{ ns }}</option>
           </select>
@@ -294,6 +294,21 @@ async function restartPod(pod: data.PodInfo) {
   border: 1px solid var(--border);
   background: var(--input-bg);
   color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.namespace-filter select:hover {
+  background: var(--surface-strong);
+  border-color: rgba(224, 223, 240, 0.2);
+}
+
+.namespace-filter select:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(125, 116, 214, 0.2);
 }
 
 .pods-container {

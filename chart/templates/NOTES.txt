@@ -1,0 +1,15 @@
+kube-watcher has been deployed.
+
+NAMESPACES
+  kube-watcher  — MCP, watcher engine, Prometheus
+  kw-anomaly    — Anomstack daemon, webserver, dashboard
+
+PORT-FORWARD (or: make k8s-pf-all)
+  MCP API:          kubectl port-forward -n kube-watcher svc/mcp 8080:8080
+  Prometheus:       kubectl port-forward -n kube-watcher svc/prometheus 9090:9090
+  Badger Explorer:  kubectl port-forward -n kube-watcher svc/watcher 4101:4101
+  Anomstack UI:     kubectl port-forward -n kw-anomaly svc/anomstack-webserver 3001:3000
+
+STATUS
+  make k8s-status
+  make k8s-events

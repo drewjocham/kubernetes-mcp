@@ -1,0 +1,66 @@
+{{- if .Values.signoz.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-otel-config
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'prometheus'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['prometheus.{{ $.Values.namespaces.kubeWatcher }}.svc.cluster.local:{{ $.Values.prometheus.port }}']
+            - job_name: 'mcp-server'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['mcp.{{ $.Values.namespaces.kubeWatcher }}.svc.cluster.local:8080']
+            - job_name: 'k8sgpt'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['k8sgpt.{{ $.Values.namespaces.kubeWatcher }}.svc.cluster.local:8089']
+            - job_name: 'anomstack'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['anomstack.kw-anomaly.svc.cluster.local:8080']
+
+    processors:
+      batch:
+        send_batch_size: 1000
+        timeout: 1s
+      resourcedetection:
+        detectors: [env, system]
+        timeout: 5s
+
+    exporters:
+      clickhouse:
+        datasource: 'tcp://127.0.0.1:9000?compatibility=24.8&amp;ignore_unknown_settings=1'
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [clickhouse]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [batch, resourcedetection]
+          exporters: [clickhouse]
+        logs:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [clickhouse]
+{{- end }}

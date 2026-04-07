@@ -5,6 +5,9 @@ import "time"
 const (
 	ContentTypePlainText = "text/plain"
 	ContentTypeMarkdown  = "text/markdown"
+	RenderModeAuto       = "auto"
+	RenderModeMarkdown   = "markdown"
+	RenderModePlain      = "plain"
 )
 
 type PTYOutputMsg []byte
@@ -62,8 +65,13 @@ type Block struct {
 	Command     string
 	RawOutput   []byte
 	ContentType string
+	RenderMode  string
 	Active      bool
 	Timestamp   time.Time
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Duration    time.Duration
+	CWD         string
 	RenderY     int
 	Height      int
 	ExitCode    int

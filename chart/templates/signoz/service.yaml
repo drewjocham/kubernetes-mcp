@@ -1,0 +1,26 @@
+{{- if .Values.signoz.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: signoz
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  ports:
+  - name: frontend
+    port: 3301
+    targetPort: 3301
+  - name: otel-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otel-http
+    port: 4318
+    targetPort: 4318
+  - name: query-service
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: signoz
+{{- end }}

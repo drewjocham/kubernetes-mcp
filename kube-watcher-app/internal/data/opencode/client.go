@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"kube-watcher-app/internal/util"
 )
 
 type Client struct {
@@ -29,9 +31,8 @@ func New() *Client {
 		baseURL = "https://opencode.ai/zen/v1/chat/completions"
 	}
 	apiKey := os.Getenv("OPENCODE_API_KEY")
-	if apiKey == "" {
-		apiKey = "sk-2oEB1XMGNjoYuDf7WzH3uTXGTK3X7jjnCMswFG4vef2uGTtHtnSIakDZ135FoBmo"
-	}
+	// If API key is not set, client will fail when attempting to use it
+	// User must set OPENCODE_API_KEY environment variable
 	provider := os.Getenv("OPENCODE_PROVIDER")
 	if provider == "" {
 		provider = "opencode"
@@ -54,13 +55,6 @@ func New() *Client {
 		pollInterval: 5 * time.Second,
 		timeout:      5 * time.Minute,
 	}
-}
-
-func maskAPIKey(key string) string {
-	if len(key) <= 8 {
-		return "***"
-	}
-	return key[:4] + "***" + key[len(key)-4:]
 }
 
 type ChatMessage struct {
@@ -193,7 +187,7 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("chat completion error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+		return "", fmt.Errorf("chat completion error (%d): %s", resp.StatusCode, util.CleanupMarkdown(string(body)))
 	}
 
 	var chatResp ChatResponse
@@ -207,7 +201,7 @@ func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, err
 
 	content := chatResp.Choices[0].Message.Content
 	// Clean up markdown formatting issues
-	return cleanupMarkdown(content), nil
+	return util.CleanupMarkdown(content), nil
 }
 
 func (c *Client) anthropicCompletion(ctx context.Context, prompt string) (string, error) {
@@ -250,7 +244,7 @@ func (c *Client) anthropicCompletion(ctx context.Context, prompt string) (string
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("anthropic completion error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+		return "", fmt.Errorf("anthropic completion error (%d): %s", resp.StatusCode, util.CleanupMarkdown(string(body)))
 	}
 
 	var anthropicResp AnthropicResponse
@@ -270,7 +264,7 @@ func (c *Client) anthropicCompletion(ctx context.Context, prompt string) (string
 		}
 	}
 
-	return cleanupMarkdown(builder.String()), nil
+	return util.CleanupMarkdown(builder.String()), nil
 }
 
 func (c *Client) startRun(ctx context.Context, prompt string) (string, error) {
@@ -300,7 +294,7 @@ func (c *Client) startRun(ctx context.Context, prompt string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("opencode start error (%d): %s", resp.StatusCode, cleanupMarkdown(string(body)))
+		return "", fmt.Errorf("opencode start error (%d): %s", resp.StatusCode, util.CleanupMarkdown(string(body)))
 	}
 
 	var startResp StartResponse
@@ -338,7 +332,7 @@ func (c *Client) pollRun(ctx context.Context, runID string) (string, error) {
 			case "SUCCEEDED":
 				return status.Output, nil
 			case "FAILED", "ERROR", "CANCELLED":
-				return "", fmt.Errorf("opencode run %s: %s", status.State, cleanupMarkdown(status.Error))
+				return "", fmt.Errorf("opencode run %s: %s", status.State, util.CleanupMarkdown(status.Error))
 			default:
 				// Still running
 			}
@@ -410,93 +404,11 @@ func getString(m map[string]any, path string) string {
 	return ""
 }
 
-func decodeHtmlEntities(input string) string {
-	result := input
-	result = strings.ReplaceAll(result, "&lt;", "<")
-	result = strings.ReplaceAll(result, "&gt;", ">")
-	result = strings.ReplaceAll(result, "&amp;", "&")
-	result = strings.ReplaceAll(result, "&quot;", "\"")
-	result = strings.ReplaceAll(result, "&#39;", "'")
-	result = strings.ReplaceAll(result, "&nbsp;", " ")
-	return result
-}
-
-func cleanupMarkdown(input string) string {
-	if input == "" {
-		return input
-	}
-
-	// Decode HTML entities first
-	result := decodeHtmlEntities(input)
-
-	// Replace HTML line breaks with newlines
-	result = strings.ReplaceAll(result, "<br>", "\n")
-	result = strings.ReplaceAll(result, "<br/>", "\n")
-	result = strings.ReplaceAll(result, "<br />", "\n")
-
-	// Fix common malformed patterns
-	// Remove duplicate consecutive code block markers
-	// This is a simplified approach - for production, use proper regex
-	lines := strings.Split(result, "\n")
-	var cleanedLines []string
-	inCodeBlock := false
-	prevLine := ""
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Check if this line starts a code block
-		if strings.HasPrefix(trimmed, "```") {
-			if inCodeBlock {
-				// Already in code block, might be duplicate opener
-				// Skip if previous line was also a code block opener
-				if strings.HasPrefix(strings.TrimSpace(prevLine), "```") {
-					continue // Skip duplicate opener
-				}
-			}
-			inCodeBlock = !inCodeBlock
-		}
-
-		cleanedLines = append(cleanedLines, line)
-		prevLine = line
-	}
-
-	result = strings.Join(cleanedLines, "\n")
-
-	// Remove any remaining HTML tags (simple approach)
-	result = strings.ReplaceAll(result, "<strong>", "**")
-	result = strings.ReplaceAll(result, "</strong>", "**")
-	result = strings.ReplaceAll(result, "<b>", "**")
-	result = strings.ReplaceAll(result, "</b>", "**")
-	result = strings.ReplaceAll(result, "<em>", "*")
-	result = strings.ReplaceAll(result, "</em>", "*")
-	result = strings.ReplaceAll(result, "<i>", "*")
-	result = strings.ReplaceAll(result, "</i>", "*")
-
-	// Remove any other HTML tags (crude but works for common cases)
-	for strings.Contains(result, "<") && strings.Contains(result, ">") {
-		start := strings.Index(result, "<")
-		end := strings.Index(result, ">")
-		if start >= 0 && end > start {
-			result = result[:start] + result[end+1:]
-		} else {
-			break
-		}
-	}
-
-	// Normalize newlines (3+ newlines -> 2 newlines)
-	for strings.Contains(result, "\n\n\n") {
-		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
-	}
-
-	return strings.TrimSpace(result)
-}
-
 func (c *Client) SetConfig(baseURL, apiKey, provider, model, backend string) {
 	fmt.Printf("[opencode] SetConfig called: provider=%q, apiKey=%q (len=%d), baseURL=%q, model=%q, backend=%q\n",
-		provider, maskAPIKey(apiKey), len(apiKey), baseURL, model, backend)
+		provider, util.MaskAPIKey(apiKey), len(apiKey), baseURL, model, backend)
 	fmt.Printf("[opencode] Before update: provider=%q, apiKey=%q, baseURL=%q\n",
-		c.provider, maskAPIKey(c.apiKey), c.baseURL)
+		c.provider, util.MaskAPIKey(c.apiKey), c.baseURL)
 	if provider != "" {
 		c.provider = provider
 	}

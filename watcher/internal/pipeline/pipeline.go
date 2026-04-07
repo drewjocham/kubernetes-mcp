@@ -158,6 +158,12 @@ func (p *Pipeline) Close() error {
 }
 
 func (p *Pipeline) processEvent(ctx context.Context, evt events.ResourceEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.Error("panic recovered in processEvent", "panic", r, "key", evt.Key())
+		}
+	}()
+
 	if p.filter != nil && !p.filter.Allow(ctx, evt) {
 		return
 	}

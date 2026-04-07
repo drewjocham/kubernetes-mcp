@@ -2,7 +2,6 @@ package prometheus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,12 +11,12 @@ import (
 	"time"
 
 	"kube-watcher-app/internal/data"
+	"kube-watcher-app/internal/httpclient"
 )
 
 // Client queries the Prometheus HTTP API.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	*httpclient.BaseClient
 }
 
 // New returns a Client using env KW_PROMETHEUS_URL or default localhost:9090.
@@ -27,16 +26,14 @@ func New() *Client {
 		u = "http://localhost:9090"
 	}
 	return &Client{
-		baseURL: strings.TrimRight(u, "/"),
-		http:    &http.Client{Timeout: 15 * time.Second},
+		BaseClient: httpclient.NewBaseClient(u, "", 15*time.Second),
 	}
 }
 
 // NewWithURL returns a Client for a specific URL.
 func NewWithURL(baseURL string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: 15 * time.Second},
+		BaseClient: httpclient.NewBaseClient(baseURL, "", 15*time.Second),
 	}
 }
 
@@ -60,21 +57,10 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 	params.Set("end", strconv.FormatInt(end.Unix(), 10))
 	params.Set("step", strconv.FormatInt(int64(step.Seconds()), 10))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v1/query_range?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
 	var result queryRangeResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+	path := "/api/v1/query_range?" + params.Encode()
+	if err := c.DoRequest(ctx, http.MethodGet, path, nil, &result); err != nil {
+		return nil, err
 	}
 	if result.Status != "success" {
 		return nil, fmt.Errorf("prometheus: %s", result.Error)
@@ -126,21 +112,10 @@ func (c *Client) Query(ctx context.Context, query string) ([]data.MetricSeries, 
 	params := url.Values{}
 	params.Set("query", query)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v1/query?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
 	var result instantResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+	path := "/api/v1/query?" + params.Encode()
+	if err := c.DoRequest(ctx, http.MethodGet, path, nil, &result); err != nil {
+		return nil, err
 	}
 	if result.Status != "success" {
 		return nil, fmt.Errorf("prometheus: %s", result.Error)
@@ -173,17 +148,8 @@ func (c *Client) Query(ctx context.Context, query string) ([]data.MetricSeries, 
 
 // Ping checks if Prometheus is reachable.
 func (c *Client) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/-/healthy", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("prometheus unhealthy: %s", resp.Status)
+	if err := c.DoRequest(ctx, http.MethodGet, "/-/healthy", nil, nil); err != nil {
+		return fmt.Errorf("prometheus unhealthy: %w", err)
 	}
 	return nil
 }

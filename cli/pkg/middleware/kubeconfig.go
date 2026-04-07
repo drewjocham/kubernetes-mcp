@@ -13,6 +13,12 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+type contextKey int
+
+const (
+	kubeConfigKey contextKey = iota
+)
+
 // KubeConfig holds Kubernetes configuration
 type KubeConfig struct {
 	Config    *rest.Config
@@ -72,7 +78,7 @@ func NewKubeConfigMiddleware(config KubeConfigMiddlewareConfig) func(*cobra.Comm
 					ctx = context.Background()
 				}
 				if kubeConfig != nil {
-					ctx = context.WithValue(ctx, "kubeconfig", kubeConfig)
+					ctx = context.WithValue(ctx, kubeConfigKey, kubeConfig)
 					cmd.SetContext(ctx)
 				}
 
@@ -82,7 +88,6 @@ func NewKubeConfigMiddleware(config KubeConfigMiddlewareConfig) func(*cobra.Comm
 	}
 }
 
-// loadKubeConfig loads Kubernetes configuration
 func loadKubeConfig(config KubeConfigMiddlewareConfig) (*KubeConfig, error) {
 	// Use in-cluster config if available
 	if restConfig, err := rest.InClusterConfig(); err == nil {
@@ -99,7 +104,6 @@ func loadKubeConfig(config KubeConfigMiddlewareConfig) (*KubeConfig, error) {
 		}, nil
 	}
 
-	// Load from kubeconfig file
 	if config.KubeconfigPath == "" {
 		return nil, fmt.Errorf("kubeconfig path not specified and not running in-cluster")
 	}
@@ -138,14 +142,13 @@ func loadKubeConfig(config KubeConfigMiddlewareConfig) (*KubeConfig, error) {
 	}, nil
 }
 
-// GetKubeConfigFromContext retrieves kubeconfig from command context
 func GetKubeConfigFromContext(cmd *cobra.Command) *KubeConfig {
 	ctx := cmd.Context()
 	if ctx == nil {
 		return nil
 	}
 
-	if kubeConfig, ok := ctx.Value("kubeconfig").(*KubeConfig); ok {
+	if kubeConfig, ok := ctx.Value(kubeConfigKey).(*KubeConfig); ok {
 		return kubeConfig
 	}
 
