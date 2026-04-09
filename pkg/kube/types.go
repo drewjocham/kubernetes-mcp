@@ -99,6 +99,7 @@ type ClientInterface interface {
 	GetPods(ctx context.Context, namespace string) ([]PodInfo, error)
 	GetPodsAllNamespaces(ctx context.Context) ([]PodInfo, error)
 	GetPod(ctx context.Context, namespace, name string) (*PodInfo, error)
+	GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines, sinceSeconds int64, previous bool) (string, error)
 
 	// Service Operations
 	GetServices(ctx context.Context, namespace string) ([]ServiceInfo, error)

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anomstack-dashboard
+  namespace: kw-anomaly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anomstack-dashboard
+  template:
+    metadata:
+      labels:
+        app: anomstack-dashboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          image: nginx:alpine
+          ports:
+          - containerPort: 80
+          command: ["nginx", "-g", "daemon off;"]
+          volumeMounts:
+          - name: nginx-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+          - name: data
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
+          envFrom:
+            - configMapRef:
+                name: anomstack-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: anomstack-nginx-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: anomstack-data
+        - name: tmp
+          emptyDir: {}

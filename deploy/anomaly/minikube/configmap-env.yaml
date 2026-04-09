@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-env
+  namespace: kw-anomaly
+data:
+  ANOMSTACK_DUCKDB_PATH: "/data/anomstack.db"
+  ANOMSTACK_HOME: "/opt/dagster/app"
+  ANOMSTACK_TABLE_KEY: "tmp.metrics"
+  ANOMSTACK_DASHBOARD_PORT: "8080"
+  ANOMSTACK_LLM_PLATFORM: "openai"
+  ANOMSTACK_LLMALERT_MODELS: "gpt-4o-mini"

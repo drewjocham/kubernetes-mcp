@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kw-anomaly-dashboard-healthcheck
+  namespace: kw-anomaly
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: feeder
+              image: curlimages/curl:8.10.1
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "checking anomstack dashboard health"
+                  curl -fsS http://anomstack-dashboard.kw-anomaly.svc.cluster.local:8080/health
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}

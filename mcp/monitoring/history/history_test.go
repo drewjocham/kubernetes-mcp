@@ -32,80 +32,89 @@ func TestCalcChange(t *testing.T) {
 	}
 }
 
-func TestToIncident(t *testing.T) {
-
-	tests := []struct {
-		name  string
-		input Recordable
-		check func(*testing.T, Incident)
-	}{
-		{
-			name: "DirectPassThrough",
-			input: Incident{
-				ID:          "test-1",
-				Occurrences: 5,
-				Kind:        IncidentTypePod,
-			},
-			check: func(t *testing.T, res Incident) {
-				assert.Equal(t, "test-1", res.ID)
-				assert.Equal(t, 5, res.Occurrences)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := toIncident(tt.input)
-			tt.check(t, res)
-		})
-	}
-}
-
 func TestStore_Integration(t *testing.T) {
+	// Use a background context for setup, but specialized ones for subtests
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, store.Close())
-	}()
+	require.NoError(t, err, "Failed to initialize store in temp dir")
+	defer func() { _ = store.Close() }()
 
-	now := time.Now()
+	now := time.Now().Truncate(time.Millisecond) // Truncate to avoid nano-precision jitter in some environments
 
-	// Seed data
-	incidents := []Incident{
-		{ID: "old", Timestamp: now.Add(-10 * time.Hour), Kind: IncidentTypePod},
-		{ID: "recent-1", Timestamp: now.Add(-1 * time.Hour), Kind: IncidentTypePod},
-		{ID: "recent-2", Timestamp: now.Add(-30 * time.Minute), Kind: IncidentTypePod},
-	}
+	t.Run("RecordAndRetrieve", func(t *testing.T) {
+		inc := Incident{
+			ID:        "pod-123",
+			Timestamp: now,
+			Kind:      IncidentTypePod,
+			Severity:  "warning",
+			Message:   "OOMKilled",
+		}
 
-	for _, inc := range incidents {
 		err := store.Record(ctx, inc)
-		require.NoError(t, err)
-	}
-
-	t.Run("ListRecentOnly", func(t *testing.T) {
-		res, err := store.List(ctx, IncidentTypePod, 2*time.Hour)
 		assert.NoError(t, err)
-		assert.Len(t, res, 2, "Should only return incidents within the 2h window")
+
+		res, err := store.List(ctx, IncidentTypePod, 1*time.Minute)
+		assert.NoError(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, inc.ID, res[0].ID)
+		assert.Equal(t, inc.Message, res[0].Message)
 	})
 
-	t.Run("CompareFrequency", func(t *testing.T) {
-		// Recent window (last 5h): 2 incidents
-		// Previous window (5h to 15h ago): 1 incident
-		comp, err := store.CompareFrequency(ctx, IncidentTypePod, 5*time.Hour, 10*time.Hour)
+	t.Run("ListFilteringByKind", func(t *testing.T) {
+		nodeInc := Incident{ID: "node-1", Timestamp: now, Kind: IncidentTypeNode}
+		require.NoError(t, store.Record(ctx, nodeInc))
+
+		podList, _ := store.List(ctx, IncidentTypePod, 1*time.Hour)
+		nodeList, _ := store.List(ctx, IncidentTypeNode, 1*time.Hour)
+
+		// Based on previous test + this one:
+		assert.Len(t, podList, 1)
+		assert.Len(t, nodeList, 1)
+	})
+
+	t.Run("FrequencyAnalysis", func(t *testing.T) {
+		// Clean start for frequency test
+		fStore, _ := NewStore(t.TempDir())
+		defer func() { _ = fStore.Close() }()
+
+		// 3 incidents in the last hour (Recent)
+		for i := 0; i < 3; i++ {
+			_ = fStore.Record(ctx, Incident{ID: string(rune(i)), Timestamp: now.Add(-10 * time.Minute), Kind: IncidentTypeEvent})
+		}
+		// 1 incident 3 hours ago (Previous)
+		_ = fStore.Record(ctx, Incident{ID: "old-1", Timestamp: now.Add(-3 * time.Hour), Kind: IncidentTypeEvent})
+
+		comp, err := fStore.CompareFrequency(ctx, IncidentTypeEvent, 1*time.Hour, 5*time.Hour)
 		assert.NoError(t, err)
-		assert.Equal(t, 2, comp.RecentCount)
+		assert.Equal(t, 3, comp.RecentCount)
 		assert.Equal(t, 1, comp.PreviousCount)
-		assert.Equal(t, 100.0, comp.PercentChange)
+		assert.Equal(t, 200.0, comp.PercentChange)
 	})
 
-	t.Run("CleanupRetention", func(t *testing.T) {
-		store.performCleanup(context.TODO(), 5*time.Hour)
+	t.Run("Cleanup", func(t *testing.T) {
+		cStore, _ := NewStore(t.TempDir())
+		defer func() { _ = cStore.Close() }()
 
-		res, err := store.List(ctx, IncidentTypePod, 24*time.Hour)
-		assert.NoError(t, err)
-		assert.Len(t, res, 2, "Only 'recent' incidents should remain")
+		old := now.Add(-24 * time.Hour)
+		fresh := now.Add(-5 * time.Minute)
+
+		_ = cStore.Record(ctx, Incident{ID: "expired", Timestamp: old, Kind: IncidentTypePod})
+		_ = cStore.Record(ctx, Incident{ID: "keep", Timestamp: fresh, Kind: IncidentTypePod})
+
+		cStore.performCleanup(ctx, 1*time.Hour)
+
+		res, _ := cStore.List(ctx, IncidentTypePod, 48*time.Hour)
+		assert.Len(t, res, 1)
+		assert.Equal(t, "keep", res[0].ID)
+	})
+
+	t.Run("ContextCancellation", func(t *testing.T) {
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := store.List(cancelledCtx, IncidentTypePod, 1*time.Hour)
+		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

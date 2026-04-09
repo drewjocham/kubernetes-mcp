@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-nginx-config
+  namespace: kw-anomaly
+data:
+  nginx.conf: |
+    pid /tmp/nginx.pid;
+    events {
+        worker_connections 1024;
+    }
+    http {
+        client_body_temp_path /tmp/client_temp;
+        proxy_temp_path /tmp/proxy_temp;
+        fastcgi_temp_path /tmp/fastcgi_temp;
+        uwsgi_temp_path /tmp/uwsgi_temp;
+        scgi_temp_path /tmp/scgi_temp;
+        server {
+            listen 80;
+            location /health {
+                return 200 '{"status": "healthy"}';
+                add_header Content-Type application/json;
+            }
+            location / {
+                return 200 '{"service": "dashboard", "status": "running"}';
+                add_header Content-Type application/json;
+            }
+        }
+    }

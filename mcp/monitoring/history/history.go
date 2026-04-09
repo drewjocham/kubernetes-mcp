@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
@@ -22,8 +23,11 @@ const (
 	IncidentTypeEvent IssueKind = "event_spike"
 )
 
-var _ Recordable = (*Incident)(nil)
-var _ Recordable = Incident{}
+var SupportedKinds = []IssueKind{
+	IncidentTypeNode,
+	IncidentTypePod,
+	IncidentTypeEvent,
+}
 
 type Incident struct {
 	ID          string         `json:"id"`
@@ -38,25 +42,20 @@ type Incident struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-type Recorder interface {
-	Record(ctx context.Context, entry Recordable) error
-	List(ctx context.Context, kind IssueKind, since time.Duration) ([]Incident, error)
-	CompareFrequency(ctx context.Context, kind IssueKind, recent, previous time.Duration) (FrequencyComparison, error)
-	Close() error
+func (i Incident) GetID() string {
+	return i.ID
 }
 
-type Recordable interface {
-	GetID() string
-	GetTimestamp() time.Time
-	GetKind() IssueKind
-	GetSeverity() string
-	GetNamespace() string
-	GetName() string
-	GetReason() string
-	GetMessage() string
-	GetOccurrences() int
-	GetMetadata() map[string]any
-	ToIncident() Incident
+func (i Incident) GetTimestamp() time.Time {
+	return i.Timestamp
+}
+
+func (i Incident) GetKind() IssueKind {
+	return i.Kind
+}
+
+func (i Incident) ToIncident() Incident {
+	return i
 }
 
 type FrequencyComparison struct {
@@ -68,8 +67,26 @@ type FrequencyComparison struct {
 	PreviousWindowHr float64   `json:"previous_window_hours"`
 }
 
+type Recordable interface {
+	GetID() string
+	GetTimestamp() time.Time
+	GetKind() IssueKind
+	ToIncident() Incident
+}
+
+type Recorder interface {
+	Record(ctx context.Context, entry Recordable) error
+	List(ctx context.Context, kind IssueKind, since time.Duration) ([]Incident, error)
+	CompareFrequency(ctx context.Context, kind IssueKind, recent, previous time.Duration) (FrequencyComparison, error)
+	Close() error
+}
+
+var _ Recorder = (*Store)(nil)
+
 type Store struct {
-	db *badger.DB
+	db     *badger.DB
+	closed bool
+	mu     sync.RWMutex
 }
 
 func NewStore(path string) (*Store, error) {
@@ -95,18 +112,19 @@ func (s *Store) Record(ctx context.Context, entry Recordable) error {
 	if entry == nil {
 		return errors.New("history: entry is nil")
 	}
-	if entry.GetID() == "" {
+
+	inc := entry.ToIncident()
+	if inc.ID == "" {
 		return errors.New("history: entry ID is required")
 	}
 
-	inc := toIncident(entry)
 	key := s.buildKey(inc.Kind, inc.Timestamp, inc.ID)
+	val, err := json.Marshal(inc)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
 
 	return s.db.Update(func(txn *badger.Txn) error {
-		val, err := json.Marshal(inc)
-		if err != nil {
-			return fmt.Errorf("marshal: %w", err)
-		}
 		return txn.Set(key, val)
 	})
 }
@@ -152,15 +170,6 @@ func (s *Store) CompareFrequency(ctx context.Context, kind IssueKind, recent, pr
 	}, nil
 }
 
-func (s *Store) countRange(ctx context.Context, kind IssueKind, start, end time.Time) (int, error) {
-	var count int
-	err := s.forEachInRange(ctx, kind, start, end, false, func(item *badger.Item) error {
-		count++
-		return nil
-	})
-	return count, err
-}
-
 func (s *Store) StartGC(ctx context.Context, retention, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -175,16 +184,24 @@ func (s *Store) StartGC(ctx context.Context, retention, interval time.Duration) 
 	}
 }
 
-func (s *Store) performCleanup(ctx context.Context, retention time.Duration) {
-	cutoff := uint64(time.Now().Add(-retention).UnixNano())
-	kinds := []IssueKind{IncidentTypeNode, IncidentTypePod, IncidentTypeEvent}
+func (s *Store) countRange(ctx context.Context, kind IssueKind, start, end time.Time) (int, error) {
+	var count int
+	err := s.forEachInRange(ctx, kind, start, end, false, func(item *badger.Item) error {
+		count++
+		return nil
+	})
+	return count, err
+}
 
-	for _, kind := range kinds {
+func (s *Store) performCleanup(ctx context.Context, retention time.Duration) {
+	cutoffNs := uint64(time.Now().Add(-retention).UnixNano())
+
+	for _, kind := range SupportedKinds {
 		_ = s.db.Update(func(txn *badger.Txn) error {
 			prefix := []byte(string(kind) + ":")
-			opts := badger.DefaultIteratorOptions
-			opts.PrefetchValues = false
-			it := txn.NewIterator(opts)
+			it := txn.NewIterator(badger.IteratorOptions{
+				PrefetchValues: false,
+			})
 			defer it.Close()
 
 			seek := s.buildKey(kind, time.Unix(0, 0), "")
@@ -194,11 +211,14 @@ func (s *Store) performCleanup(ctx context.Context, retention time.Duration) {
 					return ctx.Err()
 				default:
 				}
+
 				key := it.Item().Key()
 				ts := binary.BigEndian.Uint64(key[len(prefix) : len(prefix)+8])
-				if ts > cutoff {
+
+				if ts >= cutoffNs {
 					break
 				}
+
 				if err := txn.Delete(it.Item().KeyCopy(nil)); err != nil {
 					return err
 				}
@@ -245,16 +265,32 @@ func (s *Store) forEachInRange(ctx context.Context, kind IssueKind, start, end t
 }
 
 func (s *Store) buildKey(kind IssueKind, ts time.Time, id string) []byte {
-	pre := []byte(string(kind) + ":")
+	pre := string(kind) + ":"
 	buf := make([]byte, len(pre)+8+len(id))
 	copy(buf, pre)
-	binary.BigEndian.PutUint64(buf[len(pre):], uint64(ts.UnixNano()))
+	binary.BigEndian.PutUint64(buf[len(pre):len(pre)+8], uint64(ts.UnixNano()))
 	copy(buf[len(pre)+8:], id)
 	return buf
 }
 
 func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	return s.db.Close()
+}
+
+func CalcChange(prev, curr int) float64 {
+	if prev <= 0 {
+		if curr > 0 {
+			return 100.0
+		}
+		return 0.0
+	}
+	return (float64(curr-prev) / float64(prev)) * 100.0
 }
 
 func resolvePath(path string) (string, error) {
@@ -266,44 +302,4 @@ func resolvePath(path string) (string, error) {
 		path = filepath.Join(home, path[1:])
 	}
 	return filepath.Abs(path)
-}
-
-// SupportedKinds is the canonical list of incident kinds used throughout the application.
-var SupportedKinds = []IssueKind{
-	IncidentTypeNode,
-	IncidentTypePod,
-	IncidentTypeEvent,
-}
-
-// CalcChange computes the percentage change from prev to curr.
-func CalcChange(prev, curr int) float64 {
-	if prev <= 0 {
-		if curr > 0 {
-			return 100.0
-		}
-		return 0.0
-	}
-	return (float64(curr-prev) / float64(prev)) * 100.0
-}
-
-func (i Incident) GetID() string               { return i.ID }
-func (i Incident) GetTimestamp() time.Time     { return i.Timestamp }
-func (i Incident) GetKind() IssueKind          { return i.Kind }
-func (i Incident) GetSeverity() string         { return i.Severity }
-func (i Incident) GetNamespace() string        { return i.Namespace }
-func (i Incident) GetName() string             { return i.Name }
-func (i Incident) GetReason() string           { return i.Reason }
-func (i Incident) GetMessage() string          { return i.Message }
-func (i Incident) GetOccurrences() int         { return i.Occurrences }
-func (i Incident) GetMetadata() map[string]any { return i.Metadata }
-
-func (i Incident) ToIncident() Incident {
-	return i
-}
-
-func toIncident(e Recordable) Incident {
-	if e == nil {
-		return Incident{}
-	}
-	return e.ToIncident()
 }

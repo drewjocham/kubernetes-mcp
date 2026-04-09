@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kube-watcher CLI config",
+  "type": "object",
+  "properties": {
+    "ops": {
+      "type": "object",
+      "properties": {
+        "target": { "type": "string", "enum": ["docker", "binary", "kube"] },
+        "image": { "type": "string" },
+        "name_prefix": { "type": "string" },
+        "kubeconfig": { "type": "string" },
+        "db_path": { "type": "string" },
+        "watcher_config": { "type": "string" },
+        "network_mode": { "type": "string" },
+        "interval": { "type": "string" },
+        "build_if_missing": { "type": "boolean" },
+        "kube_namespace": { "type": "string" },
+        "kube_history_storage": { "type": "string" },
+        "kube_storage_class": { "type": "string" },
+        "binary_mcp": { "type": "string" },
+        "binary_watcher": { "type": "string" }
+      }
+    },
+    "view": {
+      "type": "object",
+      "properties": {
+        "output": { "type": "string", "enum": ["table", "json", "yaml"] }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "role": { "type": "string" },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "tools": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "created_at": { "type": "string" }
+        },
+        "required": ["description"]
+      }
+    }
+  }
+}

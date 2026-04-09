@@ -1,0 +1,75 @@
+{{- if .Values.signoz.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signoz
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: signoz
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.signoz.replicaCount }}
+  selector:
+    matchLabels:
+      app: signoz
+  template:
+    metadata:
+      labels:
+        app: signoz
+        {{- include "kube-watcher.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: signoz
+        image: {{ .Values.signoz.image.repository }}:{{ .Values.signoz.image.tag }}
+        imagePullPolicy: {{ .Values.signoz.image.pullPolicy }}
+        ports:
+        - containerPort: 3301
+          name: frontend
+        - containerPort: 4317
+          name: otel-grpc
+        - containerPort: 4318
+          name: otel-http
+        - containerPort: 8080
+          name: query-service
+        env:
+        - name: ClickHouseUrl
+          value: "tcp://signoz-clickhouse:9000"
+        - name: STORAGE
+          value: "clickhouse"
+        - name: DEPLOY_ENV
+          value: "kubernetes"
+        {{- if .Values.signoz.resources }}
+        resources:
+          {{- toYaml .Values.signoz.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: signoz-data
+          mountPath: /var/lib/signoz
+        - name: clickhouse-data
+          mountPath: /var/lib/clickhouse
+      - name: clickhouse
+        image: {{ .Values.signoz.clickhouse.image.repository }}:{{ .Values.signoz.clickhouse.image.tag }}
+        imagePullPolicy: {{ .Values.signoz.clickhouse.image.pullPolicy }}
+        ports:
+        - containerPort: 9000
+          name: ch-tcp
+        - containerPort: 8123
+          name: ch-http
+        env:
+        - name: CLICKHOUSE_USER
+          value: "default"
+        - name: CLICKHOUSE_PASSWORD
+          value: ""
+        {{- if .Values.signoz.clickhouse.resources }}
+        resources:
+          {{- toYaml .Values.signoz.clickhouse.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: clickhouse-data
+          mountPath: /var/lib/clickhouse
+      volumes:
+      - name: signoz-data
+        emptyDir: {}
+      - name: clickhouse-data
+        emptyDir: {}
+{{- end }}

@@ -133,13 +133,16 @@ func (s *MCPServer) setupResources() {
 }
 
 func (s *MCPServer) setupTools(cfg Config) {
+	clusterAnalysisTool := tools.NewClusterAnalysisTool(s.client)
 	allTools := []Tool{
 		tools.NewNodeStatusTool(s.client),
 		tools.NewPodResourcesTool(s.client),
+		tools.NewPodLogsTool(s.client),
 		tools.NewNamespaceListTool(s.client, s.logger),
 		tools.NewHistoryInsightsTool(s.history),
 		tools.NewVersionTool(cfg.Version, cfg.GitCommit, cfg.BuildDate),
-		tools.NewClusterAnalysisTool(s.client),
+		clusterAnalysisTool,
+		tools.NewClusterAnalysisLegacyTool(clusterAnalysisTool),
 		tools.NewRecommendationTool(s.client, s.engine),
 		tools.NewClusterEventsTool(s.client, s.logger),
 		tools.NewHistoryInsightsToolWithClient(s.client, s.history),
@@ -316,6 +319,24 @@ func (s *MCPServer) IncidentHistory(ctx context.Context, window time.Duration) (
 		all = append(all, incidents...)
 	}
 	return all, nil
+}
+
+// Recommendations returns a deduplicated slice of recommendations derived
+// from the current alert snapshot, sorted by severity.
+func (s *MCPServer) Recommendations() []recommendation.Recommendation {
+	s.alertsMu.RLock()
+	defer s.alertsMu.RUnlock()
+	seen := make(map[string]bool, len(s.alerts))
+	var out []recommendation.Recommendation
+	for _, ar := range s.alerts {
+		key := ar.Recommendation.Title
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ar.Recommendation)
+	}
+	return out
 }
 
 func (s *MCPServer) ToolSummaries() []ToolSummary {

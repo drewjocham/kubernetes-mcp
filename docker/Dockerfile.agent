@@ -1,0 +1,35 @@
+ARG BUILD_IMAGE=golang:1.25.1-alpine3.21
+ARG RUNTIME_IMAGE=alpine:3.21
+
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS builder
+
+ARG VERSION
+ARG GIT_COMMIT
+ARG BUILD_DATE
+
+ENV CGO_ENABLED=0
+WORKDIR /src
+
+COPY go.mod go.sum ./
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+WORKDIR /src
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}" \
+    -o /out/app ./cmd/probe
+
+FROM ${RUNTIME_IMAGE} AS final
+COPY --from=builder /out/app /app/agent
+RUN apk --no-cache add ca-certificates
+USER nobody:nobody
+ENTRYPOINT ["/app/agent"]

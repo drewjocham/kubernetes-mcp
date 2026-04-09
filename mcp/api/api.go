@@ -96,6 +96,13 @@ func (a *API) Routes() http.Handler {
 		r.Post("/tools/{tool}", a.handleExecuteTool)
 		r.Get("/alerts", a.handleAlerts)
 		r.Get("/history", a.handleHistory)
+		r.Get("/recommendations", a.handleRecommendations)
+		// Docker service management
+		r.Get("/services", a.handleListServices)
+		r.Post("/services/{name}/start", a.handleStartService)
+		r.Post("/services/{name}/stop", a.handleStopService)
+		r.Post("/services/{name}/restart", a.handleRestartService)
+		r.Get("/services/{name}/logs", a.handleServiceLogs)
 	})
 
 	return r

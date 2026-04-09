@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"name":"anomstack-data","namespace":"kw-anomaly"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"5Gi"}}}}
+    pv.kubernetes.io/bind-completed: "yes"
+    pv.kubernetes.io/bound-by-controller: "yes"
+    volume.beta.kubernetes.io/storage-provisioner: k8s.io/minikube-hostpath
+    volume.kubernetes.io/storage-provisioner: k8s.io/minikube-hostpath
+  creationTimestamp: "2026-04-03T17:02:09Z"
+  finalizers:
+  - kubernetes.io/pvc-protection
+  name: anomstack-data
+  namespace: kw-anomaly
+  resourceVersion: "100458"
+  uid: 06d35600-9fdb-4eba-af77-aa0f32f5b07e
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+  volumeMode: Filesystem
+  volumeName: pvc-06d35600-9fdb-4eba-af77-aa0f32f5b07e
+status:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: 5Gi
+  phase: Bound

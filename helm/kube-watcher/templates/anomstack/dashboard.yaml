@@ -1,0 +1,95 @@
+{{- if .Values.anomstack.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anomstack-dashboard
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack-dashboard
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anomstack-dashboard
+  template:
+    metadata:
+      labels:
+        app: anomstack-dashboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          image: {{ .Values.anomstack.dashboard.image.repository }}:{{ .Values.anomstack.dashboard.image.tag }}
+          imagePullPolicy: {{ .Values.anomstack.dashboard.image.pullPolicy }}
+          command:
+            - uvicorn
+            - "dashboard.app:app"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - {{ .Values.anomstack.env.dashboardPort | quote }}
+          envFrom:
+            - configMapRef:
+                name: anomstack-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.anomstack.env.dashboardPort | int }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.anomstack.env.dashboardPort | int }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.anomstack.env.dashboardPort | int }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.anomstack.resources.dashboard | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: anomstack-data
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anomstack-dashboard
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack-dashboard
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: anomstack-dashboard
+  ports:
+    - name: http
+      port: {{ .Values.anomstack.env.dashboardPort | int }}
+      targetPort: {{ .Values.anomstack.env.dashboardPort | int }}
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

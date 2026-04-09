@@ -7,9 +7,15 @@
 bin/
 build/
 dist/
+.continue
 
+*/node_modules/**
 # Test binary, built with `go test -c`
 *.test
+
+event-engine-badger/
+event-engine-badger/*.vlog
+event-engine-badger/*.mem
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
@@ -75,3 +81,7 @@ tmp/
 cpu.prof
 mem.prof
 profile.cov
+
+# Nuxt generated output (do not commit)
+dashboard/.nuxt/
+dashboard/.output/

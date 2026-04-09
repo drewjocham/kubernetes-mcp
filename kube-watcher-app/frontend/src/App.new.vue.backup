@@ -1,0 +1,334 @@
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import CommandBlock from './components/CommandBlock.vue'
+import Sidebar from './components/layout/Sidebar.vue'
+import Header from './components/layout/Header.vue'
+import ArguskubePanel from './components/panels/ArguskubePanel.vue'
+import AnomaliesPanel from './components/panels/AnomaliesPanel.vue'
+import DeploymentsPanel from './components/panels/DeploymentsPanel.vue'
+import RuntimePanel from './components/panels/RuntimePanel.vue'
+import SummaryGrid from './components/summary/SummaryGrid.vue'
+import SweepControls from './components/controls/SweepControls.vue'
+import SettingsModal from './components/modals/SettingsModal.vue'
+import ScanModal from './components/modals/ScanModal.vue'
+import AnomstackErrorModal from './components/modals/AnomstackErrorModal.vue'
+import { useWorkspace } from './composables/useWorkspace'
+import { useChat } from './composables/useChat'
+import { useSynapseSweep } from './composables/useSynapseSweep'
+import { useSettings } from './composables/useSettings'
+import { useAnomstack } from './composables/useAnomstack'
+import { useClusterLabels } from './composables/useClusterLabels'
+import { renderMarkdown, formatWhen } from './utils'
+
+type TabId = 'arguskube' | 'anomalies' | 'deploy' | 'runtime'
+
+const tabs: { id: TabId; label: string; eyebrow: string }[] = [
+  { id: 'arguskube', label: 'Arguskube', eyebrow: 'First class' },
+  { id: 'anomalies', label: 'Anomalies', eyebrow: 'Live context' },
+  { id: 'deploy', label: 'Deploy', eyebrow: 'Local to cluster' },
+  { id: 'runtime', label: 'Workspace', eyebrow: 'Services + scans' },
+]
+
+const activeTab = ref<TabId>('arguskube')
+
+// Composables
+const workspace = useWorkspace()
+const chat = useChat()
+const sweep = useSynapseSweep()
+const settings = useSettings()
+const anomstack = useAnomstack()
+const clusterLabels = useClusterLabels()
+
+// Local UI state
+const isArguskubeExpanded = ref(false)
+const isTopPriorityExpanded = ref(false)
+const isPriorityQueueExpanded = ref(false)
+const isDeploymentTracksExpanded = ref(true)
+const showScanModal = ref(false)
+const selectedScanCell = ref<any>(null)
+
+// Computed
+const connectivityStatus = computed(() => {
+  if (!workspace.mcpStatus.value) return 'red'
+  if (workspace.mcpStatus.value.status === 'ok') return 'green'
+  return 'yellow'
+})
+
+const activeClusterDisplay = computed(() => {
+  return clusterLabels.clusterLabels.value[workspace.currentContext.value] || workspace.currentContext.value
+})
+
+const clusterLabel = computed(() => clusterLabels.clusterLabels.value[workspace.currentContext.value] || '')
+
+const statusText = computed(() => {
+  const running = workspace.services.value.filter((s) => s.status === 'running').length
+  return `${running}/${workspace.services.value.length || 0} services online`
+})
+
+// Event handlers
+function handleTabChange(tab: TabId) {
+  activeTab.value = tab
+}
+
+function handleEditClusterLabel() {
+  const cluster = workspace.mcpStatus.value?.cluster
+  if (!cluster) return
+  const currentLabel = clusterLabels.clusterLabels.value[cluster] || ''
+  clusterLabels.createClusterLabel(cluster, currentLabel)
+}
+
+function handleOpenSettings() {
+  settings.showSettings.value = true
+}
+
+function handleScan() {
+  sweep.runSynapseSweep()
+}
+
+function handleToggleService(service: any) {
+  // TODO: implement toggle service
+  console.log('toggle service', service)
+}
+
+function handleOpenScanModal(cell: any) {
+  selectedScanCell.value = cell
+  showScanModal.value = true
+}
+
+function handleCloseScanModal() {
+  showScanModal.value = false
+  selectedScanCell.value = null
+}
+
+function handleUsePlaybook(playbook: any) {
+  chat.usePlaybook(playbook, (tab) => {
+    if (tab === 'deploy') activeTab.value = 'deploy'
+  })
+}
+
+function handleQuickPrompt(prompt: string) {
+  chat.sendPrompt(prompt)
+}
+
+function handleSendPrompt(prompt: string) {
+  chat.sendPrompt(prompt)
+}
+
+function handleConnectAnomstack() {
+  anomstack.connectAnomstack().then(() => {
+    workspace.loadWorkspace()
+  })
+}
+
+function handleInvestigateAnomalies() {
+  // TODO: implement investigate anomalies
+  console.log('investigate anomalies')
+}
+
+// Lifecycle
+onMounted(async () => {
+  clusterLabels.loadClusterLabels()
+  settings.loadSettings()
+  await workspace.loadCurrentContext()
+  await workspace.loadWorkspace()
+  // Auto-run synapse sweep after 2 seconds
+  setTimeout(() => {
+    console.log('DEBUG: Auto-running synapse sweep...')
+    sweep.runSynapseSweep()
+  }, 2000)
+})
+</script>
+
+<template>
+  <div class="shell">
+    <Sidebar
+      :activeTab="activeTab"
+      :tabs="tabs"
+      :currentContext="workspace.currentContext.value"
+      :clusterLabel="clusterLabel"
+      :endpoint="workspace.mcpEndpoint.value"
+      :connectivityStatus="connectivityStatus"
+      @tab-change="handleTabChange"
+      @edit-cluster-label="handleEditClusterLabel"
+      @open-settings="handleOpenSettings"
+    />
+
+    <main class="main-panel">
+      <Header :title="workspace.workspace?.summary.headline ?? 'Loading AI workspace…'" :subtitle="workspace.workspace?.summary.subheadline ?? 'Pulling alerts, history, and recommendations.'">
+        <template #actions>
+          <SweepControls
+            v-model:interval="sweep.sweepInterval"
+            v-model:customValue="sweep.customIntervalValue"
+            v-model:customUnit="sweep.customIntervalUnit"
+            :is-running-sweep="sweep.isRunningSweep"
+            @scan="handleScan"
+          />
+        </template>
+        <template #meta>
+          <div class="connectivity-info">
+            <div class="mcp-details">
+              <div class="mcp-endpoint">{{ workspace.mcpEndpoint.value }}</div>
+              <div class="mcp-cluster" @click="handleEditClusterLabel">
+                {{ activeClusterDisplay }}
+              </div>
+            </div>
+            <div :class="['status-light', connectivityStatus]" :title="`Status: ${connectivityStatus}`"></div>
+          </div>
+          <div v-if="sweep.countdownText" class="sweep-countdown-bar">
+            {{ sweep.countdownText }}
+          </div>
+        </template>
+      </Header>
+
+      <SummaryGrid :cards="workspace.summaryCards" />
+
+      <section class="workspace">
+        <div class="workspace-main">
+          <div v-if="workspace.isLoading.value" class="loading-state">
+            <div class="arguskube-thinking">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" stroke="currentColor" stroke-width="1" stroke-opacity="0.2"/>
+                <path d="M12 4C7.582 4 4 7.582 4 12C4 16.418 7.582 20 12 20C16.418 20 20 16.418 20 12C20 7.582 16.418 4 12 4Z" fill="currentColor" fill-opacity="0.05"/>
+                <circle cx="9" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+                <circle cx="15" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+                <path d="M8 16C8 16 9.5 17.5 12 17.5C14.5 17.5 16 16 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M11.5 7C11.5 7 12 6.5 12 6C12 5.5 11.5 5 11.5 5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+                <path d="M12.5 7.5C12.5 7.5 13.5 7 13.5 6C13.5 5 12.5 4.5 12.5 4.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <p>Collecting the control plane state…</p>
+          </div>
+
+          <template v-else>
+            <section v-if="activeTab === 'arguskube'" class="panel-grid">
+              <article :class="['panel', 'feature-panel', 'scrollable-panel', { expanded: isTopPriorityExpanded }]">
+                <div class="panel-head sticky-head">
+                  <div>
+                    <p class="meta-label">Top priority</p>
+                    <h3>{{ workspace.topPriority?.title ?? 'No urgent drift detected' }}</h3>
+                    <button v-if="workspace.topPriority && isTopPriorityExpanded" class="ghost-btn mini-btn" @click="chat.draftPrompt = workspace.topPriority.detail">
+                      Open incident context
+                    </button>
+                  </div>
+                  <div class="head-actions">
+                    <span :class="['pill', workspace.topPriority?.severity ?? 'low']">{{ workspace.topPriority?.severity ?? 'low' }}</span>
+                    <button class="ghost-btn expand-toggle" @click="isTopPriorityExpanded = !isTopPriorityExpanded">
+                      {{ isTopPriorityExpanded ? '−' : '+' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-show="isTopPriorityExpanded" class="panel-scroll-content">
+                  <p class="feature-copy">
+                    {{ workspace.topPriority?.detail ?? 'Arguskube Sentinels' }}
+                  </p>
+
+                  <div class="playbook-section">
+                    <p class="meta-label playbook-label">Watchers Recommended Command Playbook</p>
+                    <div class="playbook-grid mini">
+                      <button
+                        v-for="playbook in workspace.workspace?.playbooks"
+                        :key="playbook.title"
+                        class="playbook-card"
+                        @click="handleUsePlaybook(playbook)"
+                      >
+                        <span>{{ playbook.target }}</span>
+                        <strong>{{ playbook.title }}</strong>
+                        <p>{{ playbook.description }}</p>
+                        <code>{{ playbook.commands[0] }}</code>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article :class="['panel', { expanded: isPriorityQueueExpanded }]">
+                <div class="panel-head">
+                  <div>
+                    <p class="meta-label">Priority queue</p>
+                    <h3>What Arguskube should tackle next</h3>
+                  </div>
+                  <button class="ghost-btn expand-toggle" @click="isPriorityQueueExpanded = !isPriorityQueueExpanded">
+                    {{ isPriorityQueueExpanded ? '−' : '+' }}
+                  </button>
+                </div>
+                <ul v-show="isPriorityQueueExpanded" class="stack-list">
+                  <li v-for="priority in workspace.workspace?.priorities" :key="priority.title" class="stack-card">
+                    <div class="stack-title">
+                      <strong>{{ priority.title }}</strong>
+                      <span :class="['pill', priority.severity]">{{ priority.severity }}</span>
+                    </div>
+                    <p>{{ priority.detail }}</p>
+                  </li>
+                </ul>
+              </article>
+            </section>
+
+            <AnomaliesPanel
+              :alerts="workspace.alerts.value"
+              :recommendations="workspace.recommendations.value"
+              :timeline="workspace.timeline"
+              :anomstack-connected="workspace.anomstackConnected.value"
+              :signoz-connected="true"
+              :is-connecting-anomstack="anomstack.isConnectingAnomstack.value"
+              :is-investigating="anomstack.isInvestigating.value"
+              :format-when="formatWhen"
+              @connect-anomstack="handleConnectAnomstack"
+              @investigate-anomalies="handleInvestigateAnomalies"
+            />
+
+            <DeploymentsPanel
+              :is-expanded="isDeploymentTracksExpanded"
+              :deployment-plans="workspace.workspace?.deploymentPlans"
+              @toggle-expand="isDeploymentTracksExpanded = !isDeploymentTracksExpanded"
+            />
+
+            <RuntimePanel
+              :services="workspace.services.value"
+              :logs="workspace.runtimeLogs"
+              :scan-grid="sweep.synapseSweepGrid"
+              :is-refreshing-services="false"
+              @toggle-service="handleToggleService"
+              @open-scan-modal="handleOpenScanModal"
+            />
+          </template>
+        </div>
+
+        <ArguskubePanel
+          :is-expanded="isArguskubeExpanded"
+          :messages="chat.chatMessages.value"
+          :playbooks="workspace.workspace?.playbooks"
+          :is-thinking="chat.isThinking.value"
+          :render-markdown="renderMarkdown"
+          @toggle-expand="isArguskubeExpanded = !isArguskubeExpanded"
+          @use-playbook="handleUsePlaybook"
+          @quick-prompt="handleQuickPrompt"
+          @send-prompt="handleSendPrompt"
+        />
+      </section>
+    </main>
+
+    <!-- Modals -->
+    <SettingsModal
+      v-model:show="settings.showSettings.value"
+      v-model:settings="settings.settings.value"
+      @save="settings.saveSettings"
+    />
+    <ScanModal
+      v-model:show="showScanModal"
+      :selected-scan-cell="selectedScanCell"
+      @close="handleCloseScanModal"
+    />
+    <AnomstackErrorModal
+      v-model:show="anomstack.showAnomstackErrorModal.value"
+      :error="anomstack.anomstackError.value"
+      :recommendations="anomstack.anomstackRecommendations.value"
+      @retry="handleConnectAnomstack"
+      @close="anomstack.showAnomstackErrorModal.value = false"
+    />
+  </div>
+</template>
+
+<style>
+/* Copy existing styles from original App.vue */
+</style>

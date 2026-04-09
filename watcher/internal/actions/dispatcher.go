@@ -67,6 +67,8 @@ func (d *Dispatcher) execute(task dispatchTask) {
 		d.handleLog(inv)
 	case "notification":
 		d.handleNotification(task, inv)
+	case "webhook":
+		d.handleWebhook(task, inv)
 	default:
 		d.logger.Info("action executed",
 			"type", inv.Action.Type, "rule", inv.RuleName)
@@ -99,7 +101,6 @@ func (d *Dispatcher) handleNotification(task dispatchTask, inv rules.ActionInvoc
 		return
 	}
 
-	// Google Chat webhooks expect a message format like {"text": "..."}
 	payload := map[string]string{"text": msg}
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
@@ -108,32 +109,81 @@ func (d *Dispatcher) handleNotification(task dispatchTask, inv rules.ActionInvoc
 		return
 	}
 
-	req, err := http.NewRequestWithContext(task.ctx, "POST", url, bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		d.logger.Warn("failed to create notification request",
-			"error", err, "rule", inv.RuleName)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		d.logger.Warn("failed to send notification",
-			"error", err, "rule", inv.RuleName)
-		return
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		d.logger.Warn("notification webhook returned non-200 status",
-			"status", resp.Status, "rule", inv.RuleName)
+	if err := d.postJSON(task.ctx, url, jsonPayload, inv); err != nil {
+		d.logger.Warn("failed to send notification", "error", err, "rule", inv.RuleName)
 		return
 	}
 
 	d.logger.Info("rule action executed",
 		"rule", inv.RuleName, "action", inv.ActionID, "type", "notification")
+}
+func (d *Dispatcher) handleWebhook(task dispatchTask, inv rules.ActionInvocation) {
+	url, ok := inv.Action.Config["url"]
+	if !ok || url == "" {
+		d.logger.Warn("action webhook missing url", "rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	var payload []byte
+	var err error
+
+	templateStr := inv.Action.Template
+	if templateStr != "" {
+		raw, renderErr := d.renderTemplate(templateStr, map[string]interface{}{
+			"RuleName": inv.RuleName,
+			"ActionID": inv.ActionID,
+			"Context":  inv.Context,
+			"Event":    inv.Event,
+		})
+		if renderErr != nil {
+			d.logger.Warn("action webhook template failure", "error", renderErr, "rule", inv.RuleName)
+			return
+		}
+		payload = []byte(raw)
+	} else {
+		payload, err = json.Marshal(map[string]interface{}{
+			"ruleName": inv.RuleName,
+			"actionID": inv.ActionID,
+			"context":  inv.Context,
+			"event":    inv.Event,
+		})
+		if err != nil {
+			d.logger.Warn("failed to marshal webhook payload", "error", err, "rule", inv.RuleName)
+			return
+		}
+	}
+
+	if err := d.postJSON(task.ctx, url, payload, inv); err != nil {
+		d.logger.Warn("failed to send webhook", "error", err, "rule", inv.RuleName)
+		return
+	}
+
+	d.logger.Info("rule action executed",
+		"rule", inv.RuleName, "action", inv.ActionID, "type", "webhook")
+}
+
+func (d *Dispatcher) postJSON(ctx context.Context, url string, payload []byte, inv rules.ActionInvocation) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Set("X-Kube-Watcher-Rule", inv.RuleName)
+	req.Header.Set("X-Kube-Watcher-Action", inv.ActionID)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode > http.StatusNoContent {
+		return fmt.Errorf("webhook returned non-2xx status: %s", resp.Status)
+	}
+
+	return nil
 }
 
 func (d *Dispatcher) renderTemplate(tmplStr string, data interface{}) (string, error) {
