@@ -9,6 +9,10 @@ build/
 dist/
 .continue
 
+# External tool directories (large, do not commit)
+anomstack/
+popeye/
+
 */node_modules/**
 # Test binary, built with `go test -c`
 *.test
