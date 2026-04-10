@@ -13,6 +13,10 @@ dist/
 # Test binary, built with `go test -c`
 *.test
 
+event-engine-badger/
+event-engine-badger/*.vlog
+event-engine-badger/*.mem
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 coverage.html

@@ -17,18 +17,19 @@ import (
 	"kube-watcher-app/internal/data/prometheus"
 	"kube-watcher-app/internal/data/watcher"
 	"kube-watcher-app/internal/data/widgets"
+	"kube-watcher-app/internal/workspace"
 )
 
 type App struct {
-	ctx         context.Context
-	mcp         *mcp.Client
-	prom        *prometheus.Client
-	opencode    *opencode.Client
-	k8sgpt      *k8sgpt.Client
-	watcher     *watcher.Client
-	workspace   *workspace.Handler
-	widgetStore *widgets.Store
-	aiConfig    AIConfig
+	ctx              context.Context
+	mcp              *mcp.Client
+	prom             *prometheus.Client
+	opencode         *opencode.Client
+	k8sgpt           *k8sgpt.Client
+	watcher          *watcher.Client
+	workspaceHandler *workspace.Handler
+	widgetStore      *widgets.Store
+	aiConfig         AIConfig
 }
 
 type AIConfig struct {
@@ -114,7 +115,7 @@ func (a *App) startup(ctx context.Context) {
 		a.widgetStore = widgetStore
 	}
 	adapter := workspace.NewMCPAdapter(a.mcp)
-	a.workspace = workspace.NewHandler(
+	a.workspaceHandler = workspace.NewHandler(
 		adapter,
 		adapter,
 		adapter,
@@ -130,7 +131,7 @@ func (a *App) Greet(name string) string {
 
 // GetAIWorkspace returns the AI-first desktop control plane state.
 func (a *App) GetAIWorkspace() (data.AIWorkspace, error) {
-	return a.workspace.Build(a.ctx)
+	return a.workspaceHandler.Build(a.ctx)
 }
 
 // GetAlerts returns the current alerts
