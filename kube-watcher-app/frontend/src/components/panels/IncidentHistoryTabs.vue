@@ -25,84 +25,7 @@
       <transition name="tab-fade" mode="out-in">
         <!-- History Tab -->
         <div v-if="activeTab === 'history'" key="history" class="history-tab">
-          <div class="filter-section">
-            <div class="filter-category">
-              <div class="filter-category-header">
-                <span class="filter-category-label">Severity:</span>
-                <button v-if="hiddenSeverityList.length > 0" class="filter-category-plus" @click="toggleShowHiddenSeverity" :title="showHiddenSeverity ? 'Hide hidden options' : 'Show hidden options'">
-                  {{ showHiddenSeverity ? '−' : '+' }}
-                </button>
-              </div>
-              <div class="filter-grid">
-                <!-- Visible severity options -->
-                <div v-for="severity in visibleSeverityOptions" :key="severity.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', { active: selectedSeverity === severity.value }]"
-                    @click="selectedSeverity = severity.value"
-                    :title="severity.label"
-                  >
-                    <span class="filter-icon">{{ severity.icon }}</span>
-                    <span class="filter-text">{{ severity.label }}</span>
-                    <span class="filter-pill-minus" @click.stop="hideSeverityOption(severity.value)" title="Hide this filter" role="button" tabindex="0">
-                      −
-                    </span>
-                  </button>
-                </div>
-                <!-- Hidden severity options (shown when showHiddenSeverity is true) -->
-                <div v-if="showHiddenSeverity" v-for="severity in hiddenSeverityList" :key="severity.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', 'hidden-pill']"
-                    disabled
-                    :title="severity.label + ' (hidden)'"
-                  >
-                    <span class="filter-icon">{{ severity.icon }}</span>
-                    <span class="filter-text">{{ severity.label }}</span>
-                    <span class="filter-pill-plus" @click.stop="showSeverityOption(severity.value)" title="Show this filter" role="button" tabindex="0">
-                      +
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div class="filter-category">
-              <div class="filter-category-header">
-                <span class="filter-category-label">Time Range:</span>
-                <button v-if="hiddenTimeRangeList.length > 0" class="filter-category-plus" @click="toggleShowHiddenTimeRange" :title="showHiddenTimeRange ? 'Hide hidden options' : 'Show hidden options'">
-                  {{ showHiddenTimeRange ? '−' : '+' }}
-                </button>
-              </div>
-              <div class="filter-grid">
-                <!-- Visible time range options -->
-                <div v-for="range in visibleTimeRangeOptions" :key="range.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', { active: selectedTimeRange === range.value }]"
-                    @click="selectedTimeRange = range.value"
-                    :title="range.label"
-                  >
-                    <span class="filter-icon">{{ range.icon }}</span>
-                    <span class="filter-text">{{ range.label }}</span>
-                    <span class="filter-pill-minus" @click.stop="hideTimeRangeOption(range.value)" title="Hide this filter" role="button" tabindex="0">
-                      −
-                    </span>
-                  </button>
-                </div>
-                <!-- Hidden time range options (shown when showHiddenTimeRange is true) -->
-                <div v-if="showHiddenTimeRange" v-for="range in hiddenTimeRangeList" :key="range.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', 'hidden-pill']"
-                    disabled
-                    :title="range.label + ' (hidden)'"
-                  >
-                    <span class="filter-icon">{{ range.icon }}</span>
-                    <span class="filter-text">{{ range.label }}</span>
-                    <span class="filter-pill-plus" @click.stop="showTimeRangeOption(range.value)" title="Show this filter" role="button" tabindex="0">
-                      +
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+
           <div class="timeline">
             <IncidentTimelineItem
               v-for="incident in filteredTimeline"
@@ -111,7 +34,17 @@
               :format-when="formatWhen"
             />
             <div v-if="filteredTimeline.length === 0" class="empty-state">
-              <p>No incidents match the selected filters.</p>
+              <div class="empty-state-content">
+                <p>No incidents match the selected filters.</p>
+                <div class="empty-state-actions">
+                  <button class="ghost-btn" @click="clearFilters">
+                    Clear All Filters
+                  </button>
+                  <button class="primary-btn" @click="activeTab = 'agent'">
+                    Ask AI to Broaden Search
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -190,47 +123,10 @@
                         <span class="label-icon">{{ label.icon }}</span>
                         <span class="label-text">{{ label.text }}</span>
                       </button>
-            </div>
-            <div class="filter-category">
-              <div class="filter-category-header">
-                <span class="filter-category-label">State:</span>
-                <button v-if="hiddenStateList.length > 0" class="filter-category-plus" @click="toggleShowHiddenState" :title="showHiddenState ? 'Hide hidden options' : 'Show hidden options'">
-                  {{ showHiddenState ? '−' : '+' }}
-                </button>
-              </div>
-              <div class="filter-grid">
-                <!-- Visible state options -->
-                <div v-for="state in visibleStateOptions" :key="state.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', { active: selectedState === state.value }]"
-                    @click="selectedState = state.value"
-                    :title="state.label"
-                  >
-                    <span class="filter-icon">{{ state.icon }}</span>
-                    <span class="filter-text">{{ state.label }}</span>
-                    <span class="filter-pill-minus" @click.stop="hideStateOption(state.value)" title="Hide this filter" role="button" tabindex="0">
-                      −
-                    </span>
-                  </button>
-                </div>
-                <!-- Hidden state options (shown when showHiddenState is true) -->
-                <div v-if="showHiddenState" v-for="state in hiddenStateList" :key="state.value" class="filter-pill-wrapper">
-                  <button
-                    :class="['filter-pill', 'hidden-pill']"
-                    disabled
-                    :title="state.label + ' (hidden)'"
-                  >
-                    <span class="filter-icon">{{ state.icon }}</span>
-                    <span class="filter-text">{{ state.label }}</span>
-                    <span class="filter-pill-plus" @click.stop="showStateOption(state.value)" title="Show this filter" role="button" tabindex="0">
-                      +
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-                </div>
+
+                     </div>
+                   </div>
+                 </div>
               </div>
             </div>
           </div>
@@ -414,11 +310,21 @@ interface Props {
   timeline: data.Incident[]
   formatWhen: (value: unknown) => string
   renderMarkdown?: (text: string) => string
+  selectedSeverity?: string
+  selectedState?: string
+  selectedTimeRange?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  renderMarkdown: (text: string) => text
+  renderMarkdown: (text: string) => text,
+  selectedSeverity: 'all',
+  selectedState: 'all',
+  selectedTimeRange: '24h'
 })
+
+const emit = defineEmits<{
+  'clear-filters': []
+}>()
 
 // Tabs
 type TabId = 'history' | 'terminal' | 'agent' | 'notes'
@@ -430,76 +336,22 @@ const tabs = [
 ]
 const activeTab = ref<TabId>('history')
 
-// History Tab State
-const selectedSeverity = ref<string>('all')
-const selectedTimeRange = ref<string>('24h')
-const selectedState = ref<string>('all')
+// History Tab State (filters now come from parent via props)
 
-const severityOptions = [
-  { value: 'all', label: 'All', icon: '🌐' },
-  { value: 'critical', label: 'Critical', icon: '🔥' },
-  { value: 'error', label: 'Error', icon: '❌' },
-  { value: 'warning', label: 'Warning', icon: '⚠️' },
-  { value: 'info', label: 'Info', icon: 'ℹ️' }
-]
 
-const timeRangeOptions = [
-  { value: '1h', label: 'Last Hour', icon: '⏱️' },
-  { value: '24h', label: 'Last 24h', icon: '📅' },
-  { value: '7d', label: 'Last 7 Days', icon: '🗓️' },
-  { value: '30d', label: 'Last 30 Days', icon: '📆' },
-  { value: 'all', label: 'All Time', icon: '∞' }
-]
-
-const stateOptions = [
-  { value: 'all', label: 'All', icon: '🌐' },
-  { value: 'active', label: 'Active', icon: '🔴' },
-  { value: 'resolved', label: 'Resolved', icon: '✅' },
-  { value: 'acknowledged', label: 'Acknowledged', icon: '👁️' }
-]
-
-// Hidden filter options
-const hiddenSeverityOptions = ref<string[]>([])
-const hiddenTimeRangeOptions = ref<string[]>([])
-const hiddenStateOptions = ref<string[]>([])
-const showHiddenSeverity = ref(false)
-const showHiddenTimeRange = ref(false)
-const showHiddenState = ref(false)
-
-// Computed visible options
-const visibleSeverityOptions = computed(() => {
-  return severityOptions.filter(opt => !hiddenSeverityOptions.value.includes(opt.value))
-})
-const visibleTimeRangeOptions = computed(() => {
-  return timeRangeOptions.filter(opt => !hiddenTimeRangeOptions.value.includes(opt.value))
-})
-const visibleStateOptions = computed(() => {
-  return stateOptions.filter(opt => !hiddenStateOptions.value.includes(opt.value))
-})
-
-// Computed hidden options
-const hiddenSeverityList = computed(() => {
-  return severityOptions.filter(opt => hiddenSeverityOptions.value.includes(opt.value))
-})
-const hiddenTimeRangeList = computed(() => {
-  return timeRangeOptions.filter(opt => hiddenTimeRangeOptions.value.includes(opt.value))
-})
-const hiddenStateList = computed(() => {
-  return stateOptions.filter(opt => hiddenStateOptions.value.includes(opt.value))
-})
 
 const filteredTimeline = computed(() => {
   let filtered = props.timeline
 
-  if (selectedSeverity.value !== 'all') {
-    filtered = filtered.filter(incident => incident.severity === selectedSeverity.value)
+  if (props.selectedSeverity !== 'all') {
+    filtered = filtered.filter(incident => incident.severity === props.selectedSeverity)
   }
 
   // Time range filtering
-  if (selectedTimeRange.value !== 'all') {
+  if (props.selectedTimeRange !== 'all') {
     const now = new Date()
     let cutoff = new Date()
-    switch (selectedTimeRange.value) {
+    switch (props.selectedTimeRange) {
       case '1h':
         cutoff.setHours(now.getHours() - 1)
         break
@@ -522,7 +374,7 @@ const filteredTimeline = computed(() => {
   }
 
   // State filtering (placeholder - incidents don't have state field yet)
-  if (selectedState.value !== 'all') {
+  if (props.selectedState !== 'all') {
     // TODO: Implement state filtering when incidents have state field
     // For now, pass all incidents
     console.warn('State filtering not yet implemented')
@@ -531,68 +383,15 @@ const filteredTimeline = computed(() => {
   return filtered
 })
 
-// Filter visibility functions
-const hideSeverityOption = (value: string) => {
-  // Prevent hiding the last visible option
-  const visibleCount = severityOptions.length - hiddenSeverityOptions.value.length
-  if (visibleCount <= 1) return
-  if (!hiddenSeverityOptions.value.includes(value)) {
-    hiddenSeverityOptions.value = [...hiddenSeverityOptions.value, value]
-  }
-  if (selectedSeverity.value === value) {
-    selectedSeverity.value = 'all'
-  }
-}
-const showSeverityOption = (value: string) => {
-  hiddenSeverityOptions.value = hiddenSeverityOptions.value.filter(v => v !== value)
-}
-const hideTimeRangeOption = (value: string) => {
-  // Prevent hiding the last visible option
-  const visibleCount = timeRangeOptions.length - hiddenTimeRangeOptions.value.length
-  if (visibleCount <= 1) return
-  if (!hiddenTimeRangeOptions.value.includes(value)) {
-    hiddenTimeRangeOptions.value = [...hiddenTimeRangeOptions.value, value]
-  }
-  if (selectedTimeRange.value === value) {
-    selectedTimeRange.value = 'all'
-  }
-}
-const showTimeRangeOption = (value: string) => {
-  hiddenTimeRangeOptions.value = hiddenTimeRangeOptions.value.filter(v => v !== value)
-}
-const toggleShowHiddenSeverity = () => {
-  showHiddenSeverity.value = !showHiddenSeverity.value
-}
-const toggleShowHiddenTimeRange = () => {
-  showHiddenTimeRange.value = !showHiddenTimeRange.value
-}
 
-const hideStateOption = (value: string) => {
-  // Prevent hiding the last visible option
-  const visibleCount = stateOptions.length - hiddenStateOptions.value.length
-  if (visibleCount <= 1) return
-  if (!hiddenStateOptions.value.includes(value)) {
-    hiddenStateOptions.value = [...hiddenStateOptions.value, value]
-  }
-  if (selectedState.value === value) {
-    selectedState.value = 'all'
-  }
-}
-const showStateOption = (value: string) => {
-  hiddenStateOptions.value = hiddenStateOptions.value.filter(v => v !== value)
-}
-const toggleShowHiddenState = () => {
-  showHiddenState.value = !showHiddenState.value
+const clearFilters = () => {
+  emit('clear-filters')
 }
 
 // Persist hidden options to localStorage
 
 
-watch([hiddenSeverityOptions, hiddenTimeRangeOptions, hiddenStateOptions], () => {
-  localStorage.setItem('hiddenSeverityOptions', JSON.stringify(hiddenSeverityOptions.value))
-  localStorage.setItem('hiddenTimeRangeOptions', JSON.stringify(hiddenTimeRangeOptions.value))
-  localStorage.setItem('hiddenStateOptions', JSON.stringify(hiddenStateOptions.value))
-})
+
 
 
 
@@ -610,30 +409,6 @@ watch(sidebarCollapsed, (newValue) => {
 })
 
 onMounted(() => {
-  const savedSeverity = localStorage.getItem('hiddenSeverityOptions')
-  if (savedSeverity) {
-    try {
-      hiddenSeverityOptions.value = JSON.parse(savedSeverity)
-    } catch (e) {
-      console.error('Failed to parse hiddenSeverityOptions', e)
-    }
-  }
-  const savedTimeRange = localStorage.getItem('hiddenTimeRangeOptions')
-  if (savedTimeRange) {
-    try {
-      hiddenTimeRangeOptions.value = JSON.parse(savedTimeRange)
-    } catch (e) {
-      console.error('Failed to parse hiddenTimeRangeOptions', e)
-    }
-  }
-  const savedState = localStorage.getItem('hiddenStateOptions')
-  if (savedState) {
-    try {
-      hiddenStateOptions.value = JSON.parse(savedState)
-    } catch (e) {
-      console.error('Failed to parse hiddenStateOptions', e)
-    }
-  }
   const savedSidebarCollapsed = localStorage.getItem('sidebarCollapsed')
   if (savedSidebarCollapsed !== null) {
     try {
@@ -1056,10 +831,11 @@ watch([() => noteContent.value, () => noteTitle.value], () => {
 
 <style scoped>
 .panel {
-  padding: 22px;
-  border-radius: 24px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
-  background: var(--panel-bg);
+  border-radius: 12px;
+  margin-bottom: 24px;
   min-width: 0;
 }
 
@@ -1089,47 +865,56 @@ h3 {
   line-height: 1.3;
 }
 
-/* Tabs Navigation */
+/* Tabs Navigation - iOS Segmented Control */
 .tabs-navigation {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 16px;
+  display: inline-flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 6px;
+  overflow: hidden;
 }
 
 .tab-button {
-  padding: 8px 16px;
-  border-radius: 12px;
-  border: 1px solid transparent;
+  padding: 12px 24px;
+  border-radius: 999px;
+  border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.4, 1);
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  white-space: nowrap;
+}
+
+.tab-button + .tab-button {
+  margin-left: 0;
 }
 
 .tab-button:hover {
-  background: var(--hover);
-  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .tab-button.active {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  border: none;
 }
 
 .tab-icon {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .tab-label {
   font-size: 14px;
+  letter-spacing: 0.01em;
 }
 
 /* Tab Transition */
@@ -1150,181 +935,46 @@ h3 {
 }
 
 /* History Tab */
-.filter-section {
-  margin-bottom: 24px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: stretch;
-}
 
-.filter-category {
-  flex: 1;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-}
-
-.filter-category:last-child {
-  margin-bottom: 0;
-}
-
-.filter-category-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-  flex: 1;
-}
-
-.filter-pill {
-  padding: 6px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-}
-
-.filter-pill:hover {
-  border-color: var(--border-active);
-  background: var(--hover);
-}
-
-.filter-pill.active {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: white;
-}
-
-.filter-icon {
-  font-size: 12px;
-  line-height: 1;
-}
-
-.filter-text {
-  flex: 1;
-  text-align: left;
-}
-
-/* New filter visibility styles */
-.filter-category-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.filter-category-plus {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.filter-category:hover .filter-category-plus {
-  opacity: 1;
-}
-
-.filter-category-plus:hover {
-  background: var(--hover);
-  border-color: var(--border-active);
-}
-
-.filter-pill-wrapper {
-  position: relative;
-  overflow: visible;
-}
-
-.filter-pill-minus,
-.filter-pill-plus {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
-  z-index: 1;
-}
-
-.filter-pill:hover .filter-pill-minus,
-.hidden-pill .filter-pill-plus {
-  opacity: 1;
-}
-
-.filter-pill-minus:hover,
-.filter-pill-plus:hover {
-  background: var(--hover);
-  border-color: var(--border-active);
-}
-
-.hidden-pill {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.hidden-pill:disabled {
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  border-color: var(--border);
-}
 
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .empty-state {
-  padding: 32px;
+  padding: 40px 30px;
   text-align: center;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.empty-state-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 30px;
+  border-radius: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 /* Terminal Tab */
 .terminal-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .terminal-header {
@@ -1583,7 +1233,7 @@ h3 {
 .agent-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .agent-header {
@@ -1687,7 +1337,7 @@ h3 {
 .notes-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .notes-header {
@@ -1737,7 +1387,7 @@ h3 {
 .markdown-editor {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 12px;
 }
 
 .markdown-textarea {
@@ -1849,19 +1499,11 @@ h3 {
     font-size: 12px;
   }
   
-  .filter-grid {
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  }
+
   
-  .filter-pill {
-    padding: 4px 8px;
-    font-size: 10px;
-    min-height: 28px;
-  }
+
   
-  .filter-icon {
-    font-size: 10px;
-  }
+
   
   .notes-title-section {
     flex-direction: column;

@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Histogram renders a vertical bar histogram where each bucket is a column.
 type Histogram struct {
 	Buckets        []float64
 	MaxHeight      int // terminal lines available
@@ -18,7 +17,6 @@ type Histogram struct {
 	BucketDuration time.Duration
 }
 
-// Render produces the histogram as a multi-line string.
 func (h Histogram) Render() string {
 	if len(h.Buckets) == 0 || h.MaxHeight < 2 {
 		return ""
@@ -30,7 +28,6 @@ func (h Histogram) Render() string {
 		bucketW = 1
 	}
 
-	// Build grid: rows × cols, each cell is filled or empty
 	grid := make([][]bool, h.MaxHeight)
 	for i := range grid {
 		grid[i] = make([]bool, len(h.Buckets))

@@ -8,13 +8,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// TimePoint is a (time, value) sample.
 type TimePoint struct {
 	Time  time.Time
 	Value float64
 }
 
-// TimeSeries renders a simple ASCII line chart.
 type TimeSeries struct {
 	Points     []TimePoint
 	Width      int
@@ -24,7 +22,6 @@ type TimeSeries struct {
 	Title      string
 }
 
-// Render produces the time series chart as a multi-line string.
 func (ts TimeSeries) Render() string {
 	if len(ts.Points) == 0 || ts.Width < 4 || ts.Height < 3 {
 		return lipgloss.NewStyle().Foreground(ts.LabelColor).Render("  No data")
@@ -43,7 +40,6 @@ func (ts TimeSeries) Render() string {
 		rangeV = 1
 	}
 
-	// Build grid
 	innerH := ts.Height - 2 // reserve top+bottom labels
 	grid := make([][]rune, innerH)
 	for i := range grid {
@@ -53,7 +49,6 @@ func (ts TimeSeries) Render() string {
 		}
 	}
 
-	// Plot points
 	for col, v := range sampled {
 		row := innerH - 1 - int((v-minV)/rangeV*float64(innerH-1))
 		if row < 0 {
@@ -65,18 +60,15 @@ func (ts TimeSeries) Render() string {
 		grid[row][col] = '●'
 	}
 
-	// Draw axis
 	axisStyle := lipgloss.NewStyle().Foreground(ts.LabelColor)
 	lineStyle := lipgloss.NewStyle().Foreground(ts.LineColor)
 
 	var rows []string
 
-	// Title
 	if ts.Title != "" {
 		rows = append(rows, lipgloss.NewStyle().Foreground(ts.LineColor).Bold(true).Render(ts.Title))
 	}
 
-	// Value axis label (max)
 	rows = append(rows, axisStyle.Render(fmt.Sprintf("%.1f ┐", maxV)))
 
 	for rowIdx, row := range grid {

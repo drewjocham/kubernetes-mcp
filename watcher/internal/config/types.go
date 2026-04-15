@@ -83,6 +83,7 @@ type Settings struct {
 	Metrics    MetricsConfig   `yaml:"metrics"`
 	Model      ModelSettings   `yaml:"model"`
 	Heartbeat  HeartbeatConfig `yaml:"heartbeat"`
+	Anomstack  AnomstackConfig `yaml:"anomstack"`
 }
 
 type CELSettings struct {
@@ -108,6 +109,12 @@ type HeartbeatConfig struct {
 	DashboardURL string        `yaml:"dashboard_url"`
 	ClusterName  string        `yaml:"cluster_name"`
 	Interval     time.Duration `yaml:"interval"`
+}
+
+type AnomstackConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Endpoint string        `yaml:"endpoint"`
+	Interval time.Duration `yaml:"interval"`
 }
 
 func Load(path string) (*WatchConfig, error) {

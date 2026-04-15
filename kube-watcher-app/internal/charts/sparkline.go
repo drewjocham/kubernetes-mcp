@@ -8,14 +8,11 @@ import (
 
 var blockRunes = []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-// Sparkline renders a compact Unicode block-char sparkline from a float64 series.
-// width controls how many characters are rendered; values are sampled to fit.
 func Sparkline(values []float64, width int, style lipgloss.Style) string {
 	if len(values) == 0 || width <= 0 {
 		return strings.Repeat(" ", width)
 	}
 
-	// Sample values to fit width
 	sampled := sample(values, width)
 
 	maxV := maxFloat(sampled)
@@ -33,7 +30,6 @@ func Sparkline(values []float64, width int, style lipgloss.Style) string {
 	return style.Render(sb.String())
 }
 
-// SparklineColored renders a sparkline where bars transition from low color to high color.
 func SparklineColored(values []float64, width int, lowColor, highColor lipgloss.Color) string {
 	if len(values) == 0 || width <= 0 {
 		return strings.Repeat(" ", width)
@@ -61,7 +57,6 @@ func SparklineColored(values []float64, width int, lowColor, highColor lipgloss.
 	return sb.String()
 }
 
-// sample reduces values to at most n elements using averaging.
 func sample(values []float64, n int) []float64 {
 	if len(values) <= n {
 		return values

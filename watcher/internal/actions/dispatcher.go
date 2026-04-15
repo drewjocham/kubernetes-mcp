@@ -69,6 +69,8 @@ func (d *Dispatcher) execute(task dispatchTask) {
 		d.handleNotification(task, inv)
 	case "webhook":
 		d.handleWebhook(task, inv)
+	case "cloud":
+		d.handleCloud(task, inv)
 	default:
 		d.logger.Info("action executed",
 			"type", inv.Action.Type, "rule", inv.RuleName)
@@ -160,6 +162,104 @@ func (d *Dispatcher) handleWebhook(task dispatchTask, inv rules.ActionInvocation
 
 	d.logger.Info("rule action executed",
 		"rule", inv.RuleName, "action", inv.ActionID, "type", "webhook")
+}
+
+func (d *Dispatcher) handleCloud(task dispatchTask, inv rules.ActionInvocation) {
+	endpoint, ok := inv.Action.Config["endpoint"]
+	if !ok || endpoint == "" {
+		d.logger.Warn("action cloud missing endpoint", "rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	apiKey, ok := inv.Action.Config["api_key"]
+	if !ok || apiKey == "" {
+		d.logger.Warn("action cloud missing api_key", "rule", inv.RuleName, "action", inv.ActionID)
+		return
+	}
+
+	agentID := inv.Action.Config["agent_id"]
+
+	// Build cloud alert payload
+	alert := map[string]interface{}{
+		"agent_id":      agentID,
+		"rule_name":     inv.RuleName,
+		"severity":      "medium", // Default severity
+		"message":       "",       // Will be filled from template
+		"resource_kind": "",
+		"namespace":     "",
+		"resource_name": "",
+		"details":       inv.Context,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	}
+
+	// Extract fields from context if available
+	if severity, ok := inv.Context["severity"].(string); ok {
+		alert["severity"] = severity
+	}
+	if message, ok := inv.Context["message"].(string); ok {
+		alert["message"] = message
+	}
+	if resourceKind, ok := inv.Context["resource_kind"].(string); ok {
+		alert["resource_kind"] = resourceKind
+	}
+	if namespace, ok := inv.Context["namespace"].(string); ok {
+		alert["namespace"] = namespace
+	}
+	if resourceName, ok := inv.Context["resource_name"].(string); ok {
+		alert["resource_name"] = resourceName
+	}
+
+	// If template is provided, render message
+	if inv.Action.Template != "" {
+		msg, err := d.renderTemplate(inv.Action.Template, inv.Context)
+		if err != nil {
+			d.logger.Warn("action cloud template failure", "error", err, "rule", inv.RuleName)
+			return
+		}
+		alert["message"] = msg
+	}
+
+	// If no message, use rule name as fallback
+	if alert["message"] == "" {
+		alert["message"] = fmt.Sprintf("Alert triggered for rule: %s", inv.RuleName)
+	}
+
+	payload, err := json.Marshal(alert)
+	if err != nil {
+		d.logger.Warn("failed to marshal cloud alert payload", "error", err, "rule", inv.RuleName)
+		return
+	}
+
+	// Send to cloud service
+	req, err := http.NewRequestWithContext(task.ctx, "POST", endpoint, bytes.NewBuffer(payload))
+	if err != nil {
+		d.logger.Warn("failed to create cloud request", "error", err, "rule", inv.RuleName)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("X-Kube-Watcher-Rule", inv.RuleName)
+	req.Header.Set("X-Kube-Watcher-Action", inv.ActionID)
+	if agentID != "" {
+		req.Header.Set("X-Agent-ID", agentID)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		d.logger.Warn("failed to send cloud alert", "error", err, "rule", inv.RuleName)
+		return
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode > http.StatusNoContent {
+		d.logger.Warn("cloud returned non-2xx status", "status", resp.Status, "rule", inv.RuleName)
+		return
+	}
+
+	d.logger.Info("rule action executed",
+		"rule", inv.RuleName, "action", inv.ActionID, "type", "cloud")
 }
 
 func (d *Dispatcher) postJSON(ctx context.Context, url string, payload []byte, inv rules.ActionInvocation) error {

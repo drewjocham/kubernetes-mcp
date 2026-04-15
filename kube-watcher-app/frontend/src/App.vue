@@ -13,8 +13,11 @@ import ScanModal from './components/modals/ScanModal.vue'
 import AlertDetailModal from './components/modals/AlertDetailModal.vue'
 import AnomstackErrorModal from './components/modals/AnomstackErrorModal.vue'
 import InvestigationModal from './components/modals/InvestigationModal.vue'
+import FloatingAI from './components/layout/FloatingAI.vue'
+
 import { useWorkspace } from './composables/useWorkspace'
 import { useChat } from './composables/useChat'
+import { useTheme } from './composables/useTheme'
 import { useSynapseSweep } from './composables/useSynapseSweep'
 import { useSettings } from './composables/useSettings'
 import { useAnomstack } from './composables/useAnomstack'
@@ -40,6 +43,7 @@ const sweep: ReturnType<typeof useSynapseSweep> = useSynapseSweep()
 const settings: ReturnType<typeof useSettings> = useSettings()
 const anomstack: ReturnType<typeof useAnomstack> = useAnomstack()
 const clusterLabels: ReturnType<typeof useClusterLabels> = useClusterLabels()
+const theme: ReturnType<typeof useTheme> = useTheme()
 
 const workspaceSummary = computed(() => workspace.workspace.value?.summary)
 
@@ -57,6 +61,11 @@ const showInvestigationModal = ref(false)
 const loadError = ref<string | null>(null)
 const hasAutoRetried = ref(false)
 const sidebarCollapsed = ref(false)
+
+// Filter state
+const selectedSeverity = ref('all')
+const selectedState = ref('all')
+const selectedTimeRange = ref('24h')
 
 // Computed
 const connectivityStatus = computed(() => {
@@ -77,6 +86,10 @@ const scanGrid = computed(() => sweep.synapseSweepGrid.value as { cells: ScanCel
 
 const errorMessage = computed(() => workspace.error.value)
 
+const showConnectionError = computed(() => {
+  return connectivityStatus.value === 'red' && !workspace.isLoading.value && !errorMessage.value
+})
+
 // Event handlers
 function handleTabChange(tab: string) {
   console.log('Tab changed to:', tab, 'current activeTab:', activeTab.value, 'isLoading:', workspace.isLoading.value)
@@ -89,6 +102,24 @@ function handleEditClusterLabel() {
   if (!cluster) return
   const currentInfo = clusterLabels.clusterLabels.value[cluster]
   clusterLabels.createClusterLabel(cluster, currentInfo)
+}
+
+function handleSeverityChange(value: string) {
+  selectedSeverity.value = value
+}
+
+function handleStateChange(value: string) {
+  selectedState.value = value
+}
+
+function handleTimeRangeChange(value: string) {
+  selectedTimeRange.value = value
+}
+
+function handleClearFilters() {
+  selectedSeverity.value = 'all'
+  selectedState.value = 'all'
+  selectedTimeRange.value = '24h'
 }
 
 function handleOpenSettings() {
@@ -207,15 +238,23 @@ watch(() => workspace.error.value, (newError) => {
     <Sidebar
       :activeTab="activeTab"
       :tabs="tabs"
+      :collapsed="sidebarCollapsed"
+      :selectedSeverity="selectedSeverity"
+      :selectedState="selectedState"
+      :selectedTimeRange="selectedTimeRange"
       :currentContext="workspace.currentContext.value"
       :clusterLabel="clusterLabel"
       :endpoint="workspace.mcpEndpoint.value"
       :connectivityStatus="connectivityStatus"
-      :collapsed="sidebarCollapsed"
+      :toggleTheme="theme.toggleTheme"
+      :currentTheme="theme.theme.value"
       @tab-change="handleTabChange"
+      @toggle-collapse="handleToggleSidebarCollapse"
+      @severity-change="handleSeverityChange"
+      @state-change="handleStateChange"
+      @time-range-change="handleTimeRangeChange"
       @edit-cluster-label="handleEditClusterLabel"
       @open-settings="handleOpenSettings"
-      @toggle-collapse="handleToggleSidebarCollapse"
     />
 
     <main class="main-panel">
@@ -256,33 +295,52 @@ watch(() => workspace.error.value, (newError) => {
 
       <section class="workspace">
         <div class="workspace-main">
-          <div v-if="errorMessage" class="loading-state">
-            <div class="arguskube-thinking">
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" stroke="currentColor" stroke-width="1" stroke-opacity="0.2"/>
-                <circle cx="9" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
-                <circle cx="15" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
-              </svg>
-            </div>
-            <p>Failed to load workspace: {{ errorMessage }}</p>
-            <button class="primary-btn" @click="retryWorkspace">Retry</button>
-          </div>
-          <div v-else-if="workspace.isLoading.value" class="loading-state">
-            <div class="arguskube-thinking">
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" stroke="currentColor" stroke-width="1" stroke-opacity="0.2"/>
-                <path d="M12 4C7.582 4 4 7.582 4 12C4 16.418 7.582 20 12 20C16.418 20 20 16.418 20 12C20 7.582 16.418 4 12 4Z" fill="currentColor" fill-opacity="0.05"/>
-                <circle cx="9" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
-                <circle cx="15" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
-                <path d="M8 16C8 16 9.5 17.5 12 17.5C14.5 17.5 16 16 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                <path d="M11.5 7C11.5 7 12 6.5 12 6C12 5.5 11.5 5 11.5 5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-                <path d="M12.5 7.5C12.5 7.5 13.5 7 13.5 6C13.5 5 12.5 4.5 12.5 4.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <p>Collecting the control plane state…</p>
-          </div>
+           <div v-if="errorMessage" class="loading-state">
+             <div class="arguskube-thinking">
+               <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                 <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" stroke="currentColor" stroke-width="1" stroke-opacity="0.2"/>
+                 <circle cx="9" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+                 <circle cx="15" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+               </svg>
+             </div>
+             <p>Failed to load workspace: {{ errorMessage }}</p>
+             <button class="primary-btn" @click="retryWorkspace">Retry</button>
+           </div>
+           <div v-else-if="workspace.isLoading.value" class="loading-state">
+             <div class="arguskube-thinking">
+               <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                 <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z" stroke="currentColor" stroke-width="1" stroke-opacity="0.2"/>
+                 <path d="M12 4C7.582 4 4 7.582 4 12C4 16.418 7.582 20 12 20C16.418 20 20 16.418 20 12C20 7.582 16.418 4 12 4Z" fill="currentColor" fill-opacity="0.05"/>
+                 <circle cx="9" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+                 <circle cx="15" cy="11" r="1.5" fill="currentColor" class="eye-blink"/>
+                 <path d="M8 16C8 16 9.5 17.5 12 17.5C14.5 17.5 16 16 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                 <path d="M11.5 7C11.5 7 12 6.5 12 6C12 5.5 11.5 5 11.5 5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+                 <path d="M12.5 7.5C12.5 7.5 13.5 7 13.5 6C13.5 5 12.5 4.5 12.5 4.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+               </svg>
+             </div>
+             <p>Collecting the control plane state…</p>
+           </div>
+           <div v-else-if="showConnectionError" class="loading-state">
+             <div class="arguskube-thinking">
+               <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                 <!-- Power plug (unplugged) -->
+                 <path d="M10 8V4C10 2.9 10.9 2 12 2C13.1 2 14 2.9 14 4V8H10Z" fill="currentColor" fill-opacity="0.7"/>
+                 <path d="M16 10V8H8V10H6V16C6 17.1 6.9 18 8 18H16C17.1 18 18 17.1 18 16V10H16Z" fill="currentColor" fill-opacity="0.7"/>
+                 <!-- Unplug symbol (slash through plug) -->
+                 <line x1="8" y1="6" x2="16" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                 <!-- Sad face -->
+                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1" stroke-opacity="0.2" fill="none"/>
+                 <circle cx="9" cy="10" r="1" fill="currentColor"/>
+                 <circle cx="15" cy="10" r="1" fill="currentColor"/>
+                 <path d="M9 16C9 16 10.5 17 12 17C13.5 17 15 16 15 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+               </svg>
+             </div>
+             <p>Cannot connect to Kubernetes cluster</p>
+             <p class="connection-subtext">Check if the cluster is running and your kubeconfig is valid</p>
+             <button class="primary-btn" @click="retryWorkspace">Retry Connection</button>
+           </div>
 
-            <template v-else>
+             <template v-else>
               <div v-if="activeTab === 'arguskube'" key="arguskube">
                 <ArguskubePanel
                   :is-expanded="isArguskubeExpanded"
@@ -306,9 +364,13 @@ watch(() => workspace.error.value, (newError) => {
                   :is-connecting-anomstack="anomstack.isConnectingAnomstack.value"
                   :is-investigating="chat.isThinking.value"
                   :format-when="formatWhen"
+                  :selected-severity="selectedSeverity"
+                  :selected-state="selectedState"
+                  :selected-time-range="selectedTimeRange"
                   @connect-anomstack="handleConnectAnomstack"
                   @investigate-anomalies="handleInvestigateAnomalies"
                   @alert-clicked="handleOpenAlertDetailModal"
+                  @clear-filters="handleClearFilters"
                 />
               </div>
 
@@ -324,6 +386,8 @@ watch(() => workspace.error.value, (newError) => {
 
       </section>
     </main>
+
+
 
     <!-- Modals -->
     <SettingsModal
@@ -356,6 +420,10 @@ watch(() => workspace.error.value, (newError) => {
       }"
       @close="handleCloseInvestigationModal"
       @refresh-context="handleRefreshContext"
+    />
+    <FloatingAI
+      :messages="chat.chatMessages.value"
+      :sendPrompt="chat.sendPrompt"
     />
   </div>
 </template>

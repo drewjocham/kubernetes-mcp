@@ -24,36 +24,35 @@ defineProps<Props>()
 <style scoped>
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 32px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 auto 32px auto;
+  max-width: 800px;
 }
 
 .summary-card {
-  padding: 20px;
-  border-radius: 16px;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  align-items: center;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .summary-card span {
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
 }
 
 .summary-card strong {
-  font-size: 24px;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
-
-.summary-card.rose { border-left: 4px solid var(--accent-rose); }
-.summary-card.amber { border-left: 4px solid var(--accent-amber); }
-.summary-card.teal { border-left: 4px solid var(--accent-teal); }
-.summary-card.ink { border-left: 4px solid var(--accent-ink); }
 </style>

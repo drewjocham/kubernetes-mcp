@@ -12,27 +12,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ResponseMsg carries a completed agent response.
 type ResponseMsg struct {
 	Content string
 	Err     error
 }
 
-// Message is a single turn in the chat conversation.
 type Message struct {
 	Role    string `json:"role"` // "user" | "assistant" | "system"
 	Content string `json:"content"`
 }
 
-// Client sends chat messages to a configured HTTP endpoint.
 type Client struct {
 	*httpclient.BaseClient
 }
 
-// New returns a Client from environment variables.
-//
-//	KW_AGENT_ENDPOINT — HTTP endpoint, default http://localhost:3000/api/agent
-//	KW_AGENT_API_KEY  — bearer token
+// KW_AGENT_ENDPOINT — HTTP endpoint, default http://localhost:3000/api/agent
+// KW_AGENT_API_KEY  — bearer token
 func New() *Client {
 	ep := strings.TrimSpace(os.Getenv("KW_AGENT_ENDPOINT"))
 	if ep == "" {
@@ -44,14 +39,12 @@ func New() *Client {
 	}
 }
 
-// NewWithConfig returns a Client using explicit values.
 func NewWithConfig(endpoint, apiKey string) *Client {
 	return &Client{
 		BaseClient: httpclient.NewBaseClient(endpoint, apiKey, 60*time.Second),
 	}
 }
 
-// Send posts the conversation history and returns a tea.Cmd that yields ResponseMsg.
 func (c *Client) Send(history []Message) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -65,7 +58,7 @@ func (c *Client) Send(history []Message) tea.Cmd {
 			Response string `json:"response"`
 			Message  string `json:"message"`
 			Content  string `json:"content"`
-			// OpenAI-compatible shape
+
 			Choices []struct {
 				Message struct {
 					Content string `json:"content"`

@@ -1,8 +1,9 @@
-{{- if .Values.signoz.enabled }}
+{{- $namespace := .Values.namespaces.anomstack -}}
+{{- if and .Values.signoz.enabled (not (lookup "v1" "Namespace" "" $namespace)) }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.namespaces.anomstack }}
+  name: {{ $namespace }}
   labels:
     app: signoz
 {{- end }}

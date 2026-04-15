@@ -8,73 +8,77 @@
             <p class="meta-label">Live alerts</p>
             <h3>Current anomaly candidates</h3>
           </div>
-          <div class="panel-actions">
-            <button
-              v-if="!anomstackConnected"
-              class="primary-btn connect-btn"
-              @click="emit('connect-anomstack')"
-              :disabled="isConnectingAnomstack"
-            >
-              {{ isConnectingAnomstack ? 'Connecting...' : 'Connect Anomalies' }}
-            </button>
-            <div v-if="anomstackConnected" class="connection-status">
-              <span class="status-dot green"></span>
-              <span class="status-text">Connected</span>
-            </div>
-            <div v-if="signozConnected" class="signoz-status">
-              <span class="status-dot blue"></span>
-            </div>
-            <button
-              v-if="alerts.length > 0"
-              class="primary-btn investigate-btn"
-              @click="emit('investigate-anomalies')"
-              :disabled="isInvestigating"
-            >
-              {{ isInvestigating ? 'Investigating...' : 'Investigate with AI' }}
-            </button>
-          </div>
         </div>
-        <div class="filter-section">
-          <div class="filter-category">
-            <span class="filter-category-label">Severity:</span>
-            <div class="filter-grid">
-              <button
-                v-for="severity in severityOptions"
-                :key="severity.value"
-                :class="['filter-pill', { active: selectedSeverity === severity.value }]"
-                @click="selectedSeverity = severity.value"
-                :title="severity.label"
-              >
-                <span class="filter-icon">{{ severity.icon }}</span>
-                <span class="filter-text">{{ severity.label }}</span>
-              </button>
-            </div>
+        <div class="global-action-bar">
+          <button
+            v-if="!anomstackConnected"
+            class="glass-btn connect-btn"
+            @click="emit('connect-anomstack')"
+            :disabled="isConnectingAnomstack"
+          >
+            <span class="btn-icon">🔗</span>
+            {{ isConnectingAnomstack ? 'Connecting...' : 'Connect Anomalies' }}
+          </button>
+          <div v-if="anomstackConnected" class="connection-status">
+            <span class="status-dot green"></span>
+            <span class="status-text">Connected</span>
           </div>
-          <div class="filter-category">
-            <span class="filter-category-label">State:</span>
-            <div class="filter-grid">
-              <button
-                v-for="opt in stateOptions"
-                :key="opt.value"
-                :class="['filter-pill', { active: selectedState === opt.value }]"
-                @click="selectedState = opt.value"
-                :title="opt.label"
-              >
-                <span class="filter-icon">{{ opt.icon }}</span>
-                <span class="filter-text">{{ opt.label }}</span>
-              </button>
-            </div>
+          <div v-if="signozConnected" class="signoz-status">
+            <span class="status-dot blue"></span>
           </div>
+          <button
+            v-if="alerts.length > 0"
+            class="glass-btn investigate-btn"
+            @click="emit('investigate-anomalies')"
+            :disabled="isInvestigating"
+          >
+            <span class="btn-icon">🧠</span>
+            {{ isInvestigating ? 'Investigating...' : 'Investigate with AI' }}
+          </button>
         </div>
-        <ul class="stack-list">
-          <AlertCard
-            v-for="alert in filteredAlerts.slice(0, 6)"
-            :key="alert.id"
-            :alert="alert"
-            :format-when="formatWhen"
-            @click="handleAlertClick(alert)"
-          />
-        </ul>
+
+        <table class="argus-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Source</th>
+              <th>Timestamp</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="alert in filteredAlerts.slice(0, 10)"
+              :key="alert.id"
+              class="table-row"
+              @click="handleAlertClick(alert)"
+            >
+              <td>
+                <span :class="['status-dot', alert.severity]"></span>
+              </td>
+              <td>
+                <div class="alert-name">{{ alert.name }}</div>
+                <div class="alert-message-truncated">{{ alert.message }}</div>
+              </td>
+              <td>{{ alert.namespace || 'cluster-wide' }}</td>
+              <td>{{ formatWhen(alert.receivedAt) }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-action-btn" title="Investigate" @click.stop="handleInvestigateRow(alert)">
+                    <span class="action-icon">🔍</span>
+                  </button>
+                  <button class="row-action-btn" title="Dismiss" @click.stop="handleDismissRow(alert)">
+                    <span class="action-icon">✓</span>
+                  </button>
+                  <button class="row-action-btn" title="Resolve" @click.stop="handleResolveRow(alert)">
+                    <span class="action-icon">✔</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </article>
 
       <!-- Recommendations Panel -->
@@ -98,6 +102,10 @@
       <IncidentHistoryTabs
         :timeline="timeline"
         :format-when="formatWhen"
+        :selected-severity="selectedSeverity"
+        :selected-state="selectedState"
+        :selected-time-range="selectedTimeRange"
+        @clear-filters="handleClearFilters"
       />
     </div>
   </section>
@@ -120,11 +128,16 @@ interface Props {
   isConnectingAnomstack: boolean
   isInvestigating: boolean
   formatWhen: (value: unknown) => string
+  selectedSeverity?: string
+  selectedState?: string
+  selectedTimeRange?: string
 }
 
-const props = defineProps<Props>()
-const selectedSeverity = ref<string>('all')
-const selectedState = ref<string>('all')
+const props = withDefaults(defineProps<Props>(), {
+  selectedSeverity: 'all',
+  selectedState: 'all',
+  selectedTimeRange: '24h'
+})
 
 const stateOptions = [
   { value: 'all', label: 'All States', icon: '🌐' },
@@ -148,12 +161,12 @@ const severityOptions = [
 const filteredAlerts = computed(() => {
   let filtered = props.alerts
   
-  if (selectedSeverity.value !== 'all') {
-    filtered = filtered.filter(alert => alert.severity === selectedSeverity.value)
+  if (props.selectedSeverity !== 'all') {
+    filtered = filtered.filter(alert => alert.severity === props.selectedSeverity)
   }
   
-  if (selectedState.value !== 'all') {
-    filtered = filtered.filter(alert => alert.state === selectedState.value)
+  if (props.selectedState !== 'all') {
+    filtered = filtered.filter(alert => alert.state === props.selectedState)
   }
   
   return filtered
@@ -165,10 +178,30 @@ const emit = defineEmits<{
   'connect-anomstack': []
   'investigate-anomalies': []
   'alert-clicked': [alert: data.AlertRecord]
+  'clear-filters': []
+  'investigate-row': [alert: data.AlertRecord]
+  'dismiss-row': [alert: data.AlertRecord]
+  'resolve-row': [alert: data.AlertRecord]
 }>()
 
 function handleAlertClick(alert: data.AlertRecord) {
   emit('alert-clicked', alert)
+}
+
+function handleClearFilters() {
+  emit('clear-filters')
+}
+
+function handleInvestigateRow(alert: data.AlertRecord) {
+  emit('investigate-row', alert)
+}
+
+function handleDismissRow(alert: data.AlertRecord) {
+  emit('dismiss-row', alert)
+}
+
+function handleResolveRow(alert: data.AlertRecord) {
+  emit('resolve-row', alert)
 }
 </script>
 
@@ -180,15 +213,17 @@ function handleAlertClick(alert: data.AlertRecord) {
 .panel-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
 }
 
 .panel {
-  padding: 22px;
-  border-radius: 24px;
-  border: 1px solid var(--border);
-  background: var(--panel-bg);
+  padding: 24px;
+  background: var(--glass-card-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: var(--glass-border-rim);
+  border-radius: var(--radius-lg);
   min-width: 0;
 }
 
@@ -208,6 +243,14 @@ function handleAlertClick(alert: data.AlertRecord) {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.global-action-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 20px;
 }
 
 .connection-status,
@@ -237,69 +280,35 @@ function handleAlertClick(alert: data.AlertRecord) {
   white-space: nowrap;
 }
 
-.filter-section {
-  margin-bottom: 16px;
+
+
+.filter-chips {
   display: flex;
-  gap: 16px;
-  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 11px;
+  align-items: center;
 }
 
-.filter-category {
-  flex: 1;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-}
-
-.filter-category:last-child {
-  margin-bottom: 0;
-}
-
-.filter-category-label {
-  display: block;
+.filter-chip {
+  padding: 11px 20px;
+  color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-  flex: 1;
-}
-
-.filter-pill {
-  padding: 6px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--text-secondary);
-  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
+  white-space: nowrap;
 }
 
-.filter-pill:hover {
-  border-color: var(--border-active);
-  background: var(--hover);
+.filter-chip:hover {
+  color: var(--text);
 }
 
-.filter-pill.active {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: white;
+.filter-chip.active {
+  color: var(--primary);
+  font-weight: 600;
 }
 
 .filter-icon {
@@ -316,32 +325,39 @@ function handleAlertClick(alert: data.AlertRecord) {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .primary-btn {
   padding: 8px 16px;
   border-radius: 12px;
-  border: none;
-  background: var(--primary);
-  color: white;
-  font-size: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s ease;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .primary-btn:hover:not(:disabled) {
-  background: var(--primary-hover);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-active);
+  transform: translateY(-1px);
 }
 
 .primary-btn:disabled {
@@ -350,19 +366,26 @@ function handleAlertClick(alert: data.AlertRecord) {
 }
 
 .connect-btn {
-  background: var(--info);
+  background: rgba(138, 130, 224, 0.1);
+  border-color: rgba(138, 130, 224, 0.3);
 }
 
 .connect-btn:hover:not(:disabled) {
-  background: var(--info-hover);
+  background: rgba(138, 130, 224, 0.2);
+  border-color: rgba(138, 130, 224, 0.5);
 }
 
 .investigate-btn {
-  background: var(--success);
+  background: var(--accent);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
 }
 
 .investigate-btn:hover:not(:disabled) {
-  background: var(--success-hover);
+  background: var(--accent);
+  filter: brightness(1.1);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.3);
 }
 
 .meta-label {
@@ -401,24 +424,188 @@ h3 {
     justify-content: flex-start;
   }
   
-  .filter-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  .filter-chips {
+    gap: 6px;
   }
 }
 
 @media (max-width: 640px) {
-  .filter-grid {
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  .filter-section {
+    gap: 16px;
   }
   
-  .filter-pill {
-    padding: 4px 8px;
+  .filter-chips {
+    gap: 4px;
+  }
+  
+  .filter-chip {
+    padding: 6px 10px;
     font-size: 10px;
-    min-height: 28px;
   }
   
   .filter-icon {
     font-size: 10px;
   }
+}
+
+.glass-btn {
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glass-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-active);
+  transform: translateY(-1px);
+}
+
+.glass-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connect-btn {
+  background: rgba(138, 130, 224, 0.1);
+  border-color: rgba(138, 130, 224, 0.3);
+}
+
+.connect-btn:hover:not(:disabled) {
+  background: rgba(138, 130, 224, 0.2);
+  border-color: rgba(138, 130, 224, 0.5);
+}
+
+.investigate-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+}
+
+.investigate-btn:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.1);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.3);
+}
+
+.btn-icon {
+  font-size: 14px;
+}
+
+.argus-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.argus-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.argus-table tr {
+  transition: background 0.2s ease;
+}
+
+.argus-table tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.argus-table tr:hover {
+  background: rgba(0, 0, 0, 0.03);
+  cursor: pointer;
+}
+
+.argus-table td {
+  padding: 14px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(0,0,0,0.02);
+}
+
+.status-dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.status-dot.critical,
+.status-dot.error {
+  background: var(--danger);
+}
+
+.status-dot.warning {
+  background: var(--warning);
+}
+
+.status-dot.info,
+.status-dot.low {
+  background: var(--info);
+}
+
+.alert-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.alert-message-truncated {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.table-row:hover .row-actions {
+  opacity: 1;
+}
+
+.row-action-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.row-action-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-active);
+}
+
+.action-icon {
+  font-size: 12px;
 }
 </style>

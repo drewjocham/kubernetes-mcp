@@ -5,6 +5,7 @@
 | SEC-01 | Add PII sanitizer to watcher log streaming | High | Implement a security sanitizer that filters sensitive fields (environment variables, secret references, configmap references) and uses regex patterns for common secret patterns (API_KEY, SECRET, PASSWORD, TOKEN, etc.) in string values. Use a deny-list approach that can be extended via configuration. | 2025-04-07 | Implemented |
 | CONC-01 | Improve error handling in MCP server HTTP server goroutine | Medium | On HTTP server startup failure (e.g., port in use), log the error and continue without HTTP API (degraded mode). If the HTTP server fails after starting (runtime error), attempt one restart, then continue degraded. | 2025-04-07 | Implemented |
 | DOC-01 | Update AGENTS.md with accurate commands and fix references | Low | Update test commands to reflect actual Make targets (`make test-integration-channel`, `make run-watcher`, `make run-server`). Fix DRY rule reference from `pkg/common` to existing packages in `pkg/` and `internal/`. | 2025-04-07 | Implemented |
+| HELM-01 | Deploy anomstack via Helm charts with configurable watcher integration | High | Create proper anomstack templates (deployment, service, configmap, PVC) in helm/templates/anomstack/. Update watcher ConfigMap to support full YAML config via .Values.watcher.configYaml with template substitution for webhook URL and anomstack settings. Add anomstack polling source to watcher engine. Add MCP tools for config management. Add desktop app config editor UI. | 2025-04-12 | Implemented |
 
 ## Notes
 

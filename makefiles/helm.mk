@@ -33,6 +33,7 @@ helm-install:
 	   -f $(HELM_VALUES) \
 	   --namespace $(KW_NAMESPACE) \
 	   --create-namespace \
+	   --take-ownership \
 	   --wait --timeout 5m
 
 helm-upgrade:
@@ -41,6 +42,7 @@ helm-upgrade:
 	   -f $(HELM_VALUES) \
 	   --namespace $(KW_NAMESPACE) \
 	   --wait --timeout 5m \
+	   --take-ownership \
 	   --atomic
 
 helm-uninstall:

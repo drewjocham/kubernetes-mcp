@@ -19,12 +19,12 @@ export function useAnomstack() {
       console.log('Manual connect successful, anomalies:', anomalies)
       return anomalies
     } catch (error: any) {
-      console.error('Manual connect failed:', error)
+      console.warn('Anomstack connection failed (ignored):', error)
       const errorMessage = error?.message || error?.toString() || 'Unknown error'
       anomstackError.value = errorMessage
       anomstackRecommendations.value = generateAnomstackRecommendations(errorMessage)
-      showAnomstackErrorModal.value = true
-      throw error
+      // Don't show modal, return empty array
+      return []
     } finally {
       isConnectingAnomstack.value = false
     }

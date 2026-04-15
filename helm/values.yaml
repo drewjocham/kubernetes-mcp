@@ -20,7 +20,7 @@ mcp:
     tag: latest
     pullPolicy: IfNotPresent
   port: 8080
-  logLevel: info
+  logLevel: warn
   # BadgerDB history path inside the container
   dbPath: /home/nonroot/.kube-watcher/history.db
   resources:
@@ -38,18 +38,29 @@ mcp:
     size: 1Gi
     storageClass: ""
 
-# ─── Watcher Event Engine
-watcher:
+# ─── Cloud Service
+cloud:
   enabled: true
   replicaCount: 1
   image:
-    repository: watcher
+    repository: watcher-cloud
     tag: latest
     pullPolicy: IfNotPresent
-  ports:
-    http: 8085
-    metrics: 9095
+  port: 8080
+  wsPort: 8081
   logLevel: info
+  # JWT secret for authentication (should be set via secret in production)
+  jwtSecret: "change-me-in-production"
+  # OAuth configuration
+  oauth:
+    github:
+      enabled: false
+      clientId: ""
+      clientSecret: ""
+    google:
+      enabled: false
+      clientId: ""
+      clientSecret: ""
   resources:
     requests:
       cpu: 100m
@@ -64,6 +75,124 @@ watcher:
     enabled: false
     size: 1Gi
     storageClass: ""
+  ingress:
+    enabled: true
+    host: cloud.kube-watcher.local
+    path: /
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/websocket-services: "cloud"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    tls: []
+
+# ─── Watcher Event Engine
+watcher:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: watcher
+    tag: latest
+    pullPolicy: IfNotPresent
+  ports:
+    http: 8085
+    metrics: 9095
+  logLevel: warn
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  configYaml: |
+    resource_tracking:
+      enabled: true
+      storage: disk
+      path: /event-engine-badger
+      retention: 1h
+      fields:
+        - cpu_request
+        - cpu_limit
+        - memory_request
+        - memory_limit
+        - ram
+        - min_pod_count
+        - max_pod_count
+        - current_replicas
+        - desired_replicas
+        - node_memory_pressure
+        - node_disk_pressure
+        - waiting_reason
+        - waiting_reasons
+        - restart_delta
+        - restart_count
+        - is_ready
+        - crash_looping
+        - hpa_is_stalled
+    rules:
+      - name: Pod-Restarting-Frequently
+        kind: Pod
+        condition: "has(evt.restart_count) && evt.restart_count > 3 && has(evt.crash_looping) && evt.crash_looping == true"
+        actions:
+          - log_change
+      - name: Image-Pull-Failure
+        kind: Pod
+        duration: 2m
+        condition: "has(evt.waiting_reason) && evt.waiting_reason.contains('ImagePull')"
+        actions:
+          - log_change
+      - name: HPA-Stalled-At-Ceiling
+        kind: HorizontalPodAutoscaler
+        duration: 5m
+        condition: "has(evt.hpa_is_stalled) && evt.hpa_is_stalled == true"
+        actions:
+          - log_change
+      - name: Node-Memory-Pressure
+        kind: Node
+        condition: "has(evt.node_memory_pressure) && evt.node_memory_pressure == true"
+        actions:
+          - log_change
+      - name: Pod-Stuck-In-Pending
+        kind: Pod
+        duration: 10m
+        condition: "has(evt.is_ready) && evt.is_ready == false && has(evt.waiting_reason) && evt.waiting_reason == 'ContainerCreating'"
+        actions:
+          - log_change
+      - name: Anomstack-Critical-Anomaly
+        kind: Anomaly
+        condition: "evt.severity == 'critical'"
+        actions:
+          - dashboard-webhook
+    actions:
+      log_change:
+        type: log
+        template: "{{ "{{" }} .RuleName {{ "}}" }} triggered for {{ "{{" }} .Event.Namespace {{ "}}" }}/{{ "{{" }} .Event.Name {{ "}}" }}"
+      dashboard-webhook:
+        type: webhook
+        config:
+          url: "{{ .Values.watcher.webhookUrl }}"
+    settings:
+      cel:
+        enabled: true
+      queue_depth: 128
+      metrics:
+        enabled: true
+        listen: ":9095"
+      heartbeat:
+        enabled: true
+      anomstack:
+        enabled: {{ .Values.anomstack.enabled }}
+        endpoint: {{ .Values.anomstack.endpoint }}
+        interval: {{ .Values.anomstack.interval }}
+  webhookUrl: ""
 
 badgerExplorer:
   enabled: false
@@ -99,13 +228,13 @@ prometheus:
     storageClass: ""
   podAnnotations: {}
   extraLabels: {}
-  podAnnotations: {}
-  extraLabels: {}
 
 # ─── Anomstack
 anomstack:
-  enabled: false
+  enabled: true
   replicaCount: 1
+  endpoint: http://anomstack-dashboard:8080
+  interval: 30s
   dagster:
     image:
       repository: anomstack_dagster_image
@@ -124,10 +253,25 @@ anomstack:
     llmPlatform: openai
     llmalertModels: gpt-4o-mini
   persistence:
+    enabled: true
     size: 5Gi
     storageClass: ""
   resources:
     daemon:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    webserver:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    dashboard:
       requests:
         cpu: 100m
         memory: 256Mi
@@ -165,7 +309,7 @@ k8sgpt:
 
 # ─── Signoz
 signoz:
-  enabled: true
+  enabled: false
   replicaCount: 1
   image:
     repository: signoz/signoz
@@ -206,7 +350,7 @@ signoz:
       size: 5Gi
       storageClass: ""
   otelCollector:
-    enabled: true
+    enabled: false
     replicaCount: 1
     image:
       repository: otel/opentelemetry-collector

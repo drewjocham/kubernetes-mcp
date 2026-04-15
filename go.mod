@@ -17,6 +17,7 @@ require (
 	github.com/go-chi/cors v1.2.2
 	github.com/google/cel-go v0.17.8
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/panjf2000/ants/v2 v2.11.5

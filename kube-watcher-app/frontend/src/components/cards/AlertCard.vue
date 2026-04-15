@@ -3,11 +3,21 @@
     <div class="stack-title">
       <strong>{{ alert.name }}</strong>
       <div class="alert-badges">
-        <span :class="['pill', alert.severity]">{{ alert.severity }}</span>
-        <span v-if="stateLabel" class="state-badge" :style="{ backgroundColor: stateColor }">
-          {{ stateLabel }}
-        </span>
-      </div>
+         <span :class="['status-dot', alert.severity]"></span>
+         <span class="severity-text">{{ alert.severity }}</span>
+         <span v-if="stateLabel" class="state-indicator" :style="{ backgroundColor: stateColor }"></span>
+         <div class="card-actions">
+           <button class="card-action-btn" title="Investigate" @click.stop="handleInvestigate">
+             <span class="action-icon">🔍</span>
+           </button>
+           <button class="card-action-btn" title="Dismiss" @click.stop="handleDismiss">
+             <span class="action-icon">✓</span>
+           </button>
+           <button class="card-action-btn" title="Resolve" @click.stop="handleResolve">
+             <span class="action-icon">✔</span>
+           </button>
+         </div>
+       </div>
     </div>
     <div class="alert-info-icon" title="Message">i</div>
     <p class="alert-message">{{ alert.message }}</p>
@@ -27,10 +37,25 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   click: [alert: data.AlertRecord]
+  investigate: [alert: data.AlertRecord]
+  dismiss: [alert: data.AlertRecord]
+  resolve: [alert: data.AlertRecord]
 }>()
 
 const handleClick = () => {
   emit('click', props.alert)
+}
+
+const handleInvestigate = () => {
+  emit('investigate', props.alert)
+}
+
+const handleDismiss = () => {
+  emit('dismiss', props.alert)
+}
+
+const handleResolve = () => {
+  emit('resolve', props.alert)
 }
 
 const podExistsBorder = computed(() => {
@@ -70,18 +95,15 @@ const stateColor = computed(() => {
 
 <style scoped>
 .stack-card {
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
+  padding: 22px;
   transition: all 0.2s;
   cursor: pointer;
   position: relative;
+  border-bottom: 1px solid var(--border);
 }
 
 .stack-card:hover {
-  border-color: var(--border-active);
-  background: var(--hover);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .border-pod-exists {
@@ -107,57 +129,84 @@ const stateColor = computed(() => {
   flex: 1;
 }
 
-.pill {
-  padding: 4px 8px;
-  border-radius: 20px;
+.status-dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.critical,
+.status-dot.error {
+  background: var(--danger);
+}
+
+.status-dot.warning {
+  background: var(--warning);
+}
+
+.status-dot.info,
+.status-dot.low {
+  background: var(--info);
+}
+
+.severity-text {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  white-space: nowrap;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 
-.pill.critical,
-.pill.error {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--error);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.pill.warning {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--warning);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-}
-
-.pill.info {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--info);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.pill.low {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--success);
-  border: 1px solid rgba(34, 197, 94, 0.2);
+.state-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 8px;
 }
 
 .alert-badges {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  position: relative;
 }
 
-.state-badge {
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: white;
-  white-space: nowrap;
+.card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
+
+.stack-card:hover .card-actions {
+  opacity: 1;
+}
+
+.card-action-btn {
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-active);
+}
+
+.action-icon {
+  font-size: 10px;
+}
+
+
 
 .alert-message {
   margin: 8px 0;

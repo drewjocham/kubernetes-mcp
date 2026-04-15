@@ -242,7 +242,17 @@ func (a *engineApp) initCEL(cfg *config.WatchConfig) (*cel.Env, error) {
 func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInterface, st tracker.Store,
 	ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
 	engine := rules.NewEngine(a.logger, cfg, st, env)
-	src := source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second)
+	var sources []pipeline.Source
+	sources = append(sources, source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second))
+	if cfg.Settings.Anomstack.Enabled {
+		sources = append(sources, source.NewAnomstackSource(a.logger, cfg.Settings.Anomstack))
+	}
+	var src pipeline.Source
+	if len(sources) == 1 {
+		src = sources[0]
+	} else {
+		src = source.NewMultiSource(a.logger, sources...)
+	}
 	podEnricher := pipeline.NewPodEnricher(getEnrichmentFields(cfg.ResourceTracking.Fields, cfg.Rules))
 
 	enricher := pipeline.Enricher(podEnricher)

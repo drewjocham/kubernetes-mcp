@@ -10,6 +10,7 @@ metadata:
 data:
   ANOMSTACK_DUCKDB_PATH: {{ .Values.anomstack.env.duckdbPath | quote }}
   ANOMSTACK_HOME: {{ .Values.anomstack.env.home | quote }}
+  DAGSTER_HOME: "/opt/dagster/dagster_home"
   ANOMSTACK_TABLE_KEY: {{ .Values.anomstack.env.tableKey | quote }}
   ANOMSTACK_DASHBOARD_PORT: {{ .Values.anomstack.env.dashboardPort | quote }}
   ANOMSTACK_LLM_PLATFORM: {{ .Values.anomstack.env.llmPlatform | quote }}
@@ -38,4 +39,21 @@ data:
     disable_llmalert: True
     disable_ingest: False
     alert_methods: "webhook"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anomstack-workspace
+  namespace: {{ .Values.namespaces.anomstack }}
+  labels:
+    app: anomstack
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+data:
+  workspace.yaml: |
+    load_from:
+      # Load user code directly as a Python module (no gRPC server needed)
+      - python_module:
+          module_name: anomstack.main
+          working_directory: /opt/dagster/app
+          location_name: "anomstack"
 {{- end }}

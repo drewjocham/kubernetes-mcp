@@ -83,11 +83,9 @@ func (a *App) kwBinaryPath() (string, error) {
 		}
 	}
 
-	// 4. Look in PATH for kw-cli
 	if path, err := exec.LookPath("kw-cli"); err == nil {
 		return path, nil
 	}
-	// 5. Look in PATH for kw
 	if path, err := exec.LookPath("kw"); err == nil {
 		return path, nil
 	}
@@ -106,10 +104,8 @@ func (a *App) startup(ctx context.Context) {
 	a.opencode = opencode.New()
 	a.k8sgpt = k8sgpt.New()
 	a.watcher = watcher.New()
-	// Initialize widget store (ignore error for now, will be lazy-loaded)
 	widgetStore, err := widgets.DefaultStore()
 	if err != nil {
-		// Log error but continue (store will be nil)
 		fmt.Printf("Failed to initialize widget store: %v\n", err)
 	} else {
 		a.widgetStore = widgetStore
@@ -149,7 +145,6 @@ func (a *App) AddAlertComment(id string, author string, content string) error {
 	return a.mcp.AddAlertComment(a.ctx, id, author, content)
 }
 
-// GetHistory returns incident history
 func (a *App) GetHistory() ([]data.Incident, error) {
 	return a.mcp.History(a.ctx)
 }
@@ -384,7 +379,6 @@ func mapToPodInfo(podMap map[string]any) (data.PodInfo, error) {
 	return pod, err
 }
 
-// GetPodLogs returns logs for a specific pod and container
 func (a *App) GetPodLogs(namespace, podName, container string) (string, error) {
 	args := map[string]any{
 		"namespace": namespace,
@@ -463,7 +457,6 @@ func (a *App) ExecPodCommand(namespace, podName, container, command string) (str
 
 // RunSynapseSweep executes popeye CLI for node status
 func (a *App) RunSynapseSweep() (string, error) {
-	// Check if popeye is available
 	bin, err := exec.LookPath("popeye")
 	if err != nil {
 		pathEnv := os.Getenv("PATH")

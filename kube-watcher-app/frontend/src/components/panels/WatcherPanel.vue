@@ -54,19 +54,7 @@
       </div>
 
       <div class="watcher-section logs-section">
-        <h3>Live Logs</h3>
-        <div class="logs-controls">
-          <button @click="toggleLogs" :class="['btn', logsActive ? 'danger' : 'primary']">
-            {{ logsActive ? 'Stop Logs' : 'Start Logs' }}
-          </button>
-          <button @click="clearLogs" class="btn secondary">Clear</button>
-        </div>
-        <div ref="logsContainer" class="logs-output">
-          <div v-for="(log, idx) in logs" :key="idx" class="log-entry">
-            {{ log }}
-          </div>
-          <div v-if="logs.length === 0" class="empty">No logs yet. Start streaming to see events.</div>
-        </div>
+        <LogSentinelPanel />
       </div>
     </div>
   </div>
@@ -75,6 +63,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { GetWatcherStatus, GetWatcherRules, GetWatcherResources, StreamWatcherLogs } from '../../../wailsjs/go/main/App'
+import LogSentinelPanel from './LogSentinelPanel.vue'
 
 const status = ref<any>(null)
 const rules = ref<any[]>([])

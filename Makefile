@@ -43,7 +43,7 @@ HELM_CHART_DIR       ?= $(ROOT_DIR)/helm
 HELM_RELEASE         ?= kube-watcher
 HELM_VALUES          ?= $(HELM_CHART_DIR)/values.yaml
 KW_NAMESPACE         ?= kube-watcher
-ANOMSTACK_NS         ?= kw-anomaly
+ANOMSTACK_NS         ?= kube-watcher
 
 # Dashboard
 DASHBOARD_DIR        ?= $(ROOT_DIR)/dashboard

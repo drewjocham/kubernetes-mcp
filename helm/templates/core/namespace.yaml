@@ -1,6 +1,9 @@
+{{- $namespace := .Values.namespaces.kubeWatcher -}}
+{{- if not (lookup "v1" "Namespace" "" $namespace) }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.namespaces.kubeWatcher }}
+  name: {{ $namespace }}
   labels:
     {{- include "kube-watcher.labels" . | nindent 4 }}
+{{- end }}

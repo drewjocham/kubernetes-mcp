@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"kube-watcher-app/internal/data"
 	mcpclient "kube-watcher-app/internal/data/mcp"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Tick messages emitted to AppModel
 type (
 	AlertsUpdatedMsg    struct{ Records []data.AlertRecord }
 	HistoryUpdatedMsg   struct{ Incidents []data.Incident }
@@ -24,7 +24,6 @@ type (
 	}
 )
 
-// Hub owns all periodic data-fetch operations.
 type Hub struct {
 	mcp *mcpclient.Client
 }
@@ -60,7 +59,6 @@ func (h *Hub) PollAlerts() tea.Cmd {
 	})
 }
 
-// FetchHistory immediately fetches incident history (one-shot).
 func (h *Hub) FetchHistory() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -73,7 +71,6 @@ func (h *Hub) FetchHistory() tea.Cmd {
 	}
 }
 
-// PollHistory returns a tea.Cmd that refetches history every 60s.
 func (h *Hub) PollHistory() tea.Cmd {
 	return tea.Tick(60*time.Second, func(_ time.Time) tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -86,7 +83,6 @@ func (h *Hub) PollHistory() tea.Cmd {
 	})
 }
 
-// FetchStatus pings the MCP server once.
 func (h *Hub) FetchStatus() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -99,7 +95,6 @@ func (h *Hub) FetchStatus() tea.Cmd {
 	}
 }
 
-// PingStatus returns a tea.Cmd that pings the server every 30s.
 func (h *Hub) PingStatus() tea.Cmd {
 	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -112,7 +107,6 @@ func (h *Hub) PingStatus() tea.Cmd {
 	})
 }
 
-// FetchRecs immediately fetches recommendations (one-shot).
 func (h *Hub) FetchRecs() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -125,7 +119,6 @@ func (h *Hub) FetchRecs() tea.Cmd {
 	}
 }
 
-// PollRecs returns a tea.Cmd that refetches recommendations every 30s.
 func (h *Hub) PollRecs() tea.Cmd {
 	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

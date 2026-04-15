@@ -25,7 +25,6 @@ type Client struct {
 func New() *Client {
 	baseURL := os.Getenv("K8SGPT_BASE_URL")
 	if baseURL == "" {
-		// Default to local K8sGPT MCP HTTP server
 		baseURL = "http://localhost:8089"
 	}
 	apiKey := os.Getenv("K8SGPT_API_KEY")

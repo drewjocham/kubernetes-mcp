@@ -11,14 +11,12 @@ import (
 	"time"
 )
 
-// BaseClient provides common HTTP client functionality for API clients.
 type BaseClient struct {
 	baseURL string
 	token   string
 	http    *http.Client
 }
 
-// NewBaseClient creates a new BaseClient with the given endpoint, optional token, and timeout.
 func NewBaseClient(endpoint, token string, timeout time.Duration) *BaseClient {
 	if endpoint == "" {
 		endpoint = "http://localhost:8080"
@@ -74,32 +72,26 @@ func (c *BaseClient) DoRequest(ctx context.Context, method, path string, body an
 	return nil
 }
 
-// Get performs a GET request and decodes the response into out.
 func (c *BaseClient) Get(ctx context.Context, path string, out any) error {
 	return c.DoRequest(ctx, http.MethodGet, path, nil, out)
 }
 
-// Post performs a POST request with body and decodes the response into out.
 func (c *BaseClient) Post(ctx context.Context, path string, body, out any) error {
 	return c.DoRequest(ctx, http.MethodPost, path, body, out)
 }
 
-// Put performs a PUT request with body (no response decoding).
 func (c *BaseClient) Put(ctx context.Context, path string, body any) error {
 	return c.DoRequest(ctx, http.MethodPut, path, body, nil)
 }
 
-// BaseURL returns the configured base URL.
 func (c *BaseClient) BaseURL() string {
 	return c.baseURL
 }
 
-// HTTPClient returns the underlying http.Client (for custom requests).
 func (c *BaseClient) HTTPClient() *http.Client {
 	return c.http
 }
 
-// HasToken returns true if a bearer token is configured.
 func (c *BaseClient) HasToken() bool {
 	return c.token != ""
 }

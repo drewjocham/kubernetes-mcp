@@ -52,10 +52,12 @@ spec:
               value: {{ .Values.mcp.logLevel }}
             - name: HOME
               value: /home/nonroot
+{{- if .Values.signoz.otelCollector.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://signoz-otel-collector.{{ .Values.namespaces.anomstack }}.svc.cluster.local:4318
             - name: OTEL_SERVICE_NAME
               value: mcp-server
+{{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.mcp.port }}

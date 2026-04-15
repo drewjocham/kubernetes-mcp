@@ -1,4 +1,4 @@
-{{- if .Values.anomstack.enabled }}
+{{- if and .Values.anomstack.enabled .Values.anomstack.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
