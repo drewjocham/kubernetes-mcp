@@ -1,0 +1,33 @@
+{{- if and .Values.cloud.enabled .Values.cloud.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloud-ingress
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/websocket-services: "cloud"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- toYaml .Values.cloud.ingress.annotations | nindent 4 }}
+  labels:
+    app: cloud
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+    {{- include "kube-watcher.componentLabel" "cloud" | nindent 4 }}
+spec:
+  {{- if .Values.cloud.ingress.tls }}
+  tls:
+    {{- toYaml .Values.cloud.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+  - host: {{ .Values.cloud.ingress.host }}
+    http:
+      paths:
+      - path: {{ .Values.cloud.ingress.path }}
+        pathType: Prefix
+        backend:
+          service:
+            name: cloud
+            port:
+              number: {{ .Values.cloud.port }}
+{{- end }}

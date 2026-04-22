@@ -8,6 +8,17 @@
             <p class="meta-label">Live alerts</p>
             <h3>Current anomaly candidates</h3>
           </div>
+          <div class="panel-actions">
+            <select 
+              :value="selectedSeverity" 
+              @change="emit('severity-change', ($event.target as HTMLSelectElement).value)"
+              class="select-input"
+            >
+              <option v-for="option in severityOptions" :value="option.value">
+                {{ option.icon }} {{ option.label }}
+              </option>
+            </select>
+          </div>
         </div>
         <div class="global-action-bar">
           <button
@@ -16,7 +27,7 @@
             @click="emit('connect-anomstack')"
             :disabled="isConnectingAnomstack"
           >
-            <span class="btn-icon">🔗</span>
+            <PhLink size="16" weight="bold" class="btn-icon" />
             {{ isConnectingAnomstack ? 'Connecting...' : 'Connect Anomalies' }}
           </button>
           <div v-if="anomstackConnected" class="connection-status">
@@ -32,7 +43,7 @@
             @click="emit('investigate-anomalies')"
             :disabled="isInvestigating"
           >
-            <span class="btn-icon">🧠</span>
+            <PhBrain size="16" weight="bold" class="btn-icon" />
             {{ isInvestigating ? 'Investigating...' : 'Investigate with AI' }}
           </button>
         </div>
@@ -54,8 +65,27 @@
               class="table-row"
               @click="handleAlertClick(alert)"
             >
-              <td>
-                <span :class="['status-dot', alert.severity]"></span>
+              <td @click.stop="startEditState(alert, $event)">
+                <template v-if="editingStateId === alert.id">
+                  <select 
+                    class="state-select"
+                    :value="alert.state || 'new'"
+                    @change="changeState(alert, ($event.target as HTMLSelectElement).value)"
+                    @blur="cancelEditState"
+                    @keydown.enter="changeState(alert, ($event.target as HTMLSelectElement).value)"
+                    @keydown.esc="cancelEditState"
+                    autofocus
+                  >
+                    <option v-for="option in stateOptions" :value="option.value">
+                      {{ option.icon }} {{ option.label }}
+                    </option>
+                  </select>
+                </template>
+                <template v-else>
+                  <span class="state-badge" :class="alert.state || 'new'">
+                    {{ alert.state || 'new' }}
+                  </span>
+                </template>
               </td>
               <td>
                 <div class="alert-name">{{ alert.name }}</div>
@@ -65,15 +95,15 @@
               <td>{{ formatWhen(alert.receivedAt) }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="row-action-btn" title="Investigate" @click.stop="handleInvestigateRow(alert)">
-                    <span class="action-icon">🔍</span>
-                  </button>
-                  <button class="row-action-btn" title="Dismiss" @click.stop="handleDismissRow(alert)">
-                    <span class="action-icon">✓</span>
-                  </button>
-                  <button class="row-action-btn" title="Resolve" @click.stop="handleResolveRow(alert)">
-                    <span class="action-icon">✔</span>
-                  </button>
+                   <button class="row-action-btn" title="Investigate" @click.stop="handleInvestigateRow(alert)">
+                     <PhMagnifyingGlass size="12" weight="bold" class="action-icon" />
+                   </button>
+                   <button class="row-action-btn" title="Dismiss" @click.stop="handleDismissRow(alert)">
+                     <PhCheck size="12" weight="bold" class="action-icon" />
+                   </button>
+                   <button class="row-action-btn" title="Resolve" @click.stop="handleResolveRow(alert)">
+                     <PhCheckCircle size="12" weight="bold" class="action-icon" />
+                   </button>
                 </div>
               </td>
             </tr>
@@ -118,6 +148,7 @@ import RecommendationCard from '../cards/RecommendationCard.vue'
 import IncidentTimelineItem from '../cards/IncidentTimelineItem.vue'
 import IncidentHistoryTabs from './IncidentHistoryTabs.vue'
 import { data } from '../../../wailsjs/go/models'
+import { PhLink, PhBrain, PhMagnifyingGlass, PhGlobe, PhNewspaper, PhCheckCircle, PhSpeakerSlash, PhGhost, PhTrash, PhFire, PhX, PhWarning, PhInfo, PhChartLineDown } from '@phosphor-icons/vue'
 
 interface Props {
   alerts: data.AlertRecord[]
@@ -179,13 +210,31 @@ const emit = defineEmits<{
   'investigate-anomalies': []
   'alert-clicked': [alert: data.AlertRecord]
   'clear-filters': []
+  'severity-change': [value: string]
   'investigate-row': [alert: data.AlertRecord]
   'dismiss-row': [alert: data.AlertRecord]
   'resolve-row': [alert: data.AlertRecord]
+  'state-change': [alert: data.AlertRecord, newState: string]
 }>()
+
+const editingStateId = ref<string | null>(null)
 
 function handleAlertClick(alert: data.AlertRecord) {
   emit('alert-clicked', alert)
+}
+
+function startEditState(alert: data.AlertRecord, event: Event) {
+  event.stopPropagation()
+  editingStateId.value = alert.id
+}
+
+function cancelEditState() {
+  editingStateId.value = null
+}
+
+function changeState(alert: data.AlertRecord, newState: string) {
+  editingStateId.value = null
+  emit('state-change', alert, newState)
 }
 
 function handleClearFilters() {
@@ -366,26 +415,26 @@ function handleResolveRow(alert: data.AlertRecord) {
 }
 
 .connect-btn {
-  background: rgba(138, 130, 224, 0.1);
-  border-color: rgba(138, 130, 224, 0.3);
+  background: rgba(var(--primary-rgb), 0.1);
+  border-color: rgba(var(--primary-rgb), 0.3);
 }
 
 .connect-btn:hover:not(:disabled) {
-  background: rgba(138, 130, 224, 0.2);
-  border-color: rgba(138, 130, 224, 0.5);
+  background: rgba(var(--primary-rgb), 0.2);
+  border-color: rgba(var(--primary-rgb), 0.5);
 }
 
 .investigate-btn {
   background: var(--accent);
   color: white;
   border: none;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+  box-shadow: 0 4px 12px rgba(var(--teal-rgb), 0.2);
 }
 
 .investigate-btn:hover:not(:disabled) {
   background: var(--accent);
   filter: brightness(1.1);
-  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 6px 16px rgba(var(--teal-rgb), 0.3);
 }
 
 .meta-label {
@@ -452,7 +501,7 @@ h3 {
   padding: 8px 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-muted);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--text);
@@ -464,10 +513,12 @@ h3 {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 140px;
+  justify-content: center;
 }
 
 .glass-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--surface);
   border-color: var(--border-active);
   transform: translateY(-1px);
 }
@@ -478,30 +529,32 @@ h3 {
 }
 
 .connect-btn {
-  background: rgba(138, 130, 224, 0.1);
-  border-color: rgba(138, 130, 224, 0.3);
+  background: rgba(var(--primary-rgb), 0.1);
+  border-color: rgba(var(--primary-rgb), 0.3);
 }
 
 .connect-btn:hover:not(:disabled) {
-  background: rgba(138, 130, 224, 0.2);
-  border-color: rgba(138, 130, 224, 0.5);
+  background: rgba(var(--primary-rgb), 0.2);
+  border-color: rgba(var(--primary-rgb), 0.5);
 }
 
 .investigate-btn {
   background: var(--accent);
   color: white;
   border: none;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+  box-shadow: 0 4px 12px rgba(var(--teal-rgb), 0.2);
 }
 
 .investigate-btn:hover:not(:disabled) {
   background: var(--accent);
   filter: brightness(1.1);
-  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 6px 16px rgba(var(--teal-rgb), 0.3);
 }
 
 .btn-icon {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .argus-table {
@@ -591,7 +644,7 @@ h3 {
   padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-muted);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -601,11 +654,54 @@ h3 {
 }
 
 .row-action-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--surface);
   border-color: var(--border-active);
 }
 
 .action-icon {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.argus-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.state-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.state-badge:hover {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.state-select {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-active);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  min-width: 120px;
 }
 </style>

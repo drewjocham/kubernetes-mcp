@@ -146,7 +146,7 @@ onMounted(() => {
 .error-modal-overlay {
   position: fixed;
   inset: 0;
-   background: rgba(0, 0, 0, 0.85);
+   background: var(--modal-overlay-bg);
   z-index: 9999;
   display: flex;
   align-items: center;

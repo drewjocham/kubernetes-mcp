@@ -13,6 +13,7 @@ DEPLOY_BINARY_NAME    = watcher-deploy
 CHAT_BRIDGE_BINARY_NAME = chatbridge
 DESKTOP_APP_BINARY_NAME = kube-watcher-app
 CLI_BINARY_NAME       = kw-cli
+CLOUD_BINARY_NAME     = kube-watcher-cloud
 
 # Source entry points (relative to ROOT_DIR, used with go run/build)
 MCP_CMD               = ./mcp/cmd/server
@@ -21,6 +22,7 @@ DEPLOY_CMD            = ./watcher/cmd/deploy
 CHAT_BRIDGE_CMD       = ./integrations/cmd/chatbridge
 DESKTOP_APP_CMD       = ./kube-watcher-app
 CLI_CMD               = ./cmd/kw-cli
+CLOUD_CMD             = ./cloud/cmd/server
 
 # Build metadata
 VERSION              ?= 1.0.0
@@ -56,7 +58,9 @@ include $(ROOT_DIR)/makefiles/watcher.mk
 include $(ROOT_DIR)/makefiles/monitoring.mk
 include $(ROOT_DIR)/makefiles/helm.mk
 include $(ROOT_DIR)/makefiles/testing.mk
+include $(ROOT_DIR)/makefiles/emulator.mk
 include $(ROOT_DIR)/makefiles/terminal.mk
+include $(ROOT_DIR)/makefiles/cloud.mk
 
 # ─── Top-Level Targets ────────────────────────────────────────────────────────
 
@@ -64,7 +68,7 @@ include $(ROOT_DIR)/makefiles/terminal.mk
 
 all: fmt vet test build
 
-build: build-mcp build-cli build-watcher build-deploy build-chatbridge
+build: build-mcp build-cli build-watcher build-deploy build-chatbridge build-cloud
 
 clean:
 	@echo "Cleaning build artifacts..."

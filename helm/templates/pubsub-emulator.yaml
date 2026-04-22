@@ -1,0 +1,60 @@
+{{- if .Values.pubsubEmulator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pubsub-emulator
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: pubsub-emulator
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pubsub-emulator
+  template:
+    metadata:
+      labels:
+        app: pubsub-emulator
+    spec:
+      containers:
+        - name: emulator
+          image: {{ .Values.pubsubEmulator.image }}
+          command:
+            - "gcloud"
+            - "beta"
+            - "emulators"
+            - "pubsub"
+            - "start"
+            - "--project={{ .Values.pubsubEmulator.project }}"
+            - "--host-port=0.0.0.0:{{ .Values.pubsubEmulator.port }}"
+            - "--verbosity=debug"
+          ports:
+            - containerPort: {{ .Values.pubsubEmulator.port }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.pubsubEmulator.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.pubsubEmulator.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pubsub-emulator
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: pubsub-emulator
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.pubsubEmulator.port }}
+      targetPort: {{ .Values.pubsubEmulator.port }}
+      protocol: TCP
+  selector:
+    app: pubsub-emulator
+{{- end }}

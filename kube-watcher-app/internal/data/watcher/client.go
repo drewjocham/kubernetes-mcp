@@ -23,7 +23,7 @@ type Client struct {
 func New() *Client {
 	base := strings.TrimSpace(os.Getenv("KW_WATCHER_ENDPOINT"))
 	if base == "" {
-		base = "http://localhost:8085"
+		base = "http://localhost:8086"
 	}
 	return &Client{
 		BaseClient: httpclient.NewBaseClient(base, "", 10*time.Second),
@@ -52,6 +52,13 @@ func (c *Client) GetRules(ctx context.Context) ([]interface{}, error) {
 	var rules []interface{}
 	err := c.Get(ctx, "/api/rules", &rules)
 	return rules, err
+}
+
+// AddRule adds a new rule to the watcher.
+func (c *Client) AddRule(ctx context.Context, rule interface{}) (interface{}, error) {
+	var resp interface{}
+	err := c.Post(ctx, "/api/rules", rule, &resp)
+	return resp, err
 }
 
 // GetResources returns the list of resources currently being tracked.

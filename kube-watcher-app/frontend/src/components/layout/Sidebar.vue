@@ -4,6 +4,7 @@
       <h2>Argus Console</h2>
       <p class="sidebar-subtitle">Kubernetes AI Control Plane</p>
     </div>
+    <hr class="sidebar-divider" />
 
     <nav class="sidebar-nav">
       <button
@@ -12,24 +13,30 @@
         :class="['nav-item', { active: activeTab === tab.id }]"
         @click="emit('tab-change', tab.id)"
       >
-        <span class="nav-eyebrow">{{ tab.eyebrow }}</span>
+        <span class="nav-icon">
+          <component :is="tab.icon" size="18" weight="fill" v-if="tab.icon" />
+        </span>
+        <span class="nav-eyebrow" v-if="tab.eyebrow">{{ tab.eyebrow }}</span>
         <span class="nav-label">{{ tab.label }}</span>
       </button>
     </nav>
 
-    <!-- Filter Section (shown for anomalies tab) -->
-    <div v-if="activeTab === 'anomalies'" class="sidebar-filters">
+    <!-- Filter Section (always visible) -->
+    <div class="sidebar-filters">
       <div class="filter-section">
         <p class="meta-label">Severity</p>
-        <div class="filter-options">
+        <div class="filter-options severity-options">
           <button
             v-for="option in severityOptions"
             :key="option.value"
             :class="['filter-option', { active: selectedSeverity === option.value }]"
+            :data-value="option.value"
             @click="emit('severity-change', option.value)"
             :title="option.label"
           >
-            <span class="filter-icon">{{ option.icon }}</span>
+            <span class="filter-icon">
+              <component :is="option.icon" size="12" weight="fill" v-if="option.icon" />
+            </span>
             <span class="filter-label">{{ option.label }}</span>
           </button>
         </div>
@@ -37,23 +44,20 @@
 
       <div class="filter-section">
         <p class="meta-label">State</p>
-        <div class="filter-options">
-          <button
-            v-for="option in stateOptions"
-            :key="option.value"
-            :class="['filter-option', { active: selectedState === option.value }]"
-            @click="emit('state-change', option.value)"
-            :title="option.label"
-          >
-            <span class="filter-icon">{{ option.icon }}</span>
-            <span class="filter-label">{{ option.label }}</span>
-          </button>
-        </div>
+        <select 
+          :value="selectedState" 
+          @change="emit('state-change', ($event.target as HTMLSelectElement).value)"
+          class="select-input"
+        >
+          <option v-for="option in stateOptions" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
       </div>
 
       <div v-if="timeRangeOptions" class="filter-section">
         <p class="meta-label">Time Range</p>
-        <div class="filter-options">
+        <div class="filter-options time-range-options">
           <button
             v-for="option in timeRangeOptions"
             :key="option.value"
@@ -61,7 +65,9 @@
             @click="emit('time-range-change', option.value)"
             :title="option.label"
           >
-            <span class="filter-icon">{{ option.icon }}</span>
+            <span class="filter-icon">
+              <component :is="option.icon" size="14" weight="fill" v-if="option.icon" />
+            </span>
             <span class="filter-label">{{ option.label }}</span>
           </button>
         </div>
@@ -93,53 +99,75 @@
         <div class="endpoint-row">
           <code class="endpoint">{{ endpoint }}</code>
           <button class="copy-btn" @click="copyEndpoint" title="Copy to clipboard">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="4" y="4" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
+            <PhCopy size="16" weight="regular" />
           </button>
         </div>
       </div>
 
       <div class="sidebar-actions">
-        <button class="theme-toggle ghost-btn subtle" @click="toggleTheme && toggleTheme()" :title="currentTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'">
-          <span class="theme-icon">{{ currentTheme === 'light' ? '🌙' : '☀️' }}</span>
-          <span class="theme-label">{{ currentTheme === 'light' ? 'Dark' : 'Light' }} mode</span>
-        </button>
-        <button class="settings-btn" @click="emit('open-settings')" title="Settings">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M19.4 15C19.2669 15.3052 19.1339 15.6104 19.0008 15.9155C18.914 16.1171 18.8272 16.3187 18.7404 16.5203C18.6073 16.8255 18.4743 17.1306 18.3412 17.4358C17.8074 18.6241 17.2736 19.8124 16.7398 21.0008C16.499 21.552 16.2582 22.1032 16.0174 22.6544C15.883 22.9577 15.7486 23.261 15.6142 23.5643C15.5274 23.9675 15.4406 23.9675 15.3538 24.1691C15.2207 24.4743 15.0877 24.7794 14.9546 25.0846C14.8215 25.3898 14.6885 25.6949 14.5554 26.0001H9.44458C9.31146 25.6949 9.17835 25.3898 9.04523 25.0846C8.91212 24.7794 8.779 24.4743 8.64589 24.1691C8.55909 23.9675 8.47229 23.7659 8.38549 23.5643C8.25109 23.261 8.11669 22.9577 7.98229 22.6544C7.74149 22.1032 7.50069 21.552 7.25989 21.0008C6.72609 19.8124 6.19229 18.6241 5.65849 17.4358C5.52538 17.1306 5.39226 16.8255 5.25915 16.5203C5.17235 16.3187 5.08555 16.1171 4.99875 15.9155C4.86564 15.6104 4.73252 15.3052 4.59941 15C4.73252 14.6948 4.86564 14.3896 4.99875 14.0845C5.08555 13.8829 5.17235 13.6813 5.25915 13.4797C5.39226 13.1745 5.52538 12.8694 5.65849 12.5642C6.19229 11.3759 6.72609 10.1876 7.25989 9C7.50069 8.448 7.74149 7.8968 7.98229 7.3456C8.11669 7.0423 8.25109 6.739 8.38549 6.4357C8.47229 6.2341 8.55909 6.0325 8.64589 5.8309C8.779 5.5257 8.91212 5.2206 9.04523 4.9154C9.17835 4.6102 9.31146 4.3051 9.44458 4H14.5554C14.6885 4.3051 14.8215 4.6102 14.9546 4.9154C15.0877 5.2206 15.2207 5.5257 15.3538 5.8309C15.4406 6.0325 15.5274 6.2341 15.6142 6.4357C15.7486 6.739 15.883 7.0423 16.0174 7.3456C16.2582 7.8968 16.499 8.448 16.7398 9C17.2736 10.1876 17.8074 11.3759 18.3412 12.5642C18.4743 12.8694 18.6073 13.1745 18.7404 13.4797C18.8272 13.6813 18.914 13.8829 19.0008 14.0845C19.1339 14.3896 19.2669 14.6948 19.4 15Z" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-        </button>
+         <button class="theme-toggle ghost-btn subtle" @click="toggleTheme && toggleTheme()" :title="currentTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'">
+           <span class="theme-icon">
+             <PhMoon size="18" weight="regular" v-if="currentTheme === 'light'" />
+             <PhSun size="18" weight="regular" v-else />
+           </span>
+           <span class="theme-label">{{ currentTheme === 'light' ? 'Dark' : 'Light' }} mode</span>
+         </button>
+         <button class="settings-btn" @click="emit('open-settings')" title="Settings">
+           <PhGear size="20" weight="regular" />
+         </button>
       </div>
     </div>
 
     <button class="collapse-toggle" @click="emit('toggle-collapse')" :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-      {{ collapsed ? '>>' : '<<' }}
+      <PhCaretRight size="16" weight="regular" v-if="collapsed" />
+      <PhCaretLeft size="16" weight="regular" v-else />
     </button>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import {
+  PhRobot,
+  PhWarning,
+  PhLightbulb,
+  PhScroll,
+  PhEye,
+  PhGlobe,
+  PhFire,
+  PhXCircle,
+  PhWarningCircle,
+  PhInfo,
+  PhChartLineDown,
+  PhCalendarBlank,
+  PhCalendar,
+  PhCalendarDots,
+  PhInfinity,
+  PhCopy,
+  PhMoon,
+  PhSun,
+  PhGear,
+  PhCaretLeft,
+  PhCaretRight,
+  PhSparkle,
+  PhCheckCircle,
+  PhSpeakerSlash,
+  PhMagnifyingGlass,
+  PhGhost,
+  PhTrash
+} from '@phosphor-icons/vue'
 
 interface Tab {
   id: string
   label: string
   eyebrow: string
-}
-
-interface Tab {
-  id: string
-  label: string
-  eyebrow: string
+  icon?: any
 }
 
 interface FilterOption {
   value: string
   label: string
-  icon: string
+  icon: any
 }
 
 interface Props {
@@ -163,28 +191,28 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   severityOptions: () => [
-    { value: 'all', label: 'All', icon: '🌐' },
-    { value: 'critical', label: 'Critical', icon: '🔥' },
-    { value: 'error', label: 'Error', icon: '❌' },
-    { value: 'warning', label: 'Warning', icon: '⚠️' },
-    { value: 'info', label: 'Info', icon: 'ℹ️' },
-    { value: 'low', label: 'Low', icon: '📉' }
+    { value: 'all', label: 'All', icon: PhGlobe },
+    { value: 'critical', label: 'Critical', icon: PhFire },
+    { value: 'error', label: 'Error', icon: PhXCircle },
+    { value: 'warning', label: 'Warning', icon: PhWarningCircle },
+    { value: 'info', label: 'Info', icon: PhInfo },
+    { value: 'low', label: 'Low', icon: PhChartLineDown }
   ],
   stateOptions: () => [
-    { value: 'all', label: 'All States', icon: '🌐' },
-    { value: 'new', label: 'New', icon: '🆕' },
-    { value: 'acknowledged', label: 'Acknowledged', icon: '✅' },
-    { value: 'silenced', label: 'Silenced', icon: '🔇' },
-    { value: 'being_investigated', label: 'Being Investigated', icon: '🔍' },
-    { value: 'false_positive', label: 'False Positive', icon: '👻' },
-    { value: 'deleted', label: 'Deleted', icon: '🗑️' }
+    { value: 'all', label: 'All States', icon: PhGlobe },
+    { value: 'new', label: 'New', icon: PhSparkle },
+    { value: 'acknowledged', label: 'Acknowledged', icon: PhCheckCircle },
+    { value: 'silenced', label: 'Silenced', icon: PhSpeakerSlash },
+    { value: 'being_investigated', label: 'Being Investigated', icon: PhMagnifyingGlass },
+    { value: 'false_positive', label: 'False Positive', icon: PhGhost },
+    { value: 'deleted', label: 'Deleted', icon: PhTrash }
   ],
   timeRangeOptions: () => [
-    { value: '1h', label: 'Last Hour', icon: '⏱️' },
-    { value: '24h', label: 'Last 24h', icon: '📅' },
-    { value: '7d', label: 'Last 7 Days', icon: '🗓️' },
-    { value: '30d', label: 'Last 30 Days', icon: '📆' },
-    { value: 'all', label: 'All Time', icon: '∞' }
+    { value: '1h', label: '1h', icon: PhCalendarBlank },
+    { value: '24h', label: '24h', icon: PhCalendar },
+    { value: '7d', label: '7d', icon: PhCalendarDots },
+    { value: '30d', label: '30d', icon: PhCalendarDots },
+    { value: 'all', label: 'All', icon: PhInfinity }
   ],
   selectedSeverity: 'all',
   selectedState: 'all',
@@ -224,146 +252,176 @@ const copyEndpoint = async () => {
   bottom: 20px;
   width: 260px;
   background: var(--glass-sidebar);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(60px);
+  -webkit-backdrop-filter: blur(60px);
   display: flex;
   flex-direction: column;
-  justify-content: space-between; /* This keeps Nav at top and Settings at bottom */
-  padding: 24px;
-  gap: 32px;
-  overflow-y: auto;
-  transition: width 0.3s ease, left 0.3s ease;
-  border-radius: 30px; /* VisionOS curvature */
-  border: var(--glass-border-rim);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-  z-index: 100;
+  gap: 12px;
+  transition: width 0.3s ease;
 }
 
-.sidebar.collapsed {
-  width: 50px;
-  padding: 24px 8px;
-}
-
-.sidebar.collapsed .sidebar-header,
-.sidebar.collapsed .sidebar-nav,
-.sidebar.collapsed .sidebar-footer {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.sidebar-header h2 {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0 0 4px 0;
+.sidebar-header {
+  margin-bottom: 4px;
 }
 
 .sidebar-subtitle {
-  color: var(--text-secondary);
-  font-size: 14px;
-  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 2px 0 0 0;
+  font-weight: 400;
 }
 
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  overflow-y: auto;
+.sidebar.collapsed {
+  width: 70px;
 }
 
-.nav-item {
-  text-align: left;
-  padding: 12px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  transition: all 0.2s;
-  cursor: pointer;
+.sidebar.collapsed .sidebar-header,
+.sidebar.collapsed .sidebar-filters,
+.sidebar.collapsed .sidebar-footer {
+  display: none;
 }
 
-.nav-item:hover {
-  background: var(--hover);
-  color: var(--text-primary);
+.sidebar.collapsed .sidebar-nav {
+  gap: 4px;
 }
 
-.nav-item.active {
-  background: var(--active);
-  border-color: var(--border-active);
-  color: var(--text-primary);
+.sidebar.collapsed .nav-item {
+  padding: 12px;
+  justify-content: center;
 }
 
-.nav-eyebrow {
-  display: block;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.7;
-  margin-bottom: 2px;
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-eyebrow {
+  display: none;
 }
 
-.nav-label {
-  display: block;
-  font-size: 16px;
-  font-weight: 500;
-}
-
-/* Filter Section */
-.sidebar-filters {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.sidebar.collapsed .nav-icon {
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
 }
 
 .filter-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .meta-label {
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  margin: 0;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin: 0 0 6px 0;
+  font-weight: 600;
 }
 
 .filter-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.severity-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, auto);
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.severity-options .filter-option {
+  padding: 8px 4px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.severity-options .filter-option::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--severity-color, var(--text-tertiary));
+  display: block;
+}
+
+.severity-options .filter-option[data-value="critical"]::before { background: var(--danger); }
+.severity-options .filter-option[data-value="error"]::before { background: var(--warning); }
+.severity-options .filter-option[data-value="warning"]::before { background: var(--warning); }
+.severity-options .filter-option[data-value="info"]::before { background: var(--info); }
+.severity-options .filter-option[data-value="low"]::before { background: var(--text-tertiary); }
+.severity-options .filter-option[data-value="all"]::before { background: var(--primary); }
+
+.severity-options .filter-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.severity-options .filter-option.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.severity-options .filter-option.active::before {
+  transform: scale(1.2);
+}
+
+.severity-options .filter-icon {
+  display: none;
 }
 
 .filter-option {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   white-space: nowrap;
+  flex: 1;
+  justify-content: center;
 }
 
 .filter-option:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: var(--border-active);
   color: var(--text-primary);
 }
 
 .filter-option.active {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--border-active);
+  background: rgba(255, 255, 255, 0.15);
   color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .filter-option.active .filter-icon {
@@ -380,6 +438,39 @@ const copyEndpoint = async () => {
 
 .filter-label {
   font-weight: 500;
+}
+
+.time-range-options {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.time-range-options .filter-option {
+  flex: 1;
+  padding: 6px 2px;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-range-options .filter-option.active {
+  background: var(--primary);
+  color: white;
+}
+
+.time-range-options .filter-icon {
+  display: none;
 }
 
 .sidebar-footer {
@@ -400,9 +491,9 @@ const copyEndpoint = async () => {
 }
 
 .cluster-info h3 {
-  font-size: 18px;
-  margin: 0;
-  font-weight: 500;
+  font-size: 20px;
+  margin: 0 0 4px 0;
+  font-weight: 600;
 }
 
 .endpoint-section .endpoint {
@@ -433,6 +524,7 @@ const copyEndpoint = async () => {
 
 .status-dot.green {
   background: var(--success);
+  box-shadow: 0 0 8px var(--success);
 }
 
 .status-dot.yellow {
@@ -613,6 +705,103 @@ const copyEndpoint = async () => {
 .settings-btn:hover {
   background: var(--hover);
   border-color: var(--border-active);
+}
+
+.sidebar-divider {
+  border: none;
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+  opacity: 0.5;
+}
+
+.select-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-input:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-active);
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2);
+}
+
+/* Navigation styles */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.nav-item:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: var(--primary);
+  color: white;
+}
+
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 18px;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.nav-item.active .nav-icon {
+  opacity: 1;
+  color: white;
+}
+
+.nav-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.nav-label {
+  font-weight: 500;
+  flex: 1;
 }
 
 </style>

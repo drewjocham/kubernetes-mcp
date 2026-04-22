@@ -40,14 +40,14 @@ mcp:
 
 # ─── Cloud Service
 cloud:
-  enabled: true
+  enabled: false
   replicaCount: 1
   image:
     repository: watcher-cloud
     tag: latest
     pullPolicy: IfNotPresent
-  port: 8080
-  wsPort: 8081
+  port: 9090
+  wsPort: 9091
   logLevel: info
   # JWT secret for authentication (should be set via secret in production)
   jwtSecret: "change-me-in-production"
@@ -171,6 +171,12 @@ watcher:
         condition: "evt.severity == 'critical'"
         actions:
           - dashboard-webhook
+          - log_change
+      - name: Anomstack-Warning-Anomaly
+        kind: Anomaly
+        condition: "evt.severity == 'warning'"
+        actions:
+          - log_change
     actions:
       log_change:
         type: log
@@ -189,10 +195,20 @@ watcher:
       heartbeat:
         enabled: true
       anomstack:
-        enabled: {{ .Values.anomstack.enabled }}
+        enabled: false
         endpoint: {{ .Values.anomstack.endpoint }}
         interval: {{ .Values.anomstack.interval }}
+      pubsub:
+        enabled: true
+        project_id: "test-project"
+        subscription_id: "anomaly-events-sub"
+        topic_id: "anomaly-events-topic"
   webhookUrl: ""
+  extraEnv:
+    - name: PUBSUB_EMULATOR_HOST
+      value: "pubsub-emulator:8085"
+    - name: GOOGLE_CLOUD_PROJECT
+      value: "test-project"
 
 badgerExplorer:
   enabled: false
@@ -252,6 +268,9 @@ anomstack:
     dashboardPort: "8080"
     llmPlatform: openai
     llmalertModels: gpt-4o-mini
+    googleCloudProject: "test-project"
+    anomstackPubsubTopic: "anomaly-events-topic"
+
   persistence:
     enabled: true
     size: 5Gi
@@ -260,17 +279,17 @@ anomstack:
     daemon:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 512Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
     webserver:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 512Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
     dashboard:
       requests:
         cpu: 100m
@@ -370,3 +389,10 @@ signoz:
     annotations:
       nginx.ingress.kubernetes.io/rewrite-target: /
     tls: []
+
+# ─── Pub/Sub Emulator (for testing)
+pubsubEmulator:
+  enabled: true
+  image: google/cloud-sdk:latest
+  port: 8085
+  project: test-project

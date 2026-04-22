@@ -1,0 +1,20 @@
+{{- if and .Values.cloud.enabled .Values.cloud.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloud-data
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: cloud
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+    {{- include "kube-watcher.componentLabel" "cloud" | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.cloud.persistence.size }}
+  {{- if .Values.cloud.persistence.storageClass }}
+  storageClassName: {{ .Values.cloud.persistence.storageClass }}
+  {{- end }}
+{{- end }}

@@ -5,13 +5,19 @@ import {http} from '../models';
 
 export function AddAlertComment(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AddWatcherRule(arg1:any):Promise<any>;
+
 export function AskAI(arg1:string,arg2:string):Promise<string>;
 
 export function DeleteWidget(arg1:string):Promise<void>;
 
 export function DeployAnomstack(arg1:string):Promise<string>;
 
+export function DescribeNode(arg1:string):Promise<string>;
+
 export function DescribePod(arg1:string,arg2:string):Promise<string>;
+
+export function DescribeService(arg1:string,arg2:string):Promise<string>;
 
 export function ExecPodCommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
@@ -54,6 +60,8 @@ export function GetWatcherStatus():Promise<Record<string, any>>;
 export function GetWidgets():Promise<Array<data.Widget>>;
 
 export function Greet(arg1:string):Promise<string>;
+
+export function LogError(arg1:string):Promise<void>;
 
 export function RunCommand(arg1:string):Promise<string>;
 

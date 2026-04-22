@@ -185,6 +185,7 @@ func (c *Client) Recommendations(ctx context.Context) ([]data.Recommendation, er
 
 // Services returns empty slice (Docker Compose support removed).
 func (c *Client) Services(ctx context.Context) ([]data.ServiceStatus, error) {
+	fmt.Printf("[mcp client] Services called, returning empty slice\n")
 	return []data.ServiceStatus{}, nil
 }
 

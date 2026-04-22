@@ -40,6 +40,22 @@ kube-watcher/
 ├── integrations/      # Integration bridges (Google Chat, etc.)
 └── main.go            # CLI entry point
 ```
+## Real-time Anomaly Detection with Pub/Sub
+
+kube-watcher integrates with [Anomstack](https://github.com/anomstack/anomstack) for ML-powered anomaly detection. The system uses Google Cloud Pub/Sub for real-time anomaly event streaming:
+
+- **Anomstack** publishes detected anomalies to a Pub/Sub topic
+- **Watcher** subscribes to the topic and processes anomalies in real-time
+- **Rules engine** evaluates anomalies and triggers actions (webhooks, alerts, etc.)
+
+### Key Features
+- **Real-time streaming**: Replace HTTP polling with Pub/Sub for lower latency
+- **Auto-creation**: Topics and subscriptions created automatically if missing
+- **Graceful degradation**: System works without Pub/Sub credentials
+- **Production-ready**: Supports Google Cloud IAM, encryption, and monitoring
+
+For detailed configuration, see [Pub/Sub Integration Guide](docs/pubsub-integration.md).
+
 ## Installation
 
 1. Clone the repository:

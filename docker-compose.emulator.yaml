@@ -1,0 +1,45 @@
+# Pub/Sub emulator for local development and testing
+version: '3.8'
+
+services:
+  pubsub-emulator:
+    image: google/cloud-sdk:latest
+    command: >
+      gcloud beta emulators pubsub start
+      --project=test-project
+      --host-port=0.0.0.0:8085
+      --verbosity=debug
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Optional: UI for viewing Pub/Sub messages
+  # pubsub-ui:
+  #   image: marcbachmann/pubsub-ui:latest
+  #   environment:
+  #     - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+  #     - PUBSUB_PROJECT_ID=test-project
+  #   ports:
+  #     - "8081:8080"
+  #   depends_on:
+  #     - pubsub-emulator
+
+  # Test publisher (optional)
+  # test-publisher:
+  #   build:
+  #     context: .
+  #     dockerfile: test/Dockerfile.publisher
+  #   environment:
+  #     - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+  #     - GOOGLE_CLOUD_PROJECT=test-project
+  #   depends_on:
+  #     pubsub-emulator:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./test:/app/test:ro
+  #   command: ["python", "/app/test/publish_test_anomalies.py"]

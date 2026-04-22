@@ -22,6 +22,7 @@ rules:
       - google-space-alert-chat
       - ops-pager
       - dashboard-webhook
+      - cloud-alert
   - name: Image-Pull-Failure
     kind: Pod
     duration: 2m
@@ -66,6 +67,17 @@ rules:
     condition: "evt.model_issue_detected == true && evt.model_issue_severity == 'critical'"
     actions:
       - ops-pager
+  - name: Anomstack-Critical-Anomaly
+    kind: Anomaly
+    condition: "evt.severity == 'critical'"
+    actions:
+      - dashboard-webhook
+      - log_change
+  - name: Anomstack-Warning-Anomaly
+    kind: Anomaly
+    condition: "evt.severity == 'warning'"
+    actions:
+      - log_change
 actions:
   google-space-alert-chat:
     type: alert
@@ -78,7 +90,7 @@ actions:
     severity: warning
   log_change:
     type: log
-    template: "{{ .rule.name }} triggered for {{ .resource.metadata.name }}"
+    template: "{{ .RuleName }} triggered for {{ .Event.Name }}"
   # Example: merge a local file or set config.url via your deploy pipeline.
   # Never commit real webhook URLs or API keys to the repository.
   google-chat:
@@ -100,6 +112,15 @@ actions:
       }
     config:
       url: "http://host.docker.internal:3000/api/alerts/ingest"
+  # Cloud service integration (optional)
+  # Requires cloud service endpoint and API key
+  cloud-alert:
+    type: cloud
+    template: "Alert from rule '{{ .RuleName }}' for {{ .Context.resource_kind }}/{{ .Context.resource_name }} in namespace {{ .Context.namespace }}"
+    config:
+      endpoint: "https://cloud.kube-watcher.example.com/api/alerts"
+      api_key: "${CLOUD_API_KEY}"
+      agent_id: "${AGENT_ID}"
 settings:
   metrics:
     enabled: true
@@ -116,3 +137,16 @@ settings:
     dashboard_url: "http://host.docker.internal:3000"
     cluster_name: "local"
     interval: 30s
+  pubsub:
+    enabled: true
+    project_id: "test-project"
+    subscription_id: "anomaly-events-sub"
+    topic_id: "anomaly-events-topic"
+  cloud:
+    enabled: false
+    endpoint: "https://cloud.kube-watcher.example.com"
+    api_key: "${CLOUD_API_KEY}"
+    agent_id: "${AGENT_ID}"
+    cluster_name: "local"
+    heartbeat: true
+    heartbeat_interval: 60s

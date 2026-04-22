@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -38,101 +37,101 @@ import (
 )
 
 type engineApp struct {
-	cfg       *config.WatchConfig
-	logger    *slog.Logger
-	store     tracker.Store
-	sanitizer *security.Sanitizer
-
-	// For log streaming
-	listeners   map[chan string]struct{}
-	listenersMu sync.RWMutex
+	cfg          *config.WatchConfig
+	logger       *slog.Logger
+	store        tracker.Store
+	sanitizer    *security.Sanitizer
+	listeners    map[chan string]struct{}
+	listenersMu  sync.RWMutex
+	rulesMu      sync.RWMutex
+	dynamicRules []config.Rule
+	k8s          kube.ClientInterface
 }
 
-func (a *engineApp) Observe(evt events.ResourceEvent) {
-	// Sanitize sensitive data before streaming
-	var toMarshal interface{} = evt
-	if a.sanitizer != nil {
-		toMarshal = a.sanitizer.SanitizeEvent(&evt)
-	}
-
-	data, err := json.Marshal(toMarshal)
-	if err != nil {
-		a.logger.Warn("failed to marshal event for streaming", "error", err)
+func (a *engineApp) handlePostRule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	a.broadcast(string(data))
+	var rule config.Rule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if rule.Name == "" {
+		http.Error(w, "rule name is required", http.StatusBadRequest)
+		return
+	}
+	a.logger.Info("adding dynamic rule", "name", rule.Name)
+	a.rulesMu.Lock()
+	defer a.rulesMu.Unlock()
+	a.dynamicRules = append(a.dynamicRules, rule)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(rule)
 }
-
 func (a *engineApp) Close() error {
+	var errs []error
+
+	a.listenersMu.Lock()
+	for ch := range a.listeners {
+		close(ch)
+		delete(a.listeners, ch)
+	}
+	a.listenersMu.Unlock()
+
+	if a.store != nil {
+		if err := a.store.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("store close: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	a.logger.Info("engine shutdown complete")
 	return nil
 }
 
-func (a *engineApp) broadcast(msg string) {
-	a.listenersMu.RLock()
-	defer a.listenersMu.RUnlock()
-	for ch := range a.listeners {
-		select {
-		case ch <- msg:
-		default:
-			// channel full, skip
-		}
-	}
-}
-
-func (a *engineApp) addListener(ch chan string) {
-	a.listenersMu.Lock()
-	defer a.listenersMu.Unlock()
-	a.listeners[ch] = struct{}{}
-}
-
-func (a *engineApp) removeListener(ch chan string) {
-	a.listenersMu.Lock()
-	defer a.listenersMu.Unlock()
-	delete(a.listeners, ch)
-}
-
-var (
-	evtDotFieldPattern   = regexp.MustCompile(`\bevt\.([a-zA-Z_][a-zA-Z0-9_]*)`)
-	evtIndexFieldPattern = regexp.MustCompile(`\bevt\[['"]([^'"]+)['"]\]`)
-)
-
 func main() {
+	fs := flag.NewFlagSet("watcher", flag.ExitOnError)
 	var (
-		configPath string
-		debug      bool
-		logFile    string
-		httpAddr   string
-		healthOnly bool
+		cfgPath  = fs.String("config", "", "")
+		debug    = fs.Bool("debug", false, "")
+		logFile  = fs.String("log-file", "", "")
+		httpAddr = fs.String("listen", ":8085", "")
+		health   = fs.Bool("health", false, "")
 	)
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		slog.Error("failed to parse flags", "err", err)
+		os.Exit(1)
+	}
 
-	flag.StringVar(&configPath, "config", "", "path to config")
-	flag.BoolVar(&debug, "debug", false, "enable debug")
-	flag.StringVar(&logFile, "log-file", "", "path to log file")
-	flag.StringVar(&httpAddr, "listen", ":8085", "http listen address")
-	flag.BoolVar(&healthOnly, "health", false, "run health probe and exit")
-	flag.Parse()
-
-	if err := runApplication(configPath, debug, logFile, httpAddr, healthOnly); err != nil {
-		slog.Default().Error("application failed", "error", err)
+	if err := run(*cfgPath, *debug, *logFile, *httpAddr, *health); err != nil {
+		slog.Error("application failed", "err", err)
 		os.Exit(1)
 	}
 }
 
-func runApplication(configPath string, debug bool, logFile string, httpAddr string, healthOnly bool) error {
-	logger, err := logging.New(debug, logFile)
-	if err != nil {
-		return fmt.Errorf("initialize logger: %w", err)
-	}
+func run(cfgPath string, debug bool, logFile, addr string, healthOnly bool) error {
+	logger, _ := logging.New(debug, logFile)
 	defer logging.Shutdown()
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return fmt.Errorf("config load failed: %w", err)
+		return err
+	}
+	if healthOnly {
+		return nil
 	}
 
-	if healthOnly {
-		logger.Info("config validation successful", "paths", config.ResolvedConfigPaths(configPath))
-		return nil
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	base, err := kube.NewClient(logger)
+	if err != nil {
+		return err
 	}
 
 	app := &engineApp{
@@ -140,225 +139,133 @@ func runApplication(configPath string, debug bool, logFile string, httpAddr stri
 		logger:    logger,
 		sanitizer: security.NewSanitizer(true),
 		listeners: make(map[chan string]struct{}),
+		k8s:       kube.NewAuditClient(base, audit.NewSlogLogger(logger), logger, kube.AuditOptionsFromEnv()...),
 	}
-	return app.run(configPath, httpAddr)
+
+	return app.start(ctx, addr)
 }
 
-func (a *engineApp) run(configPath, httpAddr string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	cfg := snapshotWatchConfig(a.cfg)
-
-	baseClient, err := kube.NewClient(a.logger)
+func (a *engineApp) start(ctx context.Context, addr string) error {
+	store, err := a.setupStore()
 	if err != nil {
-		return fmt.Errorf("k8s client: %w", err)
-	}
-
-	auditLogger := audit.NewSlogLogger(a.logger)
-	k8sClient := kube.NewAuditClient(baseClient, auditLogger, a.logger, kube.AuditOptionsFromEnv()...)
-
-	store, err := a.initStore(cfg)
-	if err != nil {
-		return fmt.Errorf("store init: %w", err)
-	}
-	a.store = store
-	defer func() {
-		_ = store.Close()
-	}()
-
-	celEnv, err := a.initCEL(cfg)
-	if err != nil {
-		return fmt.Errorf("cel init: %w", err)
-	}
-	if err := a.validateCELRules(cfg, celEnv); err != nil {
-		return fmt.Errorf("cel rule validation: %w", err)
-	}
-
-	dispatcher, err := actions.NewDispatcher(a.logger, cfg.Actions, 64)
-	if err != nil {
-		return fmt.Errorf("dispatcher: %w", err)
-	}
-
-	metricStore := tracker.NewMetricStore(time.Hour)
-	go metricStore.CleanupLoop(ctx, 5*time.Minute)
-
-	if cfg.Settings.Heartbeat.Enabled {
-		go a.startHeartbeatLoop(ctx, cfg.Settings.Heartbeat)
-	}
-
-	pipe := a.buildPipeline(cfg, k8sClient, store, metricStore, dispatcher, celEnv)
-	defer func() {
-		if err := pipe.Close(); err != nil {
-			a.logger.Warn("pipeline close failed", "error", err)
-		}
-	}()
-
-	a.logger.Info("event engine starting", "config_paths", config.ResolvedConfigPaths(configPath))
-
-	eg, gctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		pipe.Start(gctx)
-		return nil
-	})
-	eg.Go(func() error {
-		return a.startServer(gctx, "internal-api", httpAddr, a.apiMux())
-	})
-	if cfg.Settings.Metrics.Enabled {
-		metricsAddr := cfg.Settings.Metrics.Listen
-		eg.Go(func() error {
-			return a.startServer(gctx, "metrics", metricsAddr, a.metricsMux())
-		})
-	}
-
-	if err := eg.Wait(); err != nil {
 		return err
 	}
+	a.store = store
+	defer store.Close()
 
-	a.logger.Info("event engine stopped")
-	return nil
-}
-
-func (a *engineApp) initStore(cfg *config.WatchConfig) (tracker.Store, error) {
-	if cfg.ResourceTracking.Storage == "memory" {
-		return tracker.NewMemoryStore(), nil
-	}
-	return tracker.NewBadgerStore(cfg.ResourceTracking.Path, cfg.ResourceTracking.Retention)
-}
-
-func (a *engineApp) initCEL(cfg *config.WatchConfig) (*cel.Env, error) {
-	if !cfg.Settings.CEL.Enabled {
-		return nil, nil
-	}
-	return cel.NewEnv(
+	env, _ := cel.NewEnv(
 		cel.Variable("evt", cel.DynType),
 		cel.Variable("meta", cel.DynType),
 		cel.Variable("kind", cel.StringType),
 		cel.Variable("ns", cel.StringType),
 		cel.Variable("name", cel.StringType),
 	)
+
+	disp, _ := actions.NewDispatcher(a.logger, a.cfg.Actions, 64)
+	mStore := tracker.NewMetricStore(time.Hour)
+	go mStore.CleanupLoop(ctx, 5*time.Minute)
+
+	if a.cfg.Settings.Heartbeat.Enabled {
+		go a.heartbeatLoop(ctx)
+	}
+
+	pipe := a.buildPipeline(env, disp, mStore)
+	defer pipe.Close()
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { pipe.Start(gctx); return nil })
+	g.Go(func() error { return a.serve(gctx, "api", addr, a.apiMux()) })
+
+	if a.cfg.Settings.Metrics.Enabled {
+		g.Go(func() error { return a.serve(gctx, "metrics", a.cfg.Settings.Metrics.Listen, a.metricsMux()) })
+	}
+
+	return g.Wait()
 }
 
-func (a *engineApp) buildPipeline(cfg *config.WatchConfig, client kube.ClientInterface, st tracker.Store,
-	ms *tracker.MetricStore, dp *actions.Dispatcher, env *cel.Env) *pipeline.Pipeline {
-	engine := rules.NewEngine(a.logger, cfg, st, env)
-	var sources []pipeline.Source
-	sources = append(sources, source.NewInformerSource(client.GetRawInterface(), a.logger, 30*time.Second))
-	if cfg.Settings.Anomstack.Enabled {
-		sources = append(sources, source.NewAnomstackSource(a.logger, cfg.Settings.Anomstack))
+func (a *engineApp) buildPipeline(env *cel.Env, dp *actions.Dispatcher, ms *tracker.MetricStore) *pipeline.Pipeline {
+	srcs := []pipeline.Source{source.NewInformerSource(a.k8s.GetRawInterface(), a.logger, 30*time.Second)}
+	if a.cfg.Settings.Anomstack.Enabled {
+		srcs = append(srcs, source.NewAnomstackSource(a.logger, a.cfg.Settings.Anomstack))
 	}
-	var src pipeline.Source
-	if len(sources) == 1 {
-		src = sources[0]
-	} else {
-		src = source.NewMultiSource(a.logger, sources...)
-	}
-	podEnricher := pipeline.NewPodEnricher(getEnrichmentFields(cfg.ResourceTracking.Fields, cfg.Rules))
-
-	enricher := pipeline.Enricher(podEnricher)
-	if cfg.Settings.Model.Enabled {
-		enricher = pipeline.NewChainEnricher(
-			podEnricher,
-			pipeline.NewModelEnricher(a.logger, cfg.Settings.Model),
-		)
+	if a.cfg.Settings.PubSub.Enabled {
+		a.logger.Warn("PubSub source not implemented")
+		// srcs = append(srcs, source.NewPubSubSource(a.logger, a.cfg.Settings.PubSub))
 	}
 
-	pipe := pipeline.New(
-		a.logger,
-		src,
-		pipeline.NewRuleAwareFilter(cfg),
-		enricher,
-		engine,
-		dp,
-		st,
-		ms,
-		cfg.Settings.QueueDepth,
-		cfg.Settings.QueueDepth,
-		30,
-	)
-	if cfg.Settings.Metrics.Enabled {
+	enricher := pipeline.NewPodEnricher(getEnrichmentFields(a.cfg))
+	pipe := pipeline.New(a.logger, source.NewMultiSource(a.logger, srcs...),
+		pipeline.NewRuleAwareFilter(a.cfg), enricher, rules.NewEngine(a.logger, a.cfg, a.store, env),
+		dp, a.store, ms, a.cfg.Settings.QueueDepth, a.cfg.Settings.QueueDepth, 30)
+
+	pipe.AddObserver(a)
+	if a.cfg.Settings.Metrics.Enabled {
 		pipe.AddObserver(metrics.NewExporter())
 	}
-	pipe.AddObserver(a)
-
 	return pipe
 }
 
+func (a *engineApp) serve(ctx context.Context, name, addr string, h http.Handler) error {
+	if addr == "" && name == "metrics" {
+		addr = ":9095"
+	}
+	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		sCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(sCtx); err != nil {
+			a.logger.Warn("server shutdown error", "name", name, "error", err)
+		}
+	}()
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("%s server: %w", name, err)
+	}
+	return nil
+}
+
 func (a *engineApp) apiMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	h := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
-	mux.HandleFunc("/health", h)
-	mux.HandleFunc("/ready", h)
-
-	// API endpoints
-	mux.HandleFunc("GET /api/config", a.handleConfig)
-	mux.HandleFunc("GET /api/rules", a.handleRules)
-	mux.HandleFunc("GET /api/resources", a.handleResources)
-	mux.HandleFunc("GET /api/status", a.handleStatus)
-	mux.HandleFunc("GET /api/logs/stream", a.handleLogStream)
-
-	return mux
+	m := http.NewServeMux()
+	m.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
+	m.HandleFunc("GET /api/config", a.jsonHandler(func() interface{} { return a.cfg }))
+	m.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
+		a.logger.Warn("api/rules request", "method", r.Method, "path", r.URL.Path)
+		switch r.Method {
+		case "GET":
+			a.rulesMu.RLock()
+			defer a.rulesMu.RUnlock()
+			allRules := make([]config.Rule, 0, len(a.cfg.Rules)+len(a.dynamicRules))
+			allRules = append(allRules, a.cfg.Rules...)
+			allRules = append(allRules, a.dynamicRules...)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(allRules)
+		case "POST":
+			a.handlePostRule(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	m.HandleFunc("GET /api/resources", a.jsonHandler(func() interface{} { return a.store.List() }))
+	m.HandleFunc("GET /api/status", a.jsonHandler(func() interface{} {
+		return map[string]interface{}{
+			"ready":   true,
+			"store":   a.store != nil,
+			"config":  a.cfg != nil,
+			"started": time.Now().UTC().Format(time.RFC3339),
+		}
+	}))
+	m.HandleFunc("GET /api/logs/stream", a.handleLogStream)
+	return m
 }
 
-func (a *engineApp) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(snapshotWatchConfig(a.cfg)); err != nil {
-		a.logger.Warn("failed to encode config", "error", err)
-	}
-}
-
-func (a *engineApp) handleRules(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(a.cfg.Rules); err != nil {
-		a.logger.Warn("failed to encode rules", "error", err)
-	}
-}
-
-func (a *engineApp) handleResources(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	var resources []string
-	if a.store != nil {
-		resources = a.store.List()
-	}
-	if err := json.NewEncoder(w).Encode(resources); err != nil {
-		a.logger.Warn("failed to encode resources", "error", err)
-	}
-}
-
-func (a *engineApp) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	status := map[string]interface{}{
-		"ready":   true,
-		"store":   a.store != nil,
-		"config":  a.cfg != nil,
-		"started": time.Now(),
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(status); err != nil {
-		a.logger.Warn("failed to encode status", "error", err)
+func (a *engineApp) jsonHandler(provider func() interface{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(provider())
 	}
 }
 
 func (a *engineApp) handleLogStream(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -370,9 +277,7 @@ func (a *engineApp) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case msg := <-ch:
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
-				return
-			}
+			fmt.Fprintf(w, "data: %s\n\n", msg)
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -382,347 +287,101 @@ func (a *engineApp) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *engineApp) metricsMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	return mux
+func (a *engineApp) Observe(evt events.ResourceEvent) {
+	var data interface{} = evt
+	if a.sanitizer != nil {
+		data = a.sanitizer.SanitizeEvent(&evt)
+	}
+	b, _ := json.Marshal(data)
+	a.broadcast(string(b))
 }
 
-func (a *engineApp) startServer(ctx context.Context, name, addr string, handler http.Handler) error {
-	if addr == "" && name == "metrics" {
-		addr = ":9095"
+func (a *engineApp) broadcast(msg string) {
+	a.listenersMu.RLock()
+	defer a.listenersMu.RUnlock()
+	for ch := range a.listeners {
+		select {
+		case ch <- msg:
+		default:
+		}
 	}
-	if addr == "" {
-		return nil
+}
+
+func (a *engineApp) addListener(ch chan string) {
+	a.listenersMu.Lock()
+	defer a.listenersMu.Unlock()
+	a.listeners[ch] = struct{}{}
+}
+func (a *engineApp) removeListener(ch chan string) {
+	a.listenersMu.Lock()
+	defer a.listenersMu.Unlock()
+	delete(a.listeners, ch)
+}
+
+func (a *engineApp) setupStore() (tracker.Store, error) {
+	if a.cfg.ResourceTracking.Storage == "memory" {
+		return tracker.NewMemoryStore(), nil
 	}
+	return tracker.NewBadgerStore(a.cfg.ResourceTracking.Path, a.cfg.ResourceTracking.Retention)
+}
 
-	a.logger.Info("starting server", "name", name, "addr", addr)
+func (a *engineApp) heartbeatLoop(ctx context.Context) {
+	h := a.cfg.Settings.Heartbeat
+	t := time.NewTicker(h.Interval)
+	defer t.Stop()
+	url := fmt.Sprintf("%s/api/clusters/%s/heartbeat", h.DashboardURL, h.ClusterName)
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		errCh <- nil
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return fmt.Errorf("%s server failed: %w", name, err)
-		}
-		return nil
-	case <-ctx.Done():
-		sCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := srv.Shutdown(sCtx); err != nil && !errors.Is(err, context.Canceled) {
-			a.logger.Warn("server shutdown error", "name", name, "error", err)
-		}
-		if err := <-errCh; err != nil {
-			return fmt.Errorf("%s server failed during shutdown: %w", name, err)
-		}
-		a.logger.Debug("server shutdown complete", "name", name)
-		return nil
-	}
-}
-
-func getEnrichmentFields(resourceFields []string, rulesCfg []config.Rule) []string {
-	fieldSet := map[string]struct{}{"restart_count": {}}
-
-	for _, f := range resourceFields {
-		if f != "" {
-			fieldSet[strings.ToLower(f)] = struct{}{}
-		}
-	}
-	for _, rule := range rulesCfg {
-		for _, cond := range rule.Conditions {
-			if cond.Field != "" {
-				fieldSet[strings.ToLower(cond.Field)] = struct{}{}
+		case <-t.C:
+			payload, err := json.Marshal(map[string]interface{}{"cluster": h.ClusterName, "status": "active", "timestamp": time.Now().UTC()})
+			if err != nil {
+				a.logger.Warn("heartbeat json marshal error", "error", err)
+				continue
+			}
+			req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payload))
+			if err != nil {
+				a.logger.Warn("heartbeat request creation error", "error", err)
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				a.logger.Warn("heartbeat request failed", "error", err)
+				continue
+			}
+			defer resp.Body.Close()
+			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+				a.logger.Warn("heartbeat response drain error", "error", err)
 			}
 		}
 	}
+}
 
-	out := make([]string, 0, len(fieldSet))
-	for f := range fieldSet {
-		out = append(out, f)
+func getEnrichmentFields(cfg *config.WatchConfig) []string {
+	unique := map[string]struct{}{"restart_count": {}}
+	for _, f := range cfg.ResourceTracking.Fields {
+		unique[strings.ToLower(f)] = struct{}{}
+	}
+	for _, r := range cfg.Rules {
+		for _, c := range r.Conditions {
+			unique[strings.ToLower(c.Field)] = struct{}{}
+		}
+	}
+	var out []string
+	for k := range unique {
+		if k != "" {
+			out = append(out, k)
+		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-func (a *engineApp) validateCELRules(cfg *config.WatchConfig, env *cel.Env) error {
-	if env == nil {
-		return nil
-	}
-	for _, rule := range cfg.Rules {
-		expr := strings.TrimSpace(rule.Expression)
-		if expr == "" {
-			continue
-		}
-
-		ast, issues := env.Compile(expr)
-		if issues != nil && issues.Err() != nil {
-			return fmt.Errorf("rule %q has invalid expression %q: %w", rule.Name, expr, issues.Err())
-		}
-		if !ast.OutputType().IsExactType(cel.BoolType) {
-			return fmt.Errorf("rule %q expression must return bool, got %s", rule.Name, ast.OutputType())
-		}
-		allowed := knownCELFieldsForKind(cfg, rule.Kind)
-
-		for _, field := range referencedEvtFields(expr) {
-			if _, ok := allowed[strings.ToLower(field)]; !ok {
-				return fmt.Errorf("rule %q references unknown evt field %q for kind %q", rule.Name, field, rule.Kind)
-			}
-		}
-
-		a.logger.Debug("validated CEL rule", "rule", rule.Name)
-	}
-
-	return nil
-}
-func knownCELFieldsForKind(cfg *config.WatchConfig, kind string) map[string]struct{} {
-	kindKey := strings.ToLower(strings.TrimSpace(kind))
-	fields := map[string]struct{}{
-		"metadata":               {},
-		"spec":                   {},
-		"status":                 {},
-		"kind":                   {},
-		"apiversion":             {},
-		"model_issue_detected":   {},
-		"model_issue_confidence": {},
-		"model_checked_at":       {},
-		"model_issue_severity":   {},
-		"model_issue_summary":    {},
-		"model_issue_signals":    {},
-		"model_analysis_error":   {},
-	}
-
-	add := func(keys ...string) {
-		for _, k := range keys {
-			fields[strings.ToLower(k)] = struct{}{}
-		}
-	}
-	podFields := []string{
-		"restart_count",
-		"restart_delta",
-		"cpu_request",
-		"memory_request",
-		"ram",
-		"cpu_limit",
-		"memory_limit",
-		"cpu_limit_gap",
-		"mem_limit_gap",
-		"cpu_usage_ratio",
-		"mem_usage_ratio",
-		"replicas",
-		"crash_looping",
-		"crash_reason",
-		"containers_not_ready",
-		"container_ready_ratio",
-		"oom_killed",
-		"waiting_reason",
-		"waiting_reasons",
-		"waiting_message",
-		"is_ready",
-		"is_terminating",
-	}
-	hpaFields := []string{
-		"min_pod_count",
-		"max_pod_count",
-		"current_pod_count",
-		"desired_pod_count",
-		"current_replicas",
-		"desired_replicas",
-		"current_replicas_delta",
-		"desired_replicas_delta",
-		"hpa_at_max_capacity",
-		"hpa_at_min_capacity",
-		"hpa_saturation_ratio",
-		"hpa_is_stalled",
-	}
-	nodeFields := []string{
-		"node_memory_pressure",
-		"node_disk_pressure",
-		"node_pid_pressure",
-		"node_ready",
-		"cpu_allocatable_m",
-		"mem_allocatable_mi",
-		"cpu_capacity_m",
-		"mem_capacity_mi",
-	}
-
-	switch kindKey {
-	case "pod":
-		add(podFields...)
-	case "horizontalpodautoscaler":
-		add(hpaFields...)
-	case "node":
-		add(nodeFields...)
-	case "":
-		add(podFields...)
-		add(hpaFields...)
-		add(nodeFields...)
-	default:
-		// unknown kind: keep common fields plus explicit config/rule fields below
-	}
-
-	for _, f := range cfg.ResourceTracking.Fields {
-		if trimmed := strings.TrimSpace(strings.ToLower(f)); trimmed != "" {
-			fields[trimmed] = struct{}{}
-		}
-	}
-	for _, r := range cfg.Rules {
-		if kindKey != "" && strings.ToLower(strings.TrimSpace(r.Kind)) != kindKey {
-			continue
-		}
-		for _, c := range r.Conditions {
-			if trimmed := strings.TrimSpace(strings.ToLower(c.Field)); trimmed != "" {
-				fields[trimmed] = struct{}{}
-			}
-		}
-	}
-	return fields
-}
-
-func referencedEvtFields(expr string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-
-	for _, m := range evtDotFieldPattern.FindAllStringSubmatch(expr, -1) {
-		if len(m) < 2 {
-			continue
-		}
-		field := m[1]
-		key := strings.ToLower(field)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, field)
-	}
-
-	for _, m := range evtIndexFieldPattern.FindAllStringSubmatch(expr, -1) {
-		if len(m) < 2 {
-			continue
-		}
-		field := m[1]
-		key := strings.ToLower(field)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, field)
-	}
-
-	return out
-}
-
-func (a *engineApp) startHeartbeatLoop(ctx context.Context, cfg config.HeartbeatConfig) {
-	if !cfg.Enabled || cfg.DashboardURL == "" || cfg.ClusterName == "" {
-		a.logger.Debug("heartbeat disabled or missing configuration")
-		return
-	}
-	endpoint := fmt.Sprintf("%s/api/clusters/%s/heartbeat", cfg.DashboardURL, cfg.ClusterName)
-	ticker := time.NewTicker(cfg.Interval)
-	defer ticker.Stop()
-
-	a.logger.Info("heartbeat loop started", "endpoint", endpoint, "interval", cfg.Interval)
-	for {
-		select {
-		case <-ctx.Done():
-			a.logger.Debug("heartbeat loop stopping")
-			return
-		case <-ticker.C:
-			go a.sendHeartbeat(endpoint, cfg.ClusterName)
-		}
-	}
-}
-
-func (a *engineApp) sendHeartbeat(endpoint, clusterName string) {
-	payload := map[string]interface{}{
-		"cluster":   clusterName,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"status":    "active",
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		a.logger.Error("failed to marshal heartbeat", "error", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(data))
-	if err != nil {
-		a.logger.Error("failed to create heartbeat request", "error", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		a.logger.Warn("heartbeat request failed", "error", err)
-		return
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		if cerr := resp.Body.Close(); cerr != nil {
-			a.logger.Debug("heartbeat close response body", "error", cerr)
-		}
-	}()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		a.logger.Warn("heartbeat received non-2xx response", "status", resp.StatusCode)
-		return
-	}
-	a.logger.Debug("heartbeat sent successfully")
-}
-
-func snapshotWatchConfig(in *config.WatchConfig) *config.WatchConfig {
-	if in == nil {
-		return &config.WatchConfig{}
-	}
-
-	out := *in
-	out.ResourceTracking.Fields = append([]string(nil), in.ResourceTracking.Fields...)
-
-	out.Rules = make([]config.Rule, 0, len(in.Rules))
-	for _, r := range in.Rules {
-		rc := r
-		rc.Actions = append([]string(nil), r.Actions...)
-		rc.Conditions = append([]config.Condition(nil), r.Conditions...)
-		if r.Selector.MatchLabels != nil {
-			labels := make(map[string]string, len(r.Selector.MatchLabels))
-			for k, v := range r.Selector.MatchLabels {
-				labels[k] = v
-			}
-			rc.Selector.MatchLabels = labels
-		}
-		out.Rules = append(out.Rules, rc)
-	}
-
-	out.Actions = make(map[string]config.Action, len(in.Actions))
-	for id, act := range in.Actions {
-		ac := act
-		if act.Config != nil {
-			cfgCopy := make(map[string]string, len(act.Config))
-			for k, v := range act.Config {
-				cfgCopy[k] = v
-			}
-			ac.Config = cfgCopy
-		}
-		out.Actions[id] = ac
-	}
-
-	return &out
+func (a *engineApp) metricsMux() *http.ServeMux {
+	m := http.NewServeMux()
+	m.Handle("/metrics", promhttp.Handler())
+	return m
 }

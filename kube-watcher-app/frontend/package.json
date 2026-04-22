@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@phosphor-icons/vue": "^2.2.1",
     "@vue/compiler-dom": "^3.5.32",
     "vue": "^3.2.37"
   },

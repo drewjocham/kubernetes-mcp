@@ -62,6 +62,10 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: watcher-engine
 {{- end }}
+{{- with .Values.watcher.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+
           ports:
             - name: http
               containerPort: {{ .Values.watcher.ports.http }}

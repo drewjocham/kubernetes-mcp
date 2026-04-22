@@ -1,0 +1,113 @@
+{{- if .Values.cloud.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: cloud
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+    {{- include "kube-watcher.componentLabel" "cloud" | nindent 4 }}
+spec:
+  replicas: {{ .Values.cloud.replicaCount }}
+  selector:
+    matchLabels:
+      app: cloud
+  template:
+    metadata:
+      labels:
+        app: cloud
+        {{- include "kube-watcher.selectorLabels" . | nindent 8 }}
+        {{- include "kube-watcher.componentLabel" "cloud" | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kube-watcher.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloud.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloud.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloud.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cloud
+          image: {{ .Values.cloud.image.repository }}:{{ .Values.cloud.image.tag }}
+          imagePullPolicy: {{ .Values.cloud.image.pullPolicy }}
+          args:
+            - "--http-addr"
+            - ":{{ .Values.cloud.port }}"
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.cloud.logLevel }}
+            - name: PORT
+              value: "{{ .Values.cloud.port }}"
+            - name: WS_PORT
+              value: "{{ .Values.cloud.wsPort }}"
+            - name: JWT_SECRET
+              value: "{{ .Values.cloud.jwtSecret }}"
+            - name: HOME
+              value: /home/nonroot
+          {{- if .Values.signoz.otelCollector.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://signoz-otel-collector.{{ .Values.namespaces.anomstack }}.svc.cluster.local:4318
+            - name: OTEL_SERVICE_NAME
+              value: cloud-server
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.cloud.port }}
+              protocol: TCP
+            - name: ws
+              containerPort: {{ .Values.cloud.wsPort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.cloud.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.cloud.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.cloud.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: cloud-data
+              mountPath: /home/nonroot/.kube-watcher-cloud
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cloud-data
+        {{- if .Values.cloud.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: cloud-data
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

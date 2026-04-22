@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"kube-watcher-app/internal/data"
@@ -30,6 +31,8 @@ type App struct {
 	workspaceHandler *workspace.Handler
 	widgetStore      *widgets.Store
 	aiConfig         AIConfig
+	dynamicRules     []interface{}
+	dynamicRulesMu   sync.RWMutex
 }
 
 type AIConfig struct {
@@ -127,7 +130,14 @@ func (a *App) Greet(name string) string {
 
 // GetAIWorkspace returns the AI-first desktop control plane state.
 func (a *App) GetAIWorkspace() (data.AIWorkspace, error) {
-	return a.workspaceHandler.Build(a.ctx)
+	fmt.Printf("[app] GetAIWorkspace called\n")
+	ws, err := a.workspaceHandler.Build(a.ctx)
+	if err != nil {
+		fmt.Printf("[app] GetAIWorkspace error: %v\n", err)
+	} else {
+		fmt.Printf("[app] GetAIWorkspace success: summary=%+v\n", ws.Summary)
+	}
+	return ws, err
 }
 
 // GetAlerts returns the current alerts
@@ -173,6 +183,13 @@ func (a *App) GetWatcherRules() ([]interface{}, error) {
 		return nil, fmt.Errorf("watcher client not initialized")
 	}
 	return a.watcher.GetRules(a.ctx)
+}
+
+func (a *App) AddWatcherRule(rule interface{}) (interface{}, error) {
+	if a.watcher == nil {
+		return nil, fmt.Errorf("watcher client not initialized")
+	}
+	return a.watcher.AddRule(a.ctx, rule)
 }
 
 func (a *App) GetWatcherResources() ([]string, error) {
@@ -416,6 +433,16 @@ func (a *App) DescribePod(namespace, podName string) (string, error) {
 	return a.runKubectlCommand("describe", "pod", "-n", namespace, podName)
 }
 
+// DescribeService returns the kubectl describe output for a service
+func (a *App) DescribeService(namespace, serviceName string) (string, error) {
+	return a.runKubectlCommand("describe", "service", "-n", namespace, serviceName)
+}
+
+// DescribeNode returns the kubectl describe output for a node
+func (a *App) DescribeNode(nodeName string) (string, error) {
+	return a.runKubectlCommand("describe", "node", nodeName)
+}
+
 // GetPodAIHelp returns AI-generated help for a pod using k8sgpt or opencode
 func (a *App) GetPodAIHelp(namespace, podName string) (string, error) {
 	// Use opencode to analyze pod issues
@@ -617,4 +644,9 @@ func (a *App) DeleteWidget(id string) error {
 		return fmt.Errorf("widget store not initialized")
 	}
 	return a.widgetStore.Delete(a.ctx, id)
+}
+
+// LogError logs a message from the frontend for debugging.
+func (a *App) LogError(msg string) {
+	fmt.Printf("[frontend error] %s\n", msg)
 }

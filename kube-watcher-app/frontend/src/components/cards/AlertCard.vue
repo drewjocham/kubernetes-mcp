@@ -7,19 +7,19 @@
          <span class="severity-text">{{ alert.severity }}</span>
          <span v-if="stateLabel" class="state-indicator" :style="{ backgroundColor: stateColor }"></span>
          <div class="card-actions">
-           <button class="card-action-btn" title="Investigate" @click.stop="handleInvestigate">
-             <span class="action-icon">🔍</span>
-           </button>
-           <button class="card-action-btn" title="Dismiss" @click.stop="handleDismiss">
-             <span class="action-icon">✓</span>
-           </button>
-           <button class="card-action-btn" title="Resolve" @click.stop="handleResolve">
-             <span class="action-icon">✔</span>
-           </button>
+            <button class="card-action-btn" title="Investigate" @click.stop="handleInvestigate">
+              <PhMagnifyingGlass size="12" weight="bold" class="action-icon" />
+            </button>
+            <button class="card-action-btn" title="Dismiss" @click.stop="handleDismiss">
+              <PhCheck size="12" weight="bold" class="action-icon" />
+            </button>
+            <button class="card-action-btn" title="Resolve" @click.stop="handleResolve">
+              <PhCheckCircle size="12" weight="bold" class="action-icon" />
+            </button>
          </div>
        </div>
     </div>
-    <div class="alert-info-icon" title="Message">i</div>
+     <div class="alert-info-icon" title="Message"><PhInfo size="10" weight="bold" /></div>
     <p class="alert-message">{{ alert.message }}</p>
     <small>{{ alert.namespace || 'cluster-wide' }} · {{ formatWhen(alert.receivedAt) }}</small>
   </li>
@@ -28,6 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { data } from '../../../wailsjs/go/models'
+import { PhMagnifyingGlass, PhCheck, PhCheckCircle, PhInfo } from '@phosphor-icons/vue'
 
 interface Props {
   alert: data.AlertRecord
@@ -104,14 +105,6 @@ const stateColor = computed(() => {
 
 .stack-card:hover {
   background: rgba(255, 255, 255, 0.05);
-}
-
-.border-pod-exists {
-  border-color: rgba(59, 130, 246, 0.6); /* blue */
-}
-
-.border-pod-gone {
-  border-color: rgba(245, 158, 11, 0.6); /* yellow */
 }
 
 .stack-title {
@@ -203,7 +196,9 @@ const stateColor = computed(() => {
 }
 
 .action-icon {
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 

@@ -37,6 +37,7 @@ body {
     --good: #5cd4a3;
     --shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
     --modal-bg: rgba(38, 37, 49, 0.95);
+    --modal-overlay-bg: rgba(0, 0, 0, 0.85);
     --primary: var(--ink);
     --primary-hover: #9d94ff;
     --text-primary: var(--text);
@@ -112,6 +113,31 @@ body {
     --card-border: rgba(0, 0, 0, 0.05);
     --body-bg: #f8f8fa;
     --body-color: var(--text);
+    /* Missing variables from dark theme */
+    --rose: #e88a9d;
+    --amber: #d1a540;
+    --teal: #5ac8c5;
+    --ink: #8a82e0;
+    --danger: #ff6b7a;
+    --warning: #ffc145;
+    --good: #5cd4a3;
+    --modal-bg: rgba(255, 255, 255, 0.95);
+    --modal-overlay-bg: rgba(0, 0, 0, 0.9);
+    --primary: var(--ink);
+    --primary-hover: #6d28d9;
+    --text-primary: var(--text);
+    --text-secondary: var(--text-muted);
+    --border-active: var(--accent-argus);
+    --accent: var(--teal);
+    --error: var(--danger);
+    --info: var(--ink);
+    --success: var(--good);
+    --primary-rgb: 138, 130, 224;
+    --info-rgb: 138, 130, 224;
+    --success-rgb: 92, 212, 163;
+    --danger-rgb: 255, 107, 122;
+    --warning-rgb: 255, 193, 69;
+    --teal-rgb: 90, 200, 197;
 }
 
 * {
@@ -131,7 +157,7 @@ pre {
 .shell {
     min-height: 100vh;
     display: block;
-    padding: 20px;
+    padding: 10px;
     background: var(--glass-main-window);
     backdrop-filter: var(--backdrop-blur);
     -webkit-backdrop-filter: var(--backdrop-blur);
@@ -163,7 +189,7 @@ pre {
 }
 
 .shell.sidebar-collapsed .main-panel {
-    margin-left: 90px; /* Collapsed sidebar width (50) + left position (20) + gap (20) */
+    margin-left: 80px; /* Collapsed sidebar width (50) + left position (10) + gap (20) */
 }
 
 /* Floating Sidebar Ornament */
@@ -178,7 +204,7 @@ pre {
     border-radius: 30px; /* VisionOS curvature */
     border: var(--glass-border-rim);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-    height: calc(100vh - 40px);
+    height: calc(100vh - 20px);
     overflow-y: auto;
     width: 100%;
     position: relative;
@@ -296,11 +322,11 @@ pre {
 }
 
 .main-panel {
-    margin-left: 300px; /* Sidebar width (260) + left position (20) + gap (20) */
-    margin-right: 20px;
+    margin-left: 280px; /* Sidebar width (260) + left position (10) + gap (10) */
+    margin-right: 10px;
     margin-top: 20px;
     margin-bottom: 20px;
-    padding: 40px;
+    padding: 30px;
     display: grid;
     gap: 32px;
     border-radius: 30px;
@@ -355,11 +381,13 @@ pre {
 .workspace {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 20px;
+    gap: 10px;
 }
 
 .workspace-main {
     min-width: 0;
+    width: 100%;
+    max-width: 100%;
 }
 
 .panel-grid {

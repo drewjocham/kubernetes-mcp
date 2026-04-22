@@ -1,0 +1,24 @@
+{{- if .Values.cloud.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloud
+  namespace: {{ .Values.namespaces.kubeWatcher }}
+  labels:
+    app: cloud
+    {{- include "kube-watcher.labels" . | nindent 4 }}
+    {{- include "kube-watcher.componentLabel" "cloud" | nindent 4 }}
+spec:
+  selector:
+    app: cloud
+  ports:
+    - name: http
+      port: {{ .Values.cloud.port }}
+      targetPort: {{ .Values.cloud.port }}
+      protocol: TCP
+    - name: ws
+      port: {{ .Values.cloud.wsPort }}
+      targetPort: {{ .Values.cloud.wsPort }}
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

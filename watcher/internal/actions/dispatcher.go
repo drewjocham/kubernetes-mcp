@@ -78,7 +78,12 @@ func (d *Dispatcher) execute(task dispatchTask) {
 }
 
 func (d *Dispatcher) handleLog(inv rules.ActionInvocation) {
-	msg, err := d.renderTemplate(inv.Action.Template, inv.Context)
+	msg, err := d.renderTemplate(inv.Action.Template, map[string]interface{}{
+		"RuleName": inv.RuleName,
+		"ActionID": inv.ActionID,
+		"Context":  inv.Context,
+		"Event":    inv.Event,
+	})
 	if err != nil {
 		d.logger.Warn("action template failure",
 			"error", err, "rule", inv.RuleName)

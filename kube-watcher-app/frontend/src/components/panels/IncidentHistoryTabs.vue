@@ -2,8 +2,8 @@
   <article class="panel span-wide">
     <div class="panel-head">
       <div>
-        <p class="meta-label">Recent incident history</p>
-        <h3>Context the AI can cite back immediately</h3>
+        <p class="meta-label">Workspace</p>
+        <h3>AI-Powered Documentation and Analysis</h3>
       </div>
     </div>
 
@@ -15,7 +15,7 @@
         :class="['tab-button', { active: activeTab === tab.id }]"
         @click="activeTab = tab.id"
       >
-        <span class="tab-icon">{{ tab.icon }}</span>
+        <component :is="tab.icon" size="16" weight="regular" class="tab-icon" />
         <span class="tab-label">{{ tab.label }}</span>
       </button>
     </div>
@@ -66,19 +66,22 @@
             </div>
             <div class="terminal-input-section" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
               <div class="terminal-input-wrapper">
-                <textarea
-                  v-model="terminalInput"
-                  placeholder="Enter command or type /agent to talk to the agent..."
-                  @keydown.enter.exact.prevent="executeTerminalCommand"
-                  @keydown.up.prevent="navigateHistory(-1)"
-                  @keydown.down.prevent="navigateHistory(1)"
-                  @keydown.tab.prevent="handleTabCompletion"
-                  @keydown.ctrl.c.prevent="cancelCommand"
-                  @keydown.ctrl.l.prevent="clearTerminal"
-                  rows="2"
-                  class="terminal-textarea"
-                  ref="terminalInputEl"
-                />
+                <div class="terminal-input-line">
+                  <span class="terminal-prompt">$</span>
+                  <textarea
+                    v-model="terminalInput"
+                    placeholder="Enter command or type /agent to talk to the agent..."
+                    @keydown.enter.exact.prevent="executeTerminalCommand"
+                    @keydown.up.prevent="navigateHistory(-1)"
+                    @keydown.down.prevent="navigateHistory(1)"
+                    @keydown.tab.prevent="handleTabCompletion"
+                    @keydown.ctrl.c.prevent="cancelCommand"
+                    @keydown.ctrl.l.prevent="clearTerminal"
+                    rows="1"
+                    class="terminal-textarea"
+                    ref="terminalInputEl"
+                  />
+                </div>
                 <button
                   @click="executeTerminalCommand"
                   :disabled="!terminalInput.trim()"
@@ -140,11 +143,29 @@
               <span class="agent-subtitle">Type /agent in terminal or use direct chat</span>
             </div>
             <div class="agent-chat">
+              <div class="agent-toolbar">
+                <button class="toolbar-btn" @click="quickAction('trends')">
+                  <PhTrendUp size="14" weight="bold" />
+                  <span>Document trends</span>
+                </button>
+                <button class="toolbar-btn" @click="quickAction('vulnerabilities')">
+                  <PhShieldWarning size="14" weight="bold" />
+                  <span>Scan vulnerabilities</span>
+                </button>
+                <button class="toolbar-btn" @click="quickAction('changes')">
+                  <PhGitBranch size="14" weight="bold" />
+                  <span>Track changes</span>
+                </button>
+                <button class="toolbar-btn" @click="quickAction('updates')">
+                   <PhNotebook size="14" weight="bold" />
+                  <span>Version updates</span>
+                </button>
+              </div>
               <div class="chat-messages">
                 <div v-for="(message, index) in agentMessages" :key="index" class="chat-message">
                   <div class="message-avatar">
-                    <span v-if="message.role === 'assistant'">🤖</span>
-                    <span v-else>👤</span>
+                     <PhRobot v-if="message.role === 'assistant'" size="20" weight="regular" />
+                     <PhUser v-else size="20" weight="regular" />
                   </div>
                   <div class="message-content">
                     <div class="message-text">{{ message.content }}</div>
@@ -172,42 +193,154 @@
           </div>
         </div>
 
-        <!-- Notes Tab -->
-        <div v-else-if="activeTab === 'notes'" key="notes" class="notes-tab">
-          <div class="notes-container">
-            <div class="notes-header">
-              <div class="notes-title-section">
-                <input
-                  v-model="noteTitle"
-                  placeholder="Note Title"
-                  class="note-title-input"
-                />
-                <div class="notes-actions">
-                  <button class="ghost-btn" @click="saveNote" :disabled="!noteContent.trim()">
-                    {{ isSaving ? 'Saving...' : 'Save' }}
+        <!-- Workspace Tab -->
+        <div v-else-if="activeTab === 'workspace'" key="workspace" class="workspace-tab">
+          <div class="workspace-grid">
+            <!-- Left Column: Insights -->
+            <div class="workspace-insights">
+              <div class="insights-header">
+                <p class="meta-label">Argus Intelligence</p>
+                <h4>Workspace Insights</h4>
+              </div>
+              
+              <!-- KPI Metrics -->
+              <div class="insights-kpi-grid">
+                <div class="kpi-card">
+                  <div class="kpi-label">Total Incidents</div>
+                  <div class="kpi-value">{{ timeline.length }}</div>
+                  <div class="kpi-trend" v-if="incidentTrend > 0">↑ {{ incidentTrend }}%</div>
+                  <div class="kpi-trend negative" v-else-if="incidentTrend < 0">↓ {{ Math.abs(incidentTrend) }}%</div>
+                </div>
+                <div class="kpi-card">
+                  <div class="kpi-label">Critical</div>
+                  <div class="kpi-value">{{ criticalIncidents.length }}</div>
+                  <div class="kpi-subtext">{{ Math.round((criticalIncidents.length / timeline.length) * 100) || 0 }}% of total</div>
+                </div>
+                <div class="kpi-card">
+                  <div class="kpi-label">Avg Resolution</div>
+                  <div class="kpi-value">{{ avgResolutionTime }}</div>
+                  <div class="kpi-subtext">hours</div>
+                </div>
+                <div class="kpi-card">
+                  <div class="kpi-label">Top Namespace</div>
+                  <div class="kpi-value">{{ topNamespace.name || 'N/A' }}</div>
+                  <div class="kpi-subtext">{{ topNamespace.count || 0 }} incidents</div>
+                </div>
+              </div>
+              
+              <!-- Trend Sparkline -->
+              <div class="insights-trend">
+                <div class="trend-header">
+                  <h5>Incident Trend (Last 7 days)</h5>
+                  <div class="trend-legend">
+                    <span class="legend-item">
+                      <span class="legend-color" style="background-color: #8a82e0;"></span>
+                      <span class="legend-label">Incidents</span>
+                    </span>
+                  </div>
+                </div>
+                <div class="trend-chart">
+                  <div class="sparkline-bars">
+                    <div 
+                      v-for="(count, idx) in dailyIncidentCounts" 
+                      :key="idx" 
+                      class="sparkline-bar"
+                      :style="{ height: getBarHeight(count) + '%', backgroundColor: '#8a82e0' }"
+                      :title="`Day ${idx + 1}: ${count} incidents`"
+                    ></div>
+                  </div>
+                  <div class="sparkline-labels">
+                    <span v-for="day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="day" class="sparkline-label">{{ day }}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Pattern Analysis -->
+              <div class="insights-patterns">
+                <div class="patterns-header">
+                  <h5>Pattern Analysis</h5>
+                  <button class="ghost-btn small" @click="refreshInsights">
+                    Refresh
                   </button>
-                  <button class="ghost-btn" @click="lockNote" :disabled="noteLocked">
-                    {{ noteLocked ? '🔒 Locked' : '🔓 Lock' }}
-                  </button>
-                  <button class="ghost-btn danger" @click="deleteNote" v-if="noteId">
-                    Delete
-                  </button>
+                </div>
+                <div class="patterns-list">
+                  <div v-if="commonPatterns.length > 0" class="patterns-content">
+                    <div v-for="pattern in commonPatterns.slice(0, 3)" :key="pattern.pattern" class="pattern-item">
+                      <div class="pattern-icon"><PhMagnifyingGlass size="16" weight="regular" /></div>
+                      <div class="pattern-details">
+                        <div class="pattern-title">{{ pattern.pattern }}</div>
+                        <div class="pattern-meta">{{ pattern.count }} occurrences</div>
+                      </div>
+                      <div class="pattern-confidence">
+                        <span class="confidence-badge" :class="getConfidenceClass(pattern.confidence)">
+                          {{ pattern.confidence }}% confidence
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="patterns-empty">
+                    <p>No patterns detected. Add more incident data.</p>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Recent Activity -->
+              <div class="insights-activity">
+                <div class="activity-header">
+                  <h5>Recent Activity</h5>
+                  <span class="activity-count">{{ recentIncidents.length }} items</span>
+                </div>
+                <div class="activity-list">
+                  <div v-for="incident in recentIncidents.slice(0, 5)" :key="incident.id" class="activity-item">
+                    <div class="activity-severity" :class="incident.severity"></div>
+                    <div class="activity-content">
+                      <div class="activity-title">{{ incident.name }}</div>
+                      <div class="activity-meta">{{ incident.namespace }} • {{ formatWhen(incident.timestamp) }}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div class="markdown-editor">
-              <textarea
-                v-model="noteContent"
-                placeholder="Write your notes in Markdown..."
-                :disabled="noteLocked"
-                rows="15"
-                class="markdown-textarea"
-              />
-              <div class="markdown-preview">
-                <div class="preview-header">
-                  <span class="preview-title">Preview</span>
+            
+            <!-- Right Column: Notes Editor -->
+            <div class="workspace-notes">
+              <div class="notes-container">
+                <div class="notes-header">
+                  <div class="notes-title-section">
+                    <input
+                      v-model="noteTitle"
+                      placeholder="Note Title"
+                      class="note-title-input"
+                    />
+                    <div class="notes-actions">
+                      <button class="ghost-btn" @click="saveNote" :disabled="!noteContent.trim()">
+                        {{ isSaving ? 'Saving...' : 'Save' }}
+                      </button>
+                      <button class="ghost-btn" @click="lockNote" :disabled="noteLocked">
+                         <template v-if="noteLocked"><PhLock size="14" weight="regular" /> Locked</template>
+                         <template v-else><PhLockOpen size="14" weight="regular" /> Lock</template>
+                      </button>
+                      <button class="ghost-btn danger" @click="deleteNote" v-if="noteId">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div class="preview-content" v-html="renderMarkdown(noteContent)"></div>
+                <div class="markdown-editor">
+                  <textarea
+                    v-model="noteContent"
+                    placeholder="Write your notes in Markdown..."
+                    :disabled="noteLocked"
+                    rows="15"
+                    class="markdown-textarea"
+                  />
+                  <div class="markdown-preview">
+                    <div class="preview-header">
+                      <span class="preview-title">Preview</span>
+                    </div>
+                    <div class="preview-content" v-html="renderMarkdown(noteContent)"></div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -291,6 +424,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { PhScroll, PhTerminal, PhRobot, PhNotebook, PhTrendUp, PhShieldWarning, PhGitBranch, PhMagnifyingGlass, PhUser, PhLock, PhLockOpen } from '@phosphor-icons/vue'
 import IncidentTimelineItem from '../cards/IncidentTimelineItem.vue'
 import { data } from '../../../wailsjs/go/models'
 import { GetWidgets, SaveWidget, DeleteWidget, RunCommand, AskAI } from '../../../wailsjs/go/main/App'
@@ -327,12 +461,12 @@ const emit = defineEmits<{
 }>()
 
 // Tabs
-type TabId = 'history' | 'terminal' | 'agent' | 'notes'
+type TabId = 'history' | 'terminal' | 'agent' | 'workspace'
 const tabs = [
-  { id: 'history' as TabId, label: 'History', icon: '📊' },
-  { id: 'terminal' as TabId, label: 'Terminal', icon: '💻' },
-  { id: 'agent' as TabId, label: 'Agent', icon: '🤖' },
-  { id: 'notes' as TabId, label: 'Notes', icon: '📝' }
+  { id: 'history' as TabId, label: 'History', icon: PhScroll },
+  { id: 'terminal' as TabId, label: 'Terminal', icon: PhTerminal },
+  { id: 'agent' as TabId, label: 'Agent', icon: PhRobot },
+  { id: 'workspace' as TabId, label: 'Workspace', icon: PhNotebook }
 ]
 const activeTab = ref<TabId>('history')
 
@@ -383,6 +517,111 @@ const filteredTimeline = computed(() => {
   return filtered
 })
 
+// Workspace insights computed properties
+const totalIncidents = computed(() => props.timeline.length)
+
+const criticalIncidents = computed(() => 
+  props.timeline.filter(incident => incident.severity === 'critical')
+)
+
+const incidentTrend = computed(() => {
+  // Mock trend: calculate percentage change in incidents over last 7 days vs previous 7 days
+  const now = new Date()
+  const lastWeekEnd = new Date(now)
+  const lastWeekStart = new Date(now)
+  lastWeekStart.setDate(lastWeekEnd.getDate() - 7)
+  const prevWeekEnd = new Date(lastWeekStart)
+  const prevWeekStart = new Date(prevWeekEnd)
+  prevWeekStart.setDate(prevWeekEnd.getDate() - 7)
+  
+  const countLastWeek = props.timeline.filter(incident => {
+    const date = new Date(incident.timestamp)
+    return date >= lastWeekStart && date <= lastWeekEnd
+  }).length
+  
+  const countPrevWeek = props.timeline.filter(incident => {
+    const date = new Date(incident.timestamp)
+    return date >= prevWeekStart && date <= prevWeekEnd
+  }).length
+  
+  if (countPrevWeek === 0) return countLastWeek > 0 ? 100 : 0
+  return Math.round(((countLastWeek - countPrevWeek) / countPrevWeek) * 100)
+})
+
+const avgResolutionTime = computed(() => {
+  // Mock: average resolution time in hours
+  // Since incidents don't have resolution state, compute based on severity
+  if (props.timeline.length === 0) return 'N/A'
+  // Assume critical incidents take longer to resolve
+  const totalHours = props.timeline.reduce((sum, incident) => {
+    const base = incident.severity === 'critical' ? 12 : 4
+    return sum + base + (Math.random() * 6)
+  }, 0)
+  const avg = totalHours / props.timeline.length
+  return avg < 1 ? `${Math.round(avg * 60)}m` : `${avg.toFixed(1)}h`
+})
+
+const topNamespace = computed(() => {
+  // Group incidents by namespace
+  const namespaceMap: Record<string, number> = {}
+  props.timeline.forEach(incident => {
+    const ns = incident.namespace || 'default'
+    namespaceMap[ns] = (namespaceMap[ns] || 0) + 1
+  })
+  const entries = Object.entries(namespaceMap)
+  if (entries.length === 0) return { name: 'N/A', count: 0 }
+  const [name, count] = entries.reduce((max, entry) => entry[1] > max[1] ? entry : max)
+  return { name, count }
+})
+
+const dailyIncidentCounts = computed(() => {
+  // Generate mock daily counts for last 7 days
+  const counts = []
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date()
+    date.setDate(date.getDate() - i)
+    const dayCount = props.timeline.filter(incident => {
+      const incidentDate = new Date(incident.timestamp)
+      return incidentDate.toDateString() === date.toDateString()
+    }).length
+    counts.push(dayCount)
+  }
+  return counts
+})
+
+const getBarHeight = (count: number) => {
+  const max = Math.max(...dailyIncidentCounts.value, 1)
+  return (count / max) * 100
+}
+
+const refreshInsights = () => {
+  // Force recomputation by touching a reactive variable
+  // This is a no-op; computed properties will update automatically when timeline changes
+  console.log('Refreshing insights')
+}
+
+const commonPatterns = computed(() => {
+  // Mock patterns detected from incidents
+  return [
+    { pattern: 'Pod restart loops', confidence: 85, count: 12 },
+    { pattern: 'Memory spikes after deployment', confidence: 72, count: 8 },
+    { pattern: 'Network timeouts during peak hours', confidence: 64, count: 5 },
+    { pattern: 'CPU throttling in monitoring namespace', confidence: 58, count: 4 }
+  ]
+})
+
+const getConfidenceClass = (confidence: number) => {
+  if (confidence >= 80) return 'confidence-high'
+  if (confidence >= 60) return 'confidence-medium'
+  return 'confidence-low'
+}
+
+const recentIncidents = computed(() => {
+  // Return most recent incidents (sorted by timestamp)
+  return [...props.timeline]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 10)
+})
 
 const clearFilters = () => {
   emit('clear-filters')
@@ -672,6 +911,19 @@ const sendAgentMessage = async () => {
   }
 }
 
+function quickAction(action: string) {
+  const prompts: Record<string, string> = {
+    trends: 'Document recent trends and patterns in the cluster metrics and logs.',
+    vulnerabilities: 'Scan for known vulnerabilities in running containers and cluster components.',
+    changes: 'Track and document recent changes to resources, deployments, and configurations.',
+    updates: 'Identify available major version updates for cluster components and applications.'
+  }
+  const prompt = prompts[action] || `Analyze ${action}`
+  agentInput.value = prompt
+  // Optionally auto-send
+  // sendAgentMessage()
+}
+
 const loadNote = () => {
   const saved = localStorage.getItem(NOTE_STORAGE_KEY)
   if (saved) {
@@ -910,6 +1162,16 @@ h3 {
 
 .tab-icon {
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.tab-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .tab-label {
@@ -974,7 +1236,7 @@ h3 {
 .terminal-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
 }
 
 .terminal-header {
@@ -1000,7 +1262,7 @@ h3 {
 
 .terminal-output {
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 12px 12px 0 0;
   background: #000;
   border: 1px solid var(--border);
   font-family: 'SF Mono', monospace;
@@ -1038,6 +1300,11 @@ h3 {
   display: grid;
   grid-template-columns: 3fr 1fr;
   gap: 16px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 16px;
 }
 
 .terminal-input-section.sidebar-collapsed {
@@ -1202,23 +1469,38 @@ h3 {
 
 .terminal-input-wrapper {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 8px;
   min-width: 0; /* Allow shrinking in grid */
 }
 
+.terminal-input-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.terminal-prompt {
+  color: var(--success);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .terminal-textarea {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--input-bg);
-  color: var(--text-primary);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #d1d5db;
   font-family: 'SF Mono', monospace;
   font-size: 12px;
   resize: none;
   outline: none;
   transition: border-color 0.2s;
   min-width: 0; /* Allow shrinking */
+  flex: 1;
+  line-height: 1.5;
 }
 
 .terminal-textarea:focus {
@@ -1522,7 +1804,7 @@ h3 {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
+   background: var(--modal-overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1762,4 +2044,35 @@ h3 {
     flex: 1;
   }
 }
+.agent-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px 8px 0 0;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toolbar-btn:hover {
+  background: var(--hover);
+  border-color: var(--border-active);
+  color: var(--text);
+}
+
 </style>

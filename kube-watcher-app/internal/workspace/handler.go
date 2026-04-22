@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -57,25 +59,42 @@ func NewHandler(
 
 // Build returns the desktop AI workspace model.
 func (h *Handler) Build(ctx context.Context) (data.AIWorkspace, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("[workspace] PANIC recovered: %v\n", r)
+		}
+	}()
+	fmt.Printf("[workspace] loading alerts...\n")
 	alerts, err := h.alerts.Alerts(ctx)
 	if err != nil {
+		fmt.Printf("[workspace] load alerts error: %v\n", err)
 		return data.AIWorkspace{}, fmt.Errorf("load alerts: %w", err)
 	}
+	fmt.Printf("[workspace] loaded %d alerts\n", len(alerts))
 
+	fmt.Printf("[workspace] loading history...\n")
 	incidents, err := h.history.History(ctx)
 	if err != nil {
+		fmt.Printf("[workspace] load history error: %v\n", err)
 		return data.AIWorkspace{}, fmt.Errorf("load history: %w", err)
 	}
+	fmt.Printf("[workspace] loaded %d incidents\n", len(incidents))
 
+	fmt.Printf("[workspace] loading recommendations...\n")
 	recommendations, err := h.recommendations.Recommendations(ctx)
 	if err != nil {
+		fmt.Printf("[workspace] load recommendations error: %v\n", err)
 		return data.AIWorkspace{}, fmt.Errorf("load recommendations: %w", err)
 	}
+	fmt.Printf("[workspace] loaded %d recommendations\n", len(recommendations))
 
+	fmt.Printf("[workspace] loading services...\n")
 	services, err := h.services.Services(ctx)
 	if err != nil {
+		fmt.Printf("[workspace] load services error: %v\n", err)
 		return data.AIWorkspace{}, fmt.Errorf("load services: %w", err)
 	}
+	fmt.Printf("[workspace] loaded %d services\n", len(services))
 
 	criticalAlerts := 0
 	anomstackAlerts := 0
@@ -125,10 +144,25 @@ func (h *Handler) Build(ctx context.Context) (data.AIWorkspace, error) {
 		DeploymentPlans: buildPlans(h.strategies),
 	}
 
+	fmt.Printf("[workspace] built workspace: headline=%q, priorities=%d, playbooks=%d, plans=%d\n",
+		workspace.Summary.Headline, len(workspace.Priorities), len(workspace.Playbooks), len(workspace.DeploymentPlans))
+	// Debug: marshal to JSON to ensure serialization works
+	if data, err := json.Marshal(workspace); err == nil {
+		fmt.Printf("[workspace] JSON size: %d bytes\n", len(data))
+		// Write to file for inspection
+		if f, err := os.Create("/tmp/workspace.json"); err == nil {
+			f.Write(data)
+			f.Close()
+			fmt.Printf("[workspace] JSON written to /tmp/workspace.json\n")
+		}
+	} else {
+		fmt.Printf("[workspace] JSON marshal error: %v\n", err)
+	}
 	return workspace, nil
 }
 
 func buildPlans(strategies []DeploymentStrategy) []data.AnomalyDeploymentPlan {
+	fmt.Printf("[workspace] buildPlans: strategies=%d\n", len(strategies))
 	plans := make([]data.AnomalyDeploymentPlan, 0, len(strategies))
 	for _, strategy := range strategies {
 		plans = append(plans, strategy.Plan())
@@ -137,6 +171,7 @@ func buildPlans(strategies []DeploymentStrategy) []data.AnomalyDeploymentPlan {
 }
 
 func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommendation, services []data.ServiceStatus) []data.AIPriority {
+	fmt.Printf("[workspace] buildPriorities: alerts=%d, recommendations=%d, services=%d\n", len(alerts), len(recommendations), len(services))
 	priorities := make([]data.AIPriority, 0, 3)
 
 	// Check for anomstack anomalies first
@@ -201,6 +236,7 @@ func buildPriorities(alerts []data.AlertRecord, recommendations []data.Recommend
 }
 
 func buildPlaybooks(alerts []data.AlertRecord, recommendations []data.Recommendation, incidents []data.Incident) []data.AIPlaybook {
+	fmt.Printf("[workspace] buildPlaybooks: alerts=%d, recommendations=%d, incidents=%d\n", len(alerts), len(recommendations), len(incidents))
 	recentKinds := "pods, nodes, services"
 	anomstackAlertCount := 0
 	for _, alert := range alerts {

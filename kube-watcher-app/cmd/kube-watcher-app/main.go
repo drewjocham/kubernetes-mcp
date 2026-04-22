@@ -375,7 +375,7 @@ func renderHeader(m AppModel) string {
 		return "kube-watcher"
 	}
 
-	// Simple header for now
+	//todo: Simple header for now
 	title := "kube-watcher"
 	screenTitle := " → " + m.screens[m.activeIdx].Title()
 	line := title + screenTitle
@@ -396,7 +396,6 @@ func renderHeader(m AppModel) string {
 }
 
 func renderStatusBar(m AppModel) string {
-	// Connection status with modern styling
 	var connBadge string
 	if m.connStatus.MCP {
 		connBadge = lipgloss.NewStyle().
@@ -410,7 +409,6 @@ func renderStatusBar(m AppModel) string {
 			Render("🔌 MCP offline")
 	}
 
-	// Active alerts count
 	alertCount := 0
 	if m.activeIdx == 0 { // Alerts screen
 		alertsScreen := m.screens[0].(*alertsscreen.Screen)
@@ -528,11 +526,9 @@ func main() {
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.program = p
 
-	// Wire program reference into popecli screen
 	popeciSc := m.screens[5].(*popecliscreen.Screen)
 	popeciSc.SetProgram(p)
 
-	// Try to resolve popecli binary
 	if runner, err := popecli.New(); err == nil {
 		popeciSc.SetRunner(runner)
 	} else if envPath := os.Getenv("POPECLI_PATH"); envPath != "" {

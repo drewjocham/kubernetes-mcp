@@ -42,39 +42,39 @@ type ResourceTrackingConfig struct {
 }
 
 type Rule struct {
-	Name       string        `yaml:"name"`
-	Kind       string        `yaml:"kind"`
-	Namespace  string        `yaml:"namespace"`
-	Selector   Selector      `yaml:"selector"`
-	Logic      string        `yaml:"logic"`
-	For        time.Duration `yaml:"duration"`
-	Expression string        `yaml:"expression,omitempty"`
-	Condition  string        `yaml:"condition,omitempty"`
-	Conditions []Condition   `yaml:"conditions"`
-	Actions    []string      `yaml:"actions"`
+	Name       string        `yaml:"name" json:"name"`
+	Kind       string        `yaml:"kind" json:"kind"`
+	Namespace  string        `yaml:"namespace" json:"namespace"`
+	Selector   Selector      `yaml:"selector" json:"selector"`
+	Logic      string        `yaml:"logic" json:"logic"`
+	For        time.Duration `yaml:"duration" json:"duration"`
+	Expression string        `yaml:"expression,omitempty" json:"expression,omitempty"`
+	Condition  string        `yaml:"condition,omitempty" json:"condition,omitempty"`
+	Conditions []Condition   `yaml:"conditions" json:"conditions"`
+	Actions    []string      `yaml:"actions" json:"actions"`
 }
 
 type Selector struct {
-	MatchLabels map[string]string `yaml:"matchLabels"`
+	MatchLabels map[string]string `yaml:"matchLabels" json:"matchLabels"`
 }
 
 type Condition struct {
-	Field      string      `yaml:"field"`
-	Operator   string      `yaml:"operator"`
-	Value      interface{} `yaml:"value"`
-	Expression string      `yaml:"expression"`
+	Field      string      `yaml:"field" json:"field"`
+	Operator   string      `yaml:"operator" json:"operator"`
+	Value      interface{} `yaml:"value" json:"value"`
+	Expression string      `yaml:"expression" json:"expression"`
 }
 
 type Action struct {
-	Type     string            `yaml:"type"`
-	Template string            `yaml:"template"`
-	Throttle Throttle          `yaml:"throttle"`
-	Config   map[string]string `yaml:"config"`
+	Type     string            `yaml:"type" json:"type"`
+	Template string            `yaml:"template" json:"template"`
+	Throttle Throttle          `yaml:"throttle" json:"throttle"`
+	Config   map[string]string `yaml:"config" json:"config"`
 }
 
 type Throttle struct {
-	MaxPerMinute int `yaml:"max_per_minute"`
-	MaxPerHour   int `yaml:"max_per_hour"`
+	MaxPerMinute int `yaml:"max_per_minute" json:"max_per_minute"`
+	MaxPerHour   int `yaml:"max_per_hour" json:"max_per_hour"`
 }
 
 type Settings struct {
@@ -84,6 +84,8 @@ type Settings struct {
 	Model      ModelSettings   `yaml:"model"`
 	Heartbeat  HeartbeatConfig `yaml:"heartbeat"`
 	Anomstack  AnomstackConfig `yaml:"anomstack"`
+	PubSub     PubSubConfig    `yaml:"pubsub"`
+	Cloud      CloudConfig     `yaml:"cloud"`
 }
 
 type CELSettings struct {
@@ -115,6 +117,23 @@ type AnomstackConfig struct {
 	Enabled  bool          `yaml:"enabled"`
 	Endpoint string        `yaml:"endpoint"`
 	Interval time.Duration `yaml:"interval"`
+}
+
+type PubSubConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	ProjectID      string `yaml:"project_id"`
+	SubscriptionID string `yaml:"subscription_id"`
+	TopicID        string `yaml:"topic_id"`
+}
+
+type CloudConfig struct {
+	Enabled           bool          `yaml:"enabled"`
+	Endpoint          string        `yaml:"endpoint"`
+	APIKey            string        `yaml:"api_key"`
+	AgentID           string        `yaml:"agent_id"`
+	ClusterName       string        `yaml:"cluster_name"`
+	Heartbeat         bool          `yaml:"heartbeat"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 }
 
 func Load(path string) (*WatchConfig, error) {
@@ -283,6 +302,15 @@ func (c *WatchConfig) applyDefaults() {
 	if c.Settings.Heartbeat.Interval <= 0 {
 		c.Settings.Heartbeat.Interval = 30 * time.Second
 	}
+	if c.Settings.PubSub.SubscriptionID == "" {
+		c.Settings.PubSub.SubscriptionID = "anomaly-events-sub"
+	}
+	if c.Settings.PubSub.TopicID == "" {
+		c.Settings.PubSub.TopicID = "anomaly-events-topic"
+	}
+	if c.Settings.Cloud.HeartbeatInterval <= 0 {
+		c.Settings.Cloud.HeartbeatInterval = 60 * time.Second
+	}
 	if c.Actions == nil {
 		c.Actions = make(map[string]Action)
 	}
@@ -355,6 +383,39 @@ func (c *WatchConfig) merge(other WatchConfig) {
 	}
 	if other.Settings.Heartbeat.Interval > 0 {
 		c.Settings.Heartbeat.Interval = other.Settings.Heartbeat.Interval
+	}
+	if other.Settings.PubSub.Enabled {
+		c.Settings.PubSub.Enabled = true
+	}
+	if other.Settings.PubSub.ProjectID != "" {
+		c.Settings.PubSub.ProjectID = other.Settings.PubSub.ProjectID
+	}
+	if other.Settings.PubSub.SubscriptionID != "" {
+		c.Settings.PubSub.SubscriptionID = other.Settings.PubSub.SubscriptionID
+	}
+	if other.Settings.PubSub.TopicID != "" {
+		c.Settings.PubSub.TopicID = other.Settings.PubSub.TopicID
+	}
+	if other.Settings.Cloud.Enabled {
+		c.Settings.Cloud.Enabled = true
+	}
+	if other.Settings.Cloud.Endpoint != "" {
+		c.Settings.Cloud.Endpoint = other.Settings.Cloud.Endpoint
+	}
+	if other.Settings.Cloud.APIKey != "" {
+		c.Settings.Cloud.APIKey = other.Settings.Cloud.APIKey
+	}
+	if other.Settings.Cloud.AgentID != "" {
+		c.Settings.Cloud.AgentID = other.Settings.Cloud.AgentID
+	}
+	if other.Settings.Cloud.ClusterName != "" {
+		c.Settings.Cloud.ClusterName = other.Settings.Cloud.ClusterName
+	}
+	if other.Settings.Cloud.Heartbeat {
+		c.Settings.Cloud.Heartbeat = true
+	}
+	if other.Settings.Cloud.HeartbeatInterval > 0 {
+		c.Settings.Cloud.HeartbeatInterval = other.Settings.Cloud.HeartbeatInterval
 	}
 }
 

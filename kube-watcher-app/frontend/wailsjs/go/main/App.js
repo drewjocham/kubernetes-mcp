@@ -6,6 +6,10 @@ export function AddAlertComment(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddAlertComment'](arg1, arg2, arg3);
 }
 
+export function AddWatcherRule(arg1) {
+  return window['go']['main']['App']['AddWatcherRule'](arg1);
+}
+
 export function AskAI(arg1, arg2) {
   return window['go']['main']['App']['AskAI'](arg1, arg2);
 }
@@ -18,8 +22,16 @@ export function DeployAnomstack(arg1) {
   return window['go']['main']['App']['DeployAnomstack'](arg1);
 }
 
+export function DescribeNode(arg1) {
+  return window['go']['main']['App']['DescribeNode'](arg1);
+}
+
 export function DescribePod(arg1, arg2) {
   return window['go']['main']['App']['DescribePod'](arg1, arg2);
+}
+
+export function DescribeService(arg1, arg2) {
+  return window['go']['main']['App']['DescribeService'](arg1, arg2);
 }
 
 export function ExecPodCommand(arg1, arg2, arg3, arg4) {
@@ -104,6 +116,10 @@ export function GetWidgets() {
 
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
+}
+
+export function LogError(arg1) {
+  return window['go']['main']['App']['LogError'](arg1);
 }
 
 export function RunCommand(arg1) {

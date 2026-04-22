@@ -8,6 +8,7 @@ import {
   GetEndpoint,
   GetAnomstackAnomalies,
   GetCurrentContext,
+  LogError,
 } from '../../wailsjs/go/main/App'
 import { data } from '../../wailsjs/go/models'
 
@@ -55,6 +56,7 @@ export function useWorkspace() {
       console.error('Failed to get current context:', err)
       currentContext.value = 'unknown'
       error.value = err instanceof Error ? err.message : String(err)
+      LogError(`loadCurrentContext error: ${error.value}`).catch(() => {})
     }
   }
 
@@ -63,8 +65,12 @@ export function useWorkspace() {
   async function loadWorkspace() {
     isLoading.value = true
     error.value = null
+    // Debug logging
+    const debug = (window as any).debugLog = (window as any).debugLog || []
+    debug.push({ time: Date.now(), action: 'loadWorkspace.start' })
     console.log('Loading workspace data...')
     try {
+      console.log('Calling GetAIWorkspace...')
       const results = await Promise.allSettled([
         GetAIWorkspace(),
         GetAlerts(),
@@ -73,28 +79,45 @@ export function useWorkspace() {
         GetStatus(),
         GetEndpoint(),
       ])
+      debug.push({ time: Date.now(), action: 'promise.allSettled', results })
+      console.log('Promise.allSettled completed, results count:', results.length)
       
       // Helper to extract value or null
-      const getValue = <T>(result: PromiseSettledResult<T>): T | null => 
-        result.status === 'fulfilled' ? result.value : null
+      const getValue = <T>(result: PromiseSettledResult<T>, idx: number): T | null => {
+        if (result.status === 'fulfilled') {
+          console.log(`Promise ${idx} fulfilled`, result.value)
+          LogError(`Promise ${idx} fulfilled`).catch(() => {})
+          return result.value
+        } else {
+          console.error(`Promise ${idx} rejected:`, result.reason)
+          // Also log to window for inspection
+          ;(window as any).lastPromiseRejection = { idx, reason: result.reason }
+          // Send to backend log
+          LogError(`Promise ${idx} rejected: ${result.reason}`).catch(() => {})
+          return null
+        }
+      }
       
-      const ws = getValue(results[0])
-      const alertData = getValue(results[1]) || []
-      const historyData = getValue(results[2]) || []
-      const recommendationData = getValue(results[3]) || []
-      const statusData = getValue(results[4])
-      const endpointData = getValue(results[5]) || ''
-      
-      // Service data is empty (Docker Compose support removed)
+      const ws = getValue(results[0], 0)
+      const alertData = getValue(results[1], 1) || []
+      const historyData = getValue(results[2], 2) || []
+      const recommendationData = getValue(results[3], 3) || []
+       const statusData = getValue(results[4], 4)
+       const endpointData = getValue(results[5], 5) || ''
+       
+       LogError(`statusData: ${statusData ? 'present' : 'null'}, endpointData: ${endpointData}`).catch(() => {})
+       
+       // Service data is empty (Docker Compose support removed)
       
       // Log any failures
       results.forEach((result, idx) => {
         if (result.status === 'rejected') {
-          console.warn(`Promise ${idx} failed:`, result.reason)
+          console.error(`Promise ${idx} failed:`, result.reason)
+          ;(window as any).lastRejection = { idx, reason: result.reason }
         }
       })
 
-      console.log('Workspace data loaded:', { 
+       console.log('Workspace data loaded:', { 
         ws: !!ws, 
         wsSummary: ws?.summary,
         alerts: alertData.length, 
@@ -104,15 +127,22 @@ export function useWorkspace() {
         logs: 0,
         status: !!statusData,
         endpoint: endpointData
-      })
+       })
+       // Debug log to backend
+       LogError(`ws truthy: ${!!ws}, ws type: ${typeof ws}, ws keys: ${ws ? Object.keys(ws).join(',') : 'null'}`).catch(() => {})
+       if (ws) {
+         LogError(`Workspace load SUCCESS: ws=${!!ws}, alerts=${alertData.length}, history=${historyData.length}, recommendations=${recommendationData.length}`).catch(() => {})
+       }
       
-      // Set error if workspace failed to load
+       // Set error if workspace failed to load
       if (!ws) {
         error.value = 'Failed to load workspace data. Check MCP server connection.'
-        console.error('Workspace data load failed')
+        console.error('Workspace data load failed', results)
+        // Log to backend for debugging
+        LogError(`Workspace load failed: ${JSON.stringify(results.map(r => ({status: r.status, reason: r.status === 'rejected' ? r.reason : 'fulfilled'})))}`).catch(() => {})
       }
       
-      workspace.value = ws
+       workspace.value = ws
       alerts.value = alertData // Start with MCP alerts only
       history.value = historyData
       recommendations.value = recommendationData
@@ -120,6 +150,12 @@ export function useWorkspace() {
       logs.value = []
       mcpStatus.value = statusData
       mcpEndpoint.value = endpointData
+      
+      // Debug: log error state
+      console.log('Workspace load completed, error:', error.value)
+      if (error.value) {
+        LogError(`Unexpected error after load: ${error.value}`).catch(() => {})
+      }
       
       // Try to load anomstack anomalies separately - don't let it fail the whole workspace
       try {
@@ -138,16 +174,14 @@ export function useWorkspace() {
       console.error('Failed to load workspace:', err)
       anomstackConnected.value = false
       error.value = err instanceof Error ? err.message : String(err)
+      // Log to backend for debugging
+      LogError(`Workspace load catch error: ${err instanceof Error ? err.message : String(err)}`).catch(() => {})
       // Don't throw - let UI handle error state
     } finally {
       isLoading.value = false
       console.log('Loading complete, isLoading:', isLoading.value)
     }
   }
-
-
-
-
 
   return {
     workspace,

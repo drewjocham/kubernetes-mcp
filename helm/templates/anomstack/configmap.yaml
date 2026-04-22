@@ -15,6 +15,9 @@ data:
   ANOMSTACK_DASHBOARD_PORT: {{ .Values.anomstack.env.dashboardPort | quote }}
   ANOMSTACK_LLM_PLATFORM: {{ .Values.anomstack.env.llmPlatform | quote }}
   ANOMSTACK_LLMALERT_MODELS: {{ .Values.anomstack.env.llmalertModels | quote }}
+  GOOGLE_CLOUD_PROJECT: {{ .Values.anomstack.env.googleCloudProject | quote }}
+  ANOMSTACK_PUBSUB_TOPIC: {{ .Values.anomstack.env.anomstackPubsubTopic | quote }}
+  PUBSUB_EMULATOR_HOST: "pubsub-emulator:8085"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -38,7 +41,7 @@ data:
     alert_metric_timestamp_max_days_ago: 3
     disable_llmalert: True
     disable_ingest: False
-    alert_methods: "webhook"
+    alert_methods: "pubsub"
 ---
 apiVersion: v1
 kind: ConfigMap

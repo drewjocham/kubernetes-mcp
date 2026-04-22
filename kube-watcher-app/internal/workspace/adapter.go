@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 
 	"kube-watcher-app/internal/data"
 	"kube-watcher-app/internal/data/mcp"
@@ -34,5 +35,6 @@ func (a *MCPAdapter) Recommendations(ctx context.Context) ([]data.Recommendation
 
 // Services loads platform service states from MCP.
 func (a *MCPAdapter) Services(ctx context.Context) ([]data.ServiceStatus, error) {
+	fmt.Printf("[adapter] Services called\n")
 	return a.client.Services(ctx)
 }

@@ -1,10 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import {
+  PhRobot,
+  PhWarning,
+  PhLightbulb,
+  PhScroll,
+  PhEye,
+  PhChartLineDown
+} from '@phosphor-icons/vue'
 console.log('App.vue setup starting...')
 import Sidebar from './components/layout/Sidebar.vue'
 import Header from './components/layout/Header.vue'
 import ArguskubePanel from './components/panels/ArguskubePanel.vue'
-import AnomaliesPanel from './components/panels/AnomaliesPanel.vue'
+
+import LiveAlertsPanel from './components/panels/LiveAlertsPanel.vue'
+import RecommendationsPanel from './components/panels/RecommendationsPanel.vue'
+import IncidentHistoryTabs from './components/panels/IncidentHistoryTabs.vue'
 import WatcherPanel from './components/panels/WatcherPanel.vue'
 import SummaryGrid from './components/summary/SummaryGrid.vue'
 import SweepControls from './components/controls/SweepControls.vue'
@@ -24,17 +35,20 @@ import { useAnomstack } from './composables/useAnomstack'
 import { useClusterLabels } from './composables/useClusterLabels'
 import { renderMarkdown, formatWhen } from './utils'
 import { data } from '../wailsjs/go/models'
+import { UpdateAlertState } from '../wailsjs/go/main/App'
 import type { ScanCell } from './components/panels/types'
 
-type TabId = 'arguskube' | 'anomalies' | 'watcher'
+type TabId = 'arguskube' | 'watcher' | 'anomalies-alerts' | 'recommendations' | 'incident-history'
 
-const tabs: { id: TabId; label: string; eyebrow: string }[] = [
-  { id: 'arguskube', label: 'Arguskube', eyebrow: '' },
-  { id: 'anomalies', label: 'Anomalies', eyebrow: '' },
-  { id: 'watcher', label: 'Watcher', eyebrow: '' },
+const tabs: { id: TabId; label: string; eyebrow: string; icon: any }[] = [
+  { id: 'arguskube', label: 'Arguskube', eyebrow: '', icon: PhRobot },
+  { id: 'anomalies-alerts', label: 'Anomalies/Alerts', eyebrow: '', icon: PhWarning },
+  { id: 'recommendations', label: 'Recommendations', eyebrow: '', icon: PhLightbulb },
+  { id: 'incident-history', label: 'Workspace', eyebrow: '', icon: PhScroll },
+  { id: 'watcher', label: 'Watcher', eyebrow: '', icon: PhEye },
 ]
 
-const activeTab = ref<TabId>('anomalies')
+const activeTab = ref<TabId>('anomalies-alerts')
 
 // Composables
 const workspace: ReturnType<typeof useWorkspace> = useWorkspace()
@@ -112,6 +126,14 @@ function handleStateChange(value: string) {
   selectedState.value = value
 }
 
+function handleAlertStateChange(alert: data.AlertRecord, newState: string) {
+  console.log('Updating alert state:', alert.id, newState)
+  UpdateAlertState(alert.id, newState).catch((err: any) => {
+    console.error('Failed to update alert state:', err)
+    // Optionally show error to user
+  })
+}
+
 function handleTimeRangeChange(value: string) {
   selectedTimeRange.value = value
 }
@@ -166,6 +188,21 @@ function handleRefreshContext() {
 
 function handleInvestigateAlert(alert: data.AlertRecord) {
   chat.sendPrompt(`Please investigate this alert: ${alert.name} (${alert.severity} severity).`, JSON.stringify(alert))
+}
+
+function handleInvestigateRow(alert: data.AlertRecord) {
+  // For now, just open investigation modal
+  showInvestigationModal.value = true
+}
+
+function handleDismissRow(alert: data.AlertRecord) {
+  console.log('Dismiss alert:', alert)
+  // TODO: implement dismiss action
+}
+
+function handleResolveRow(alert: data.AlertRecord) {
+  console.log('Resolve alert:', alert)
+  // TODO: implement resolve action
 }
 
 function handleUsePlaybook(playbook: any) {
@@ -340,8 +377,8 @@ watch(() => workspace.error.value, (newError) => {
              <button class="primary-btn" @click="retryWorkspace">Retry Connection</button>
            </div>
 
-             <template v-else>
-              <div v-if="activeTab === 'arguskube'" key="arguskube">
+              <template v-else>
+               <div v-if="activeTab === 'arguskube'" key="arguskube" class="panel-container">
                 <ArguskubePanel
                   :is-expanded="isArguskubeExpanded"
                   :messages="chat.chatMessages.value"
@@ -353,28 +390,46 @@ watch(() => workspace.error.value, (newError) => {
                   @quick-prompt="handleQuickPrompt"
                   @send-prompt="handleSendPrompt"
                 />
-              </div>
-              <div v-else-if="activeTab === 'anomalies'" key="anomalies">
-                <AnomaliesPanel
-                  :alerts="workspace.alerts.value"
-                  :recommendations="workspace.recommendations.value"
-                  :timeline="workspace.timeline.value"
-                  :anomstack-connected="workspace.anomstackConnected.value"
-                  :signoz-connected="false"
-                  :is-connecting-anomstack="anomstack.isConnectingAnomstack.value"
-                  :is-investigating="chat.isThinking.value"
-                  :format-when="formatWhen"
-                  :selected-severity="selectedSeverity"
-                  :selected-state="selectedState"
-                  :selected-time-range="selectedTimeRange"
-                  @connect-anomstack="handleConnectAnomstack"
-                  @investigate-anomalies="handleInvestigateAnomalies"
-                  @alert-clicked="handleOpenAlertDetailModal"
-                  @clear-filters="handleClearFilters"
-                />
-              </div>
+                </div>
+                 <div v-else-if="activeTab === 'anomalies-alerts'" key="anomalies-alerts" class="panel-container">
+                 <LiveAlertsPanel
+                   :alerts="workspace.alerts.value"
+                   :anomstack-connected="workspace.anomstackConnected.value"
+                   :signoz-connected="false"
+                   :is-connecting-anomstack="anomstack.isConnectingAnomstack.value"
+                   :is-investigating="chat.isThinking.value"
+                   :format-when="formatWhen"
+                   :selected-severity="selectedSeverity"
+                   :selected-state="selectedState"
+                    @connect-anomstack="handleConnectAnomstack"
+                    @investigate-anomalies="handleInvestigateAnomalies"
+                    @alert-clicked="handleOpenAlertDetailModal"
+                    @clear-filters="handleClearFilters"
+                    @severity-change="handleSeverityChange"
+                    @investigate-row="handleInvestigateRow"
+                    @dismiss-row="handleDismissRow"
+                    @resolve-row="handleResolveRow"
+                    @state-change="handleAlertStateChange"
+                 />
+                </div>
+                <div v-else-if="activeTab === 'recommendations'" key="recommendations" class="panel-container">
+                 <RecommendationsPanel
+                   :recommendations="workspace.recommendations.value"
+                 />
+                </div>
+                <div v-else-if="activeTab === 'incident-history'" key="incident-history" class="panel-container">
+                  <IncidentHistoryTabs
+                    :timeline="workspace.timeline.value"
+                    :format-when="formatWhen"
+                    :render-markdown="renderMarkdown"
+                    :selected-severity="selectedSeverity"
+                    :selected-state="selectedState"
+                    :selected-time-range="selectedTimeRange"
+                    @clear-filters="handleClearFilters"
+                  />
+                </div>
 
-              <div v-else-if="activeTab === 'watcher'" key="watcher">
+               <div v-else-if="activeTab === 'watcher'" key="watcher" class="panel-container">
                  <WatcherPanel />
               </div>
               <div v-else style="background: orange; color: white; padding: 20px;">
@@ -418,6 +473,8 @@ watch(() => workspace.error.value, (newError) => {
         recommendations: workspace.recommendations.value,
         timeline: workspace.timeline.value,
       }"
+      :cluster-context="workspace.currentContext.value"
+      :mcp-endpoint="workspace.mcpEndpoint.value"
       @close="handleCloseInvestigationModal"
       @refresh-context="handleRefreshContext"
     />
@@ -433,10 +490,10 @@ watch(() => workspace.error.value, (newError) => {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-muted);
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
 }
 
 .mcp-details {
@@ -445,20 +502,20 @@ watch(() => workspace.error.value, (newError) => {
 
 .mcp-endpoint {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-secondary);
   font-family: monospace;
 }
 
 .mcp-cluster {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-primary);
   cursor: pointer;
   transition: color 0.2s;
 }
 
 .mcp-cluster:hover {
-  color: #fff;
+  color: var(--text);
   text-decoration: underline;
 }
 
@@ -470,18 +527,18 @@ watch(() => workspace.error.value, (newError) => {
 }
 
 .status-light.green {
-  background-color: #10b981;
-  color: rgba(16, 185, 129, 0.4);
+  background-color: var(--success);
+  color: rgba(var(--success-rgb), 0.4);
 }
 
 .status-light.yellow {
-  background-color: #f59e0b;
-  color: rgba(245, 158, 11, 0.4);
+  background-color: var(--warning);
+  color: rgba(var(--warning-rgb), 0.4);
 }
 
 .status-light.red {
-  background-color: #ef4444;
-  color: rgba(239, 68, 68, 0.4);
+  background-color: var(--error);
+  color: rgba(var(--danger-rgb), 0.4);
 }
 
 .sweep-countdown-bar {
@@ -490,7 +547,7 @@ watch(() => workspace.error.value, (newError) => {
   left: 50%;
   transform: translateX(-50%);
   font-size: 10px;
-  color: #10b981;
+  color: var(--success);
   letter-spacing: 0.02em;
   opacity: 0.8;
   white-space: nowrap;
@@ -505,11 +562,9 @@ watch(() => workspace.error.value, (newError) => {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
 }
 
-
-
 .arguskube-thinking {
   margin-bottom: 24px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary);
   animation: float 3s ease-in-out infinite;
 }
 
@@ -533,7 +588,7 @@ watch(() => workspace.error.value, (newError) => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-tertiary);
 }
 .arguskube-thinking.mini {
   margin-bottom: 0;
@@ -560,7 +615,7 @@ watch(() => workspace.error.value, (newError) => {
 .feature-panel {
   background:
       radial-gradient(circle at top right, rgba(125, 116, 214, 0.16), transparent 34%),
-      rgba(38, 37, 49, 0.95);
+      var(--modal-bg);
 }
 
 .scrollable-panel {
@@ -573,10 +628,10 @@ watch(() => workspace.error.value, (newError) => {
 .sticky-head {
   position: sticky;
   top: 0;
-  background: rgba(38, 37, 49, 0.98);
+  background: var(--modal-bg);
   z-index: 10;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
 }
 
@@ -591,14 +646,14 @@ watch(() => workspace.error.value, (newError) => {
 }
 
 .panel-scroll-content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border);
   border-radius: 2px;
 }
 
 .playbook-section {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
 }
 
 .playbook-label {
@@ -636,8 +691,8 @@ watch(() => workspace.error.value, (newError) => {
   font-size: 18px;
   line-height: 1;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   color: var(--text-muted);
 }
 
@@ -695,7 +750,7 @@ watch(() => workspace.error.value, (newError) => {
 
 .tab-status-light.green {
   background-color: #10b981;
-  color: rgba(16, 185, 129, 0.4);
+  color: rgba(var(--success-rgb), 0.4);
 }
 
 .tab-status-light.red {
@@ -731,7 +786,7 @@ watch(() => workspace.error.value, (newError) => {
 
 .status-dot.green {
   background-color: #10b981;
-  box-shadow: 0 0 4px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 4px rgba(var(--success-rgb), 0.6);
 }
 
 .status-dot.blue {
@@ -856,14 +911,23 @@ watch(() => workspace.error.value, (newError) => {
   .workspace-main {
     min-height: 500px;
     position: relative;
+    width: 100%;
+    max-width: 100%;
   }
 
-  .test-panel {
-    padding: 2rem;
-    border: 2px solid green;
-    border-radius: 12px;
-    background: rgba(0, 255, 0, 0.1);
-    margin: 1rem 0;
-  }
+   .test-panel {
+     padding: 2rem;
+     border: 2px solid green;
+     border-radius: 12px;
+     background: rgba(0, 255, 0, 0.1);
+     margin: 1rem 0;
+   }
+
+   .panel-container {
+     max-height: calc(100vh - 300px);
+     overflow-y: auto;
+     border-radius: 12px;
+     margin-bottom: 24px;
+   }
 
 </style>

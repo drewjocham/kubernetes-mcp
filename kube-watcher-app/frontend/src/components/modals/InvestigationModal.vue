@@ -13,22 +13,89 @@
         </button>
       </div>
 
-      <div class="investigation-modal-content">
-        <!-- Left: Chat Session -->
-        <div class="chat-section">
-          <div class="chat-header">
-            <h4>Arguskube Investigator</h4>
-            <div class="context-badge">
-              <span class="badge-icon">📊</span>
-              <span class="badge-text">{{ contextSummary }}</span>
+      <div class="investigation-modal-content" :class="{ 'topics-collapsed': topicsCollapsed }">
+        <!-- Left: Sidebar with Focus Areas & Investigation Context -->
+        <div class="topics-section" :class="{ 'topics-collapsed': topicsCollapsed }">
+          <div class="topics-header">
+            <div class="topics-header-left">
+              <h4><PhTarget size="16" weight="fill" /> Focus Areas</h4>
+              <p class="topics-subtitle">Select a topic for targeted assistance</p>
             </div>
+            <button class="collapse-toggle-btn" @click="toggleTopicsCollapsed" :title="topicsCollapsed ? 'Expand topics' : 'Collapse topics'">
+              <PhCaretRight v-if="topicsCollapsed" size="14" weight="bold" />
+              <PhCaretLeft v-else size="14" weight="bold" />
+            </button>
           </div>
+         
+          <div class="topics-grid">
+            <button
+              v-for="topic in topics"
+              :key="topic.id"
+              :class="['topic-card', { active: selectedTopic === topic.id }]"
+              @click="selectTopic(topic.id)"
+            >
+              <div class="topic-icon">
+                <component :is="topicIconComponents[topic.id]" size="20" weight="fill" />
+              </div>
+              <div class="topic-content">
+                <h5 class="topic-title">{{ topic.title }}</h5>
+                <p class="topic-description">{{ topic.description }}</p>
+                <div class="topic-actions">
+                  <span class="topic-actions-label">Suggested actions:</span>
+                  <div class="topic-action-tags">
+                    <span v-for="action in topic.suggestedActions" :key="action" class="action-tag">{{ action }}</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div class="context-panel">
+             <h5><PhClipboard size="14" weight="fill" /> Investigation Context</h5>
+            <div class="context-stats">
+              <div class="context-stat">
+                <span class="stat-label">Alerts</span>
+                <span class="stat-value">{{ context.alertsCount }}</span>
+              </div>
+              <div class="context-stat">
+                <span class="stat-label">Critical</span>
+                <span class="stat-value critical">{{ context.criticalCount }}</span>
+              </div>
+              <div class="context-stat">
+                <span class="stat-label">Recs</span>
+                <span class="stat-value">{{ context.recommendationsCount }}</span>
+              </div>
+              <div class="context-stat">
+                <span class="stat-label">Incidents</span>
+                <span class="stat-value">{{ context.incidentsCount }}</span>
+              </div>
+            </div>
+            <div class="context-summary">
+              <p>{{ context.summary }}</p>
+            </div>
+             <button class="refresh-context-btn" @click="refreshContext" :disabled="isRefreshing">
+               <PhArrowClockwise v-if="!isRefreshing" size="16" weight="fill" />
+               <span v-if="isRefreshing">Refreshing...</span>
+               <span v-else>Refresh Context</span>
+             </button>
+          </div>
+        </div>
+
+        <!-- Right: Chat Session -->
+        <div class="chat-section">
+           <div class="chat-header">
+             <h4><PhRobot size="18" weight="fill" /> Arguskube Investigator</h4>
+             <div class="context-badge">
+                <PhChartBar size="16" weight="fill" class="badge-icon" />
+               <span class="badge-text">{{ contextSummary }}</span>
+             </div>
+           </div>
           
           <div class="chat-messages" ref="chatMessagesRef">
             <div v-for="(message, index) in chatMessages" :key="index" :class="['chat-message', message.role]">
               <div class="message-avatar">
-                <span v-if="message.role === 'assistant'">🤖</span>
-                <span v-else>👤</span>
+                 <PhRobot v-if="message.role === 'assistant'" size="20" weight="fill" />
+                 <PhUser v-else size="20" weight="fill" />
               </div>
               <div class="message-content">
                 <div class="message-text" v-html="renderMarkdown(message.content)"></div>
@@ -36,7 +103,9 @@
               </div>
             </div>
             <div v-if="isThinking" class="chat-message assistant thinking">
-              <div class="message-avatar">🤖</div>
+               <div class="message-avatar">
+                 <PhRobot size="20" weight="fill" />
+               </div>
               <div class="message-content">
                 <div class="thinking-indicator">
                   <span class="dot"></span>
@@ -56,7 +125,7 @@
                 @click="sendQuickPrompt(prompt.prompt)"
                 :title="prompt.description"
               >
-                {{ prompt.icon }} {{ prompt.label }}
+                 <component :is="quickPromptIconComponents[prompt.icon]" size="16" weight="fill" /> {{ prompt.label }}
               </button>
             </div>
             <div class="input-wrapper">
@@ -80,73 +149,48 @@
             </div>
           </div>
         </div>
-
-        <!-- Right: Topic Selection -->
-        <div class="topics-section">
-          <div class="topics-header">
-            <h4>Focus Areas</h4>
-            <p class="topics-subtitle">Select a topic for targeted assistance</p>
-          </div>
-          
-          <div class="topics-grid">
-            <button
-              v-for="topic in topics"
-              :key="topic.id"
-              :class="['topic-card', { active: selectedTopic === topic.id }]"
-              @click="selectTopic(topic.id)"
-            >
-              <div class="topic-icon">{{ topic.icon }}</div>
-              <div class="topic-content">
-                <h5 class="topic-title">{{ topic.title }}</h5>
-                <p class="topic-description">{{ topic.description }}</p>
-                <div class="topic-actions">
-                  <span class="topic-actions-label">Suggested actions:</span>
-                  <div class="topic-action-tags">
-                    <span v-for="action in topic.suggestedActions" :key="action" class="action-tag">{{ action }}</span>
-                  </div>
-                </div>
-              </div>
-            </button>
-          </div>
-
-          <div class="context-panel">
-            <h5>Investigation Context</h5>
-            <div class="context-stats">
-              <div class="context-stat">
-                <span class="stat-label">Alerts</span>
-                <span class="stat-value">{{ context.alertsCount }}</span>
-              </div>
-              <div class="context-stat">
-                <span class="stat-label">Critical</span>
-                <span class="stat-value critical">{{ context.criticalCount }}</span>
-              </div>
-              <div class="context-stat">
-                <span class="stat-label">Recs</span>
-                <span class="stat-value">{{ context.recommendationsCount }}</span>
-              </div>
-              <div class="context-stat">
-                <span class="stat-label">Incidents</span>
-                <span class="stat-value">{{ context.incidentsCount }}</span>
-              </div>
-            </div>
-            <div class="context-summary">
-              <p>{{ context.summary }}</p>
-            </div>
-            <button class="refresh-context-btn" @click="refreshContext" :disabled="isRefreshing">
-              {{ isRefreshing ? 'Refreshing...' : '🔄 Refresh Context' }}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted, type Component } from 'vue'
 import { data } from '../../../wailsjs/go/models'
 import { AskAI } from '../../../wailsjs/go/main/App'
 import { renderMarkdown } from '../../utils'
+import {
+  PhMagnifyingGlass,
+  PhWrench,
+  PhShield,
+  PhChartBar,
+  PhLightning,
+  PhEye,
+  PhClipboard,
+  PhTarget,
+  PhPencil,
+  PhRobot,
+  PhUser,
+  PhArrowClockwise,
+  PhCaretRight,
+  PhCaretLeft
+} from '@phosphor-icons/vue'
+
+const topicIconComponents: Record<string, Component> = {
+  'root-cause': PhMagnifyingGlass,
+  'remediation': PhWrench,
+  'prevention': PhShield,
+  'impact': PhChartBar,
+  'resources': PhLightning,
+  'monitoring': PhEye,
+}
+
+const quickPromptIconComponents: Record<string, Component> = {
+  '📋': PhClipboard,
+  '🎯': PhTarget,
+  '🔍': PhMagnifyingGlass,
+  '📝': PhPencil,
+}
 
 interface Props {
   context: {
@@ -155,6 +199,8 @@ interface Props {
     timeline: data.Incident[]
   }
   show: boolean
+  clusterContext?: string
+  mcpEndpoint?: string
 }
 
 const props = defineProps<Props>()
@@ -174,6 +220,8 @@ const isThinking = ref(false)
 const isRefreshing = ref(false)
 const chatMessagesRef = ref<HTMLDivElement | null>(null)
 const hasSentInitialAnalysis = ref(false)
+const streamInterval = ref<number | null>(null)
+const topicsCollapsed = ref(false)
 
 // Topic selection
 const selectedTopic = ref<string>('')
@@ -221,6 +269,18 @@ const topics = ref([
     suggestedActions: ['Add alerts', 'Improve dashboards', 'Set SLOs']
   }
 ])
+
+const toggleTopicsCollapsed = () => {
+  topicsCollapsed.value = !topicsCollapsed.value
+}
+
+// Cleanup streaming interval on unmount
+onUnmounted(() => {
+  if (streamInterval.value) {
+    clearInterval(streamInterval.value)
+    streamInterval.value = null
+  }
+})
 
 // Quick prompts for common questions
 const quickPrompts = ref([
@@ -280,6 +340,15 @@ const formatContext = (options?: {
   
   lines.push(`INVESTIGATION CONTEXT:`)
   lines.push(`======================`)
+  
+  // Cluster context
+  if (props.clusterContext) {
+    lines.push(`CLUSTER: ${props.clusterContext}`)
+  }
+  if (props.mcpEndpoint) {
+    lines.push(`MCP ENDPOINT: ${props.mcpEndpoint}`)
+    lines.push(`NOTE: You have access to the Kubernetes cluster via MCP and can run kubectl commands to investigate.`)
+  }
   
   // Alerts summary
   const totalAlerts = alerts.length
@@ -348,7 +417,12 @@ const formatContext = (options?: {
   if (instruction) {
     lines.push(instruction)
   } else {
-    lines.push('Please provide analysis and recommendations based on this context.')
+    lines.push('IMPORTANT: Act as a live collaborator, not a report generator.')
+    lines.push('1. Provide information in small, digestible chunks.')
+    lines.push('2. Always end with a question or request for my input.')
+    lines.push('3. Ensure each response fits within a single vertical window without requiring scroll.')
+    lines.push('4. Start with only the Initial Assessment, then ask if I\'m ready for next section.')
+    lines.push('5. If a Focus Area is selected, narrow scope to generate less text.')
   }
   
   return lines.join('\n')
@@ -407,19 +481,45 @@ const sendMessage = async (customMessage?: string) => {
   
   try {
     const response = await AskAI(message, aiContext)
+    
+    // Create placeholder message
+    const assistantMessageIndex = chatMessages.value.length
     chatMessages.value.push({
       role: 'assistant',
-      content: response,
+      content: '',
       timestamp: new Date()
     })
+    
+    // Stream response character by character
+    const messageObj = chatMessages.value[assistantMessageIndex]
+    let charIndex = 0
+    
+    // Clear any existing interval
+    if (streamInterval.value) {
+      clearInterval(streamInterval.value)
+    }
+    
+    streamInterval.value = setInterval(() => {
+      if (charIndex < response.length) {
+        messageObj.content += response[charIndex]
+        charIndex++
+        // Trigger reactivity update
+        chatMessages.value = [...chatMessages.value]
+        scrollToBottom()
+      } else {
+        clearInterval(streamInterval.value!)
+        streamInterval.value = null
+        isThinking.value = false
+      }
+    }, 10) // 10ms per character (~100 chars/sec)
   } catch (error) {
     chatMessages.value.push({
       role: 'assistant',
       content: `Error: ${error instanceof Error ? error.message : String(error)}`,
       timestamp: new Date()
     })
-  } finally {
     isThinking.value = false
+  } finally {
     scrollToBottom()
   }
 }
@@ -429,26 +529,52 @@ const sendInitialAnalysis = async () => {
   hasSentInitialAnalysis.value = true
   
   const initialContext = formatContext({
-    instruction: 'Analyze these anomalies and provide an initial assessment. Focus on identifying patterns, critical issues, and immediate actions.'
+    instruction: 'Provide only the Initial Assessment. Do not give a full report all at once. Focus on identifying patterns, critical issues, and immediate actions. Then ask if I\'m ready for the next section. Act as a live collaborator - provide information in small, digestible chunks and always end with a question or request for input. Ensure each response fits within a single vertical window without requiring scroll.'
   })
 
   isThinking.value = true
   
   try {
     const response = await AskAI('Analyze the current anomalies and provide an initial assessment.', initialContext)
+    
+    // Create placeholder message
+    const assistantMessageIndex = chatMessages.value.length
     chatMessages.value.push({
       role: 'assistant',
-      content: response,
+      content: '',
       timestamp: new Date()
     })
+    
+    // Stream response character by character
+    const messageObj = chatMessages.value[assistantMessageIndex]
+    let charIndex = 0
+    
+    // Clear any existing interval
+    if (streamInterval.value) {
+      clearInterval(streamInterval.value)
+    }
+    
+    streamInterval.value = setInterval(() => {
+      if (charIndex < response.length) {
+        messageObj.content += response[charIndex]
+        charIndex++
+        // Trigger reactivity update
+        chatMessages.value = [...chatMessages.value]
+        scrollToBottom()
+      } else {
+        clearInterval(streamInterval.value!)
+        streamInterval.value = null
+        isThinking.value = false
+      }
+    }, 10) // 10ms per character (~100 chars/sec)
   } catch (error) {
     chatMessages.value.push({
       role: 'assistant',
       content: `I'm ready to help investigate the ${props.context.alerts.length} anomalies. What would you like to focus on?`,
       timestamp: new Date()
     })
-  } finally {
     isThinking.value = false
+  } finally {
     scrollToBottom()
   }
 }
@@ -482,25 +608,28 @@ watch(chatMessages, () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--modal-overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1001;
-  padding: 20px;
+  padding: 5px;
   backdrop-filter: blur(4px);
 }
 
 .investigation-modal {
   background: var(--modal-bg);
-  border-radius: 24px;
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 1400px;
-  max-height: 90vh;
+  max-width: 98vw;
+  max-height: 98vh;
+  height: 98vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   overflow: hidden;
 }
 
@@ -510,7 +639,9 @@ watch(chatMessages, () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(59, 130, 246, 0.1);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
 .header-left h3 {
@@ -551,39 +682,43 @@ watch(chatMessages, () => {
 
 .investigation-modal-content {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr 3fr;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.investigation-modal-content.topics-collapsed {
+  grid-template-columns: 60px 1fr;
 }
 
 /* Chat Section */
 .chat-section {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-left: none;
   background: var(--panel-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  min-height: 0;
 }
 
 .chat-header {
-  padding: 20px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
   background: rgba(59, 130, 246, 0.05);
 }
 
 .chat-header h4 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.chat-header h4::before {
-  content: '🤖';
-  font-size: 20px;
-}
+
 
 .context-badge {
   display: inline-flex;
@@ -598,15 +733,19 @@ watch(chatMessages, () => {
 
 .badge-icon {
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .chat-messages {
   flex: 1;
-  padding: 20px;
+  min-height: 0;
+  padding: 12px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .chat-message {
@@ -641,7 +780,7 @@ watch(chatMessages, () => {
 }
 
 .message-content {
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 16px;
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -656,17 +795,39 @@ watch(chatMessages, () => {
 
 .message-text {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.4;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.message-text :deep(*) {
-  margin: 0;
+.message-text :deep(p) {
+  margin: 0 0 0.75em 0;
+}
+
+.message-text :deep(h1),
+.message-text :deep(h2),
+.message-text :deep(h3),
+.message-text :deep(h4) {
+  margin: 1.2em 0 0.4em 0;
+  font-weight: 600;
+}
+
+.message-text :deep(h1) { font-size: 1.5em; }
+.message-text :deep(h2) { font-size: 1.3em; }
+.message-text :deep(h3) { font-size: 1.1em; }
+
+.message-text :deep(blockquote) {
+  margin: 0.75em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .message-text :deep(ul),
 .message-text :deep(ol) {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
+  padding-left: 1.2em;
+  margin: 0.4em 0;
 }
 
 .message-text :deep(code) {
@@ -726,15 +887,15 @@ watch(chatMessages, () => {
 }
 
 .chat-input-section {
-  padding: 20px;
+  padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--panel-bg);
 }
 
 .quick-prompts {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 
@@ -760,21 +921,23 @@ watch(chatMessages, () => {
 
 .input-wrapper {
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .chat-textarea {
   flex: 1;
-  padding: 12px;
+  padding: 10px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--input-bg);
   color: var(--text-primary);
   font-size: 14px;
   font-family: inherit;
-  resize: none;
+  resize: vertical;
   outline: none;
   transition: all 0.2s;
+  min-height: 44px;
+  max-height: 150px;
 }
 
 .chat-textarea:focus {
@@ -783,7 +946,7 @@ watch(chatMessages, () => {
 }
 
 .send-btn {
-  padding: 12px 24px;
+  padding: 10px 20px;
   border-radius: 12px;
   border: none;
   background: var(--primary);
@@ -808,56 +971,110 @@ watch(chatMessages, () => {
 .topics-section {
   display: flex;
   flex-direction: column;
-  background: var(--panel-bg);
-  overflow-y: auto;
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-right: 1px solid var(--border);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+  gap: 12px;
+}
+
+.topics-section.topics-collapsed .topics-header-left,
+.topics-section.topics-collapsed .topics-grid,
+.topics-section.topics-collapsed .context-panel {
+  display: none;
+}
+
+.topics-section.topics-collapsed .topics-header {
+  justify-content: center;
+  padding: 8px;
+}
+
+.topics-section.topics-collapsed .collapse-toggle-btn {
+  margin: 0;
 }
 
 .topics-header {
-  padding: 20px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
   background: rgba(139, 92, 246, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.topics-header-left {
+  flex: 1;
+}
+
+.collapse-toggle-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  margin-left: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapse-toggle-btn:hover {
+  background: var(--hover);
+  border-color: var(--border-active);
+  color: var(--text-primary);
 }
 
 .topics-header h4 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 2px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.topics-header h4::before {
-  content: '🎯';
-  font-size: 20px;
-}
+
 
 .topics-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   margin: 0;
   opacity: 0.8;
 }
 
 .topics-grid {
-  padding: 20px;
+  padding: 8px;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 6px;
   flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  align-content: start;
 }
 
 .topic-card {
-  padding: 16px;
-  border-radius: 16px;
-  border: 2px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
   background: var(--card-bg);
   text-align: left;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  gap: 8px;
+  align-items: center;
 }
 
 .topic-card:hover {
@@ -872,8 +1089,13 @@ watch(chatMessages, () => {
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
 
+.topic-card .topic-description,
+.topic-card .topic-actions {
+  display: none;
+}
+
 .topic-icon {
-  font-size: 24px;
+  font-size: 18px;
   flex-shrink: 0;
 }
 
@@ -882,21 +1104,21 @@ watch(chatMessages, () => {
 }
 
 .topic-title {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  margin: 0 0 4px 0;
+  margin: 0;
   color: var(--text-primary);
 }
 
 .topic-description {
   font-size: 12px;
   color: var(--text-secondary);
-  margin: 0 0 8px 0;
-  line-height: 1.4;
+  margin: 0 0 6px 0;
+  line-height: 1.3;
 }
 
 .topic-actions {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .topic-actions-label {
@@ -925,30 +1147,31 @@ watch(chatMessages, () => {
 
 /* Context Panel */
 .context-panel {
-  padding: 20px;
+  padding: 12px;
   border-top: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--panel-bg);
+  flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .context-panel h5 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.context-panel h5::before {
-  content: '📋';
-  font-size: 16px;
-}
+
 
 .context-stats {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .context-stat {
@@ -980,16 +1203,16 @@ watch(chatMessages, () => {
 }
 
 .context-summary {
-  padding: 12px;
+  padding: 10px;
   border-radius: 8px;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .context-summary p {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--text-secondary);
   margin: 0;
 }
@@ -1004,6 +1227,10 @@ watch(chatMessages, () => {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .refresh-context-btn:hover:not(:disabled) {
@@ -1052,6 +1279,27 @@ watch(chatMessages, () => {
   
   .send-btn {
     width: 100%;
+  }
+}
+
+@media (max-height: 800px) {
+  .topics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .topic-card {
+    padding: 8px;
+    gap: 6px;
+  }
+  .topic-icon {
+    font-size: 18px;
+  }
+  .topic-title {
+    font-size: 12px;
+  }
+  .topic-description,
+  .topic-actions {
+    display: none;
   }
 }
 </style>

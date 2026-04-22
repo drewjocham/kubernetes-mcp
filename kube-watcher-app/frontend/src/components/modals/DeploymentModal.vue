@@ -132,7 +132,7 @@ async function startDeployment() {
   left: 0;
   width: 100%;
   height: 100%;
-   background: rgba(0, 0, 0, 0.85);
+   background: var(--modal-overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;

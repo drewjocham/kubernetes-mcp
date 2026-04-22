@@ -22,6 +22,10 @@ export function htmlToMarkdown(input: string): string {
   // Convert <br> or <br/> to newline, handle multiple <br> as paragraph breaks
   text = text.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
   text = text.replace(/<br\s*\/?>/gi, '\n')
+  // Also handle literal "/n" strings (common mistake)
+  text = text.replace(/\/n/gi, '\n')
+  // Handle escaped newlines \n that appear as literal backslash-n
+  text = text.replace(/\\n/gi, '\n')
   console.log('after <br> replacement:', text)
   
   // Step 2: Fix common malformed patterns

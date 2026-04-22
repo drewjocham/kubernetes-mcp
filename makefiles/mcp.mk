@@ -102,7 +102,7 @@ desktop-dev:
 		echo "Starting Kube-Watcher Desktop App (Wails + Vue) in development mode..."; \
 		echo "Prerequisites:"; \
 		echo "  MCP server: make run-server (or set KW_TOOLS_ENDPOINT)"; \
-		cd kube-watcher-app && KW_CLI_BINARY_PATH="$(ROOT_DIR)/bin/kw-cli" KW_BINARY_PATH="$(ROOT_DIR)/bin/kw" wails dev; \
+		cd kube-watcher-app && KW_CLI_BINARY_PATH="$(ROOT_DIR)/bin/kw-cli" KW_BINARY_PATH="$(ROOT_DIR)/bin/kw" KW_WATCHER_ENDPOINT=http://localhost:8086 wails dev; \
 	else \
 		echo "Desktop app not available: kube-watcher-app directory not found"; \
 		echo "To use the desktop app, clone the kube-watcher-app repository"; \
